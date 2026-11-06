@@ -841,7 +841,10 @@ async function feedClipboard(command: string, args: string[], text: string, cont
   return new Promise((resolve) => {
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(command, args, { env: context.env ?? process.env });
+      // xclip and xsel fork a background owner that keeps serving the selection.
+      // If it inherited piped stdout/stderr, "close" would never fire until the
+      // owner exits, so every paste would time out. Ignore their output instead.
+      child = spawn(command, args, { env: context.env ?? process.env, stdio: ["pipe", "ignore", "ignore"] });
     } catch {
       resolve(false);
       return;

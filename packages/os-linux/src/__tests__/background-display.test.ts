@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { backgroundEnvironment, findXephyr, startBackgroundDisplay } from "../background-display.js";
-import { captureLinuxScreenshot, clickLinuxDesktop, focusLinuxWindow, getLinuxActiveWindow, listLinuxWindows, parseXwininfoChildren, typeLinuxText } from "../desktop.js";
+import { captureLinuxScreenshot, clickLinuxDesktop, getLinuxClipboard, setLinuxClipboard, focusLinuxWindow, getLinuxActiveWindow, listLinuxWindows, parseXwininfoChildren, typeLinuxText } from "../desktop.js";
 
 const APP = `
 import gi, sys
@@ -90,4 +90,14 @@ describe.skipIf(!available)("nested display (real Xephyr, no window manager)", (
     expect(existsSync(`${out}.click`)).toBe(true);
     expect(realPointer()).toBe(before);
   }, 60_000);
+
+  it("sets and reads the clipboard without hanging on xclip's background owner", async () => {
+    const context = { agentHostDir: home, env: nested.env };
+    const started = Date.now();
+    const set = await setLinuxClipboard("hello: world (1), \"quoted\"", context);
+    expect(set.supported).toBe(true);
+    // Before the fix this took the full 5 s timeout and reported failure.
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect((await getLinuxClipboard(context)).text).toBe("hello: world (1), \"quoted\"");
+  }, 30_000);
 });
