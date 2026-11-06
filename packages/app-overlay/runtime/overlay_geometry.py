@@ -94,3 +94,42 @@ def ring_placement(monitors, bounds, pad=28):
     x = clamp(int(bounds[0] - pad), int(monitor_x), int(monitor_x + monitor_width - width))
     y = clamp(int(bounds[1] - pad), int(monitor_y), int(monitor_y + monitor_height - height))
     return x, y, width, height
+
+
+def dock_layout(area_height, timeline_height, bottom_heights, margin=24, bottom_share=0.45, min_timeline=96, min_bottom=64):
+    """Split the dock so the timeline never reaches the bottom cards.
+
+    Bottom cards (task card with Pause/Stop) are placed first and stack upward
+    from the dock floor. They may use `bottom_share` of the dock, or more when
+    the timeline does not need the room. The timeline takes what remains. A
+    `timeline_height` of 0 means there is no timeline. Returned `y` values are
+    relative to the top of the dock area.
+    """
+    margin = max(0, int(margin))
+    usable = max(1, int(area_height) - 2 * margin)
+    timeline_wanted = max(0, int(timeline_height))
+    has_timeline = timeline_wanted > 0
+    if has_timeline:
+        spare = usable - min(timeline_wanted, usable) - margin
+        budget = min(max(int(area_height * bottom_share), spare), usable - margin - min_timeline)
+    else:
+        budget = usable
+
+    bottom = []
+    floor = int(area_height) - margin
+    remaining = budget
+    for index, wanted in enumerate(bottom_heights):
+        later = len(bottom_heights) - index - 1
+        available = remaining - later * (min_bottom + margin)
+        height = max(min_bottom, min(int(wanted), available))
+        floor -= height
+        bottom.append({"y": max(margin, floor), "height": height})
+        floor -= margin
+        remaining -= height + margin
+
+    timeline = 0
+    if has_timeline:
+        used = sum(card["height"] for card in bottom) + margin * max(0, len(bottom) - 1)
+        room = usable - used - (margin if bottom else 0)
+        timeline = max(min_timeline, min(timeline_wanted, room))
+    return {"timeline": timeline, "bottom": bottom}

@@ -32,12 +32,15 @@ export interface ActionTimelineOptions {
 interface Entry {
   id: number;
   label: string;
+  /** Observation-only tools collapse into one "Looked at screen" group. */
+  observe: boolean;
   detail?: string;
   state: OverlayTimelineState;
   startedAt: number;
   finishedAt?: number;
 }
 
+const OBSERVE_TOOLS = new Set(["desktop.screenshot", "window.list", "ui.tree", "ui.find", "vision.find_text_on_screen", "computer.observe_state"]);
 const HALT_CODES = new Set(["emergency_stop_requested", "human_takeover_active", "pause_requested"]);
 
 function record(input: unknown): Record<string, unknown> {
@@ -100,6 +103,12 @@ export function describeAction(tool: string, rawInput: unknown): string {
     case "computer.wait_for": return "Wait for screen state";
     case "computer.run_steps": return `Plan · ${Array.isArray(input.steps) ? input.steps.length : 0} steps`;
     case "vision.find_text_on_screen": return "Read screen text";
+    case "browser.open": return `Open browser${hostOf(input.url) === undefined ? "" : ` · ${hostOf(input.url)}`}`;
+    case "browser.snapshot": return "Read page";
+    case "browser.click": return "Click page element";
+    case "browser.type": return `Type ${typeof input.text === "string" ? input.text.length : 0} chars into page`;
+    case "browser.navigate": return `Browser ${text(input.action, 10) ?? "navigate"}${hostOf(input.url) === undefined ? "" : ` · ${hostOf(input.url)}`}`;
+    case "browser.close": return "Close browser";
     case "ui.tree": return `Read UI${app === undefined ? "" : ` of ${app}`}`;
     case "ui.find": return `Find "${text(input.query, 30) ?? ""}"${where}`;
     case "ui.activate": return `Press ${text(input.query, 30) === undefined ? "element" : `"${text(input.query, 30)}"`}${where}`;
@@ -160,7 +169,7 @@ export class ActionTimeline {
   get widgetId(): string { return this.#widgetId; }
 
   begin(tool: string, input: unknown): (result: ToolResult) => Promise<void> {
-    const entry: Entry = { id: ++this.#sequence, label: describeAction(tool, input), state: "running", startedAt: this.#now() };
+    const entry: Entry = { id: ++this.#sequence, label: describeAction(tool, input), observe: OBSERVE_TOOLS.has(tool), state: "running", startedAt: this.#now() };
     if (this.#dismissedByUser && entry.startedAt - this.#lastActivityAt >= this.#reopenAfterMs) this.#dismissedByUser = false;
     this.#lastActivityAt = entry.startedAt;
     this.#entries.unshift(entry);
@@ -180,9 +189,23 @@ export class ActionTimeline {
     };
   }
 
+  /**
+   * Newest-first display list. Runs of finished entries with the same label, or
+   * of finished observation-only calls, collapse into one row with a count.
+   * Failed, waiting, halted and running entries never merge, and the audit log
+   * is unaffected: this only keeps a long run readable.
+   */
   entries(): OverlayTimelineEntry[] {
-    return this.#entries.map((entry) => ({
-      label: entry.label,
+    const rows: Array<{ entry: Entry; count: number }> = [];
+    for (const entry of this.#entries) {
+      const last = rows[rows.length - 1];
+      const mergeable = last !== undefined && entry.state === "done" && last.entry.state === "done"
+        && (entry.label === last.entry.label || (entry.observe && last.entry.observe));
+      if (mergeable) last.count += 1;
+      else rows.push({ entry, count: 1 });
+    }
+    return rows.map(({ entry, count }) => ({
+      label: count === 1 ? entry.label : `${entry.observe ? "Looked at screen" : entry.label} ×${count}`,
       state: entry.state,
       time: this.#clock(entry.startedAt),
       ...(entry.detail === undefined ? {} : { detail: entry.detail })
@@ -194,7 +217,7 @@ export class ActionTimeline {
     const alerts = this.#alerts;
     if (alerts.attention !== undefined) {
       components.push({ type: "status_badge", status: "warning", text: "Waiting for you" });
-      components.push({ type: "warning", text: alerts.attention.source === "agenthost" ? "AgentHost needs approval: run agenthost confirmations in the agent terminal." : `${alerts.attention.source} is asking for permission in its terminal.` });
+      components.push({ type: "warning", text: alerts.attention.source === "agenthost" ? "AgentHost needs approval: press Approve on the approval card, or run agenthost confirmations." : `${alerts.attention.source} is asking for permission in its terminal.` });
     } else if (alerts.stopped) {
       components.push({ type: "status_badge", status: "danger", text: "Stopped" });
       components.push({ type: "warning", text: "Actions are blocked. Resume from the task card or run: agenthost agent resume --stop" });

@@ -101,4 +101,26 @@ describe("action timeline", () => {
     await instance.close();
     await manager.close();
   });
+
+  it("merges repeated finished entries for display without hiding problems", async () => {
+    const { instance } = timeline();
+    const ok = toolSuccess({ tool: "desktop.screenshot", riskLevel: "low", data: {} });
+    for (const tool of ["desktop.screenshot", "window.list", "ui.tree"]) await instance.begin(tool, {})(ok);
+    const failed = instance.begin("desktop.screenshot", {});
+    await failed(toolFailure({ tool: "desktop.screenshot", riskLevel: "low", error: { code: "screenshot_failed", message: "no" } }));
+    for (let index = 0; index < 3; index += 1) await instance.begin("desktop.click", { x: 5, y: 6 })(ok);
+    await instance.begin("desktop.type_text", { text: "super secret" })(ok);
+    const running = instance.begin("desktop.click", { x: 9, y: 9 });
+
+    const labels = instance.entries().map((entry) => `${entry.label}|${entry.state}`);
+    expect(labels).toEqual([
+      "Click (9,9)|running",
+      "Type 12 chars|done",
+      "Click (5,6) ×3|done",
+      "Screenshot|failed",
+      "Looked at screen ×3|done"
+    ]);
+    expect(JSON.stringify(instance.entries())).not.toContain("secret");
+    await running(ok);
+  });
 });

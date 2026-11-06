@@ -62,7 +62,17 @@ function taskSteps(task: AgentTask): TaskProgressStep[] {
   }));
 }
 
+/** One-line wrap-up for a finished task: counts from recorded events plus the report command. */
+function taskSummary(task: AgentTask): string {
+  const errors = task.events.filter((event) => event.kind === "error").length;
+  const recovered = task.events.filter((event) => event.kind === "recovery").length;
+  const outcome = task.status === "completed" ? "Finished" : "Stopped";
+  const counts = [errors === 0 ? "no errors" : `${errors} error${errors === 1 ? "" : "s"}`, ...(recovered > 0 ? [`${recovered} recovered`] : [])].join(", ");
+  return `${outcome} · ${counts} · Report: agenthost task export ${task.taskId}`.slice(0, 300);
+}
+
 function taskDetail(task: AgentTask): string {
+  if (task.status === "completed" || task.status === "cancelled") return taskSummary(task);
   const parts = [task.phase, task.currentAction].filter((part) => part.length > 0);
   const latest = [...task.events].reverse().find((event) => event.kind === "error" || event.kind === "recovery");
   if (latest !== undefined) parts.push(`${latest.kind}: ${latest.summary}`);

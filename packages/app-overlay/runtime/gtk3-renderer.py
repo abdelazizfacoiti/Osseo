@@ -15,7 +15,8 @@ import sys
 import time
 import uuid
 
-from overlay_geometry import card_position, ring_placement
+from overlay_geometry import card_position, dock_layout, ring_placement
+from overlay_input import device_node_from_props, node_is_physical
 
 try:
     import gi
@@ -46,13 +47,17 @@ RING_TYPES = {"target_ring"}
 CARD_TYPES = {"widget", "tooltip", "instruction_card", "approval_card", "warning", "progress", "checkpoint_result", "status_toast", "comparison", "cancel_control", "emergency_stop_control"}
 CARD_WIDTH = 380
 CARD_MARGIN = 24
+CARD_PADDING_X = 32
 MAX_CARD_HEIGHT = 620
 CHECK_GLYPHS = {"done": "✓", "failed": "✕", "active": "●", "pending": "○"}
 TIMELINE_GLYPHS = {"done": "✓", "failed": "✕", "waiting": "!", "halted": "■", "running": "●"}
 TIMELINE_STYLE = {"done": "ah-success", "failed": "ah-failed", "waiting": "ah-warning", "halted": "ah-failed", "running": "ah-active"}
-TIMELINE_VISIBLE = 18
+TIMELINE_MAX_ROWS = 40
 TIMELINE_ID_PREFIX = "agenthost-timeline-"
-CONTROL_EVENTS = {"pause", "resume", "emergency_stop_requested", "cancel", "cancelled"}
+# Presses that grant something. Stop and Pause only ever halt the agent, so a
+# failed hardware check must never get in the way of them.
+TRUST_EVENTS = {"accepted", "continue", "resume"}
+CONTROL_EVENTS = {"pause", "resume", "continue", "accepted", "rejected", "emergency_stop_requested", "cancel", "cancelled"}
 INPUT_GUARD_SECONDS = 1.0
 DOCK_RELEASE_GRACE_MS = 1500
 STATUS_CAIRO = {
@@ -141,6 +146,42 @@ def component_rows(payload):
     return []
 
 
+def synthetic_pointer_source():
+    """True when the current event came from an XTEST (synthetic) input device.
+
+    xdotool and similar tools inject through XTEST, whose slave devices are named
+    "Virtual core XTEST pointer/keyboard". Real hardware reports its own name.
+    """
+    current = Gtk.get_current_event()
+    if current is None:
+        return False
+    try:
+        device = current.get_source_device()
+        return device is not None and "xtest" in (device.get_name() or "").lower()
+    except Exception:
+        return False
+
+
+def physical_pointer_source():
+    """True only when the current event provably came from real hardware.
+
+    A device name proves nothing: anyone with /dev/uinput can create a mouse
+    called anything. The kernel still places every uinput device under
+    /sys/devices/virtual/input/, which its creator cannot change.
+    """
+    current = Gtk.get_current_event()
+    if current is None:
+        return False
+    try:
+        # The XI2 slave device is what reports hardware; gdk_x11_device_get_id()
+        # rejects it from Python, so read its id property.
+        device_id = current.get_source_device().get_property("device-id")
+        props = subprocess.run(["xinput", "list-props", str(device_id)], capture_output=True, text=True, timeout=1)
+        return props.returncode == 0 and node_is_physical(device_node_from_props(props.stdout))
+    except Exception:
+        return False
+
+
 def pointer_activated():
     current = Gtk.get_current_event()
     if current is None:
@@ -159,7 +200,7 @@ def card_content_height(payload):
             height += 26 + 24 * max(1, min(8, len(items)))
         elif kind == "timeline":
             entries = component.get("entries") if isinstance(component.get("entries"), list) else []
-            height += 12 + 30 * max(1, min(TIMELINE_VISIBLE, len(entries)))
+            height += 12 + 30 * max(1, min(TIMELINE_MAX_ROWS, len(entries)))
         elif kind in {"status_badge", "heading", "spinner"}:
             height += 32
         elif kind == "divider":
@@ -323,6 +364,12 @@ class Renderer:
         if dock is not None:
             area = Gdk.Rectangle()
             area.x, area.y, area.width, area.height = dock
+            # The dock spans the monitor, but cards must stay clear of desktop
+            # panels. Only the vertical extent is taken from the work area: its
+            # width already excludes the dock's own strut.
+            work = self.workarea()
+            if work is not None and work.height > 0:
+                area.y, area.height = work.y, work.height
             return area
         return self.workarea()
 
@@ -341,6 +388,9 @@ class Renderer:
         reserve = value.get("dockReserveSpace")
         if isinstance(reserve, bool):
             self.visual["dockReserveSpace"] = reserve
+        synthetic = value.get("allowSyntheticControl")
+        if isinstance(synthetic, bool):
+            self.visual["allowSyntheticControl"] = synthetic
         max_width = value.get("maxWidth")
         if isinstance(max_width, (int, float)) and 240 <= max_width <= 1200:
             self.visual["maxWidth"] = int(max_width)
@@ -530,6 +580,13 @@ class Renderer:
         # are ignored, so automation cannot pause or stop by accident.
         if event in CONTROL_EVENTS and (not pointer_activated() or self.agent_input_active()):
             return
+        # An XTEST click is synthetic even when AgentHost did not inject it (for
+        # example `xdotool` run through the shell tool). Control buttons, and
+        # approvals above all, must come from a real device.
+        if event in CONTROL_EVENTS and synthetic_pointer_source() and not self.visual.get("allowSyntheticControl", False):
+            return
+        if event in TRUST_EVENTS and not self.visual.get("allowSyntheticControl", False) and not physical_pointer_source():
+            return
         self.emit_operator_event(record, event)
 
     def agent_input_active(self):
@@ -599,6 +656,8 @@ class Renderer:
         .ah-timeline-current { background-color: rgba(91,157,255,0.12); }
         .ah-timeline-label { color: #dfe6f3; font-size: 13px; }
         .ah-timeline-time { color: #7b8699; font-size: 11px; }
+        .ah-card scrollbar { background-color: transparent; border-style: none; }
+        .ah-card scrollbar slider { background-color: rgba(148,163,184,0.45); border-radius: 6px; min-width: 4px; }
         """, -1)
         Gtk.StyleContext.add_provider_for_screen(screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.widget_css_ready = True
@@ -789,44 +848,78 @@ class Renderer:
             return {"kind": kind, "data": component, "widget": box, "update": update}
         if kind == "timeline":
             box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            pool = []
+
+            def make_row():
+                row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                row.get_style_context().add_class("ah-timeline-row")
+                slot = Gtk.Box()
+                slot.set_size_request(18, -1)
+                text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+                title = self.label("", "ah-timeline-label", 120)
+                title.set_line_wrap(False)
+                title.set_ellipsize(Pango.EllipsizeMode.END)
+                text.pack_start(title, False, False, 0)
+                caption = self.label("", "ah-dim", 120)
+                caption.set_line_wrap(False)
+                caption.set_ellipsize(Pango.EllipsizeMode.END)
+                text.pack_start(caption, False, False, 0)
+                when = self.label("", "ah-timeline-time", 16)
+                when.set_line_wrap(False)
+                row.pack_start(slot, False, False, 0)
+                row.pack_start(text, True, True, 0)
+                row.pack_end(when, False, False, 0)
+                box.pack_start(row, False, False, 0)
+                row.show_all()
+                # Visibility of pooled rows and captions is managed here, so a
+                # later show_all() on the card must not reveal hidden ones.
+                row.set_no_show_all(True)
+                caption.set_no_show_all(True)
+                return {"row": row, "slot": slot, "title": title, "caption": caption, "when": when, "state": None, "marker": None}
+
+            def set_marker(item, state):
+                if item["state"] == state:
+                    return
+                if item["marker"] is not None:
+                    item["slot"].remove(item["marker"])
+                    item["marker"].destroy()
+                if state == "running":
+                    marker = Gtk.Spinner()
+                    marker.set_size_request(14, 14)
+                    marker.start()
+                else:
+                    marker = self.label(TIMELINE_GLYPHS[state], "ah-check " + TIMELINE_STYLE[state], 4)
+                item["slot"].pack_start(marker, True, True, 0)
+                marker.show()
+                item["marker"] = marker
+                item["state"] = state
+
+            def set_text(widget, value):
+                if widget.get_text() != value:
+                    widget.set_text(value)
 
             def fill(entries):
-                for child in box.get_children():
-                    box.remove(child)
-                    child.destroy()
-                for index, entry in enumerate(entries[:TIMELINE_VISIBLE]):
-                    if not isinstance(entry, dict):
-                        continue
-                    state = entry.get("state") if entry.get("state") in TIMELINE_GLYPHS else "done"
-                    row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-                    row.get_style_context().add_class("ah-timeline-row")
+                # Rows are reused in place: rebuilding them on every update
+                # flickers and restarts the running spinner.
+                rows = [entry for entry in entries[:TIMELINE_MAX_ROWS] if isinstance(entry, dict)]
+                while len(pool) < len(rows):
+                    pool.append(make_row())
+                for index, entry in enumerate(rows):
+                    item = pool[index]
+                    set_marker(item, entry.get("state") if entry.get("state") in TIMELINE_GLYPHS else "done")
+                    context = item["row"].get_style_context()
                     if index == 0:
-                        row.get_style_context().add_class("ah-timeline-current")
-                    if state == "running":
-                        marker = Gtk.Spinner()
-                        marker.set_size_request(14, 14)
-                        marker.start()
+                        context.add_class("ah-timeline-current")
                     else:
-                        marker = self.label(TIMELINE_GLYPHS[state], "ah-check " + TIMELINE_STYLE[state], 4)
-                    marker.set_size_request(18, -1)
-                    text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-                    title = self.label(entry.get("label", ""), "ah-timeline-label", 120)
-                    title.set_line_wrap(False)
-                    title.set_ellipsize(Pango.EllipsizeMode.END)
-                    text.pack_start(title, False, False, 0)
+                        context.remove_class("ah-timeline-current")
+                    set_text(item["title"], safe_text(entry.get("label", ""), 120))
                     detail = safe_text(entry.get("detail", ""), 120)
-                    if detail:
-                        caption = self.label(detail, "ah-dim", 120)
-                        caption.set_line_wrap(False)
-                        caption.set_ellipsize(Pango.EllipsizeMode.END)
-                        text.pack_start(caption, False, False, 0)
-                    when = self.label(entry.get("time", ""), "ah-timeline-time", 16)
-                    when.set_line_wrap(False)
-                    row.pack_start(marker, False, False, 0)
-                    row.pack_start(text, True, True, 0)
-                    row.pack_end(when, False, False, 0)
-                    box.pack_start(row, False, False, 0)
-                box.show_all()
+                    set_text(item["caption"], detail)
+                    item["caption"].set_visible(bool(detail))
+                    set_text(item["when"], safe_text(entry.get("time", ""), 16))
+                    item["row"].show()
+                for item in pool[len(rows):]:
+                    item["row"].hide()
 
             fill(component.get("entries") if isinstance(component.get("entries"), list) else [])
 
@@ -932,10 +1025,12 @@ class Renderer:
             if enabled:
                 button.connect("clicked", lambda _button, current=record, name=event: self.on_footer_click(current, name))
             footer.pack_start(button, False, False, 0)
+            # The footer is no_show_all (so show_all() on the card cannot reveal
+            # an empty one), which also stops show_all() reaching its buttons.
+            button.show()
         card["footer_signature"] = [component for component in components if component.get("type") in {"button", "choice"}]
         footer.set_visible(len(footer.get_children()) > 0)
         card["separator"].set_visible(len(footer.get_children()) > 0)
-        footer.show_all()
 
     def set_accessible_name(self, widget, name):
         try:
@@ -1020,13 +1115,29 @@ class Renderer:
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         footer.set_halign(Gtk.Align.END)
         outer.pack_start(header, False, False, 0)
-        outer.pack_start(body, False, False, 0)
+        # Only the body scrolls: header and footer stay pinned so Pause/Stop are
+        # reachable however long the content gets. A GTK window cannot shrink
+        # below its content minimum, so without this a height limit does nothing.
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_propagate_natural_height(True)
+        scroller.set_can_focus(False)
+        scroller.set_kinetic_scrolling(False)
+        scroller.add(body)
+        viewport = scroller.get_child()
+        if isinstance(viewport, Gtk.Viewport):
+            viewport.set_shadow_type(Gtk.ShadowType.NONE)
+        outer.pack_start(scroller, True, True, 0)
         outer.pack_start(separator, False, False, 0)
         outer.pack_start(footer, False, False, 0)
+        # Their visibility follows the footer contents (build_footer), so a later
+        # show_all() must not reveal an empty footer and its divider.
+        separator.set_no_show_all(True)
+        footer.set_no_show_all(True)
         frame.add(outer)
         window.add(frame)
         window.connect("key-press-event", self.card_key, record)
-        card = {"overlayId": record.get("overlayId"), "window": window, "frame": frame, "outer": outer, "header": header, "body": body, "separator": separator, "footer": footer, "rows": [], "footer_signature": [], "header_signature": None, "title": None, "close_button": None, "close_event": None, "last_position": None, "move_drag": False, "user_position": None}
+        card = {"overlayId": record.get("overlayId"), "window": window, "frame": frame, "outer": outer, "header": header, "scroller": scroller, "body": body, "separator": separator, "footer": footer, "rows": [], "footer_signature": [], "header_signature": None, "title": None, "close_button": None, "close_event": None, "last_position": None, "move_drag": False, "user_position": None}
         window.connect("configure-event", self.on_card_configure, card)
         self.cards[record.get("overlayId")] = card
         return card
@@ -1094,75 +1205,91 @@ class Renderer:
         if not window.get_visible():
             window.show_all()
         self.pump(3)
-        try:
-            _minimum, natural = card["frame"].get_preferred_size()
-            height = int(natural.height)
-        except Exception:
-            height = card_content_height(record.get("payload") or {})
+        if self.is_dock_card(record):
+            self.layout_dock()
+            return
         dock = self.dock_geometry()
         payload = record.get("payload") or {}
-        overlay_id = str(record.get("overlayId", ""))
         placement = payload.get("placement", "top_right")
-        is_timeline = overlay_id.startswith(TIMELINE_ID_PREFIX)
-        in_dock = dock is not None and (is_timeline or placement.startswith("bottom"))
         # Cards that do not belong to the dock (pill, approval cards) float over
         # the work area, which already excludes the dock's reserved strut.
-        area = self.layout_area() if in_dock or dock is None else self.workarea()
+        area = self.layout_area() if dock is None else self.workarea()
         if area is None:
             return
-        if in_dock:
-            width = max(240, min(int(self.visual.get("maxWidth", CARD_WIDTH)), dock[2] - 2 * CARD_MARGIN))
-        else:
-            width = max(240, min(int(self.visual.get("maxWidth", CARD_WIDTH)), area.width - 2 * CARD_MARGIN))
-        if is_timeline and in_dock:
-            # The timeline fills the dock above whatever bottom cards (task card) occupy.
-            reserved = self.dock_bottom_reserved(overlay_id)
-            height = max(64, min(height, area.height - reserved - 2 * CARD_MARGIN))
-        else:
-            height = max(64, min(height, area.height - 2 * CARD_MARGIN, MAX_CARD_HEIGHT))
-        card["frame"].set_size_request(width, -1)
+        width = max(240, min(int(self.visual.get("maxWidth", CARD_WIDTH)), area.width - 2 * CARD_MARGIN))
+        full, chrome = self.measure_card(card, width, record)
+        height = max(64, min(full, area.height - 2 * CARD_MARGIN, MAX_CARD_HEIGHT))
         target = payload.get("target") if isinstance(payload, dict) else {}
         bounds = target.get("bounds") if isinstance(target, dict) else None
         point = target.get("point") if isinstance(target, dict) else None
         user_position = card.get("user_position")
-        if in_dock:
-            x = area.x + CARD_MARGIN
-            y = area.y + CARD_MARGIN if is_timeline else area.y + area.height - height - CARD_MARGIN
-        else:
-            x, y = card_position(
-                (area.x, area.y, area.width, area.height),
-                width,
-                height,
-                placement=placement,
-                bounds=bounds if isinstance(bounds, dict) else None,
-                point=point if isinstance(point, dict) else None,
-                user_position=user_position if isinstance(user_position, tuple) else None,
-                margin=CARD_MARGIN,
-            )
+        x, y = card_position(
+            (area.x, area.y, area.width, area.height),
+            width,
+            height,
+            placement=placement,
+            bounds=bounds if isinstance(bounds, dict) else None,
+            point=point if isinstance(point, dict) else None,
+            user_position=user_position if isinstance(user_position, tuple) else None,
+            margin=CARD_MARGIN,
+        )
+        self.place_card(card, x, y, width, height, full, chrome)
+
+    def measure_card(self, card, width, record=None):
+        """Return (full height, height of everything except the scrolling body)."""
+        # Width first: wrapped text changes the height. The body limit is lifted
+        # so the measurement reports what the content wants, not the old limit.
+        card["frame"].set_size_request(width, -1)
+        scroller = card["scroller"]
+        scroller.set_max_content_height(-1)
+        try:
+            _minimum, full = card["frame"].get_preferred_height_for_width(width)
+            _minimum, body = scroller.get_preferred_height_for_width(max(1, width - CARD_PADDING_X))
+            return int(full), max(0, int(full) - int(body))
+        except Exception:
+            return card_content_height((record or {}).get("payload") or {}), 60
+
+    def place_card(self, card, x, y, width, height, full, chrome):
+        if height < full:
+            card["scroller"].set_max_content_height(max(1, height - chrome))
         card["last_position"] = (int(x), int(y), width, height)
-        window.resize(width, height)
-        window.move(int(x), int(y))
-        if in_dock and not is_timeline:
-            self.reposition_timeline()
+        card["window"].resize(width, height)
+        card["window"].move(int(x), int(y))
 
-    def dock_bottom_reserved(self, skip_id):
-        reserved = 0
+    def is_dock_card(self, record):
+        payload = record.get("payload") or {}
+        is_timeline = str(record.get("overlayId", "")).startswith(TIMELINE_ID_PREFIX)
+        return self.dock_geometry() is not None and (is_timeline or str(payload.get("placement", "top_right")).startswith("bottom"))
+
+    def layout_dock(self):
+        area = self.layout_area()
+        dock = self.dock_geometry()
+        if area is None or dock is None:
+            return
+        width = max(240, min(int(self.visual.get("maxWidth", CARD_WIDTH)), dock[2] - 2 * CARD_MARGIN))
+        timeline = None
+        bottom = []
         for overlay_id, card in self.cards.items():
-            record = self.records.get(overlay_id) or {}
-            payload = record.get("payload") or {}
-            if overlay_id == skip_id or str(overlay_id).startswith(TIMELINE_ID_PREFIX):
+            record = self.records.get(overlay_id)
+            if record is None or not self.is_dock_card(record):
                 continue
-            if not str(payload.get("placement", "top_right")).startswith("bottom"):
-                continue
-            position = card.get("last_position")
-            if position is not None:
-                reserved += position[3] + CARD_MARGIN
-        return reserved
-
-    def reposition_timeline(self):
-        for overlay_id, card in list(self.cards.items()):
-            if str(overlay_id).startswith(TIMELINE_ID_PREFIX) and overlay_id in self.records:
-                self.position_card(card, self.records[overlay_id])
+            measured = (card, *self.measure_card(card, width, record))
+            if str(overlay_id).startswith(TIMELINE_ID_PREFIX):
+                timeline = measured
+            else:
+                bottom.append(measured)
+        layout = dock_layout(
+            area.height,
+            timeline[1] if timeline is not None else 0,
+            [min(full, MAX_CARD_HEIGHT) for _card, full, _chrome in bottom],
+            margin=CARD_MARGIN,
+        )
+        x = area.x + CARD_MARGIN
+        for (card, full, chrome), slot in zip(bottom, layout["bottom"]):
+            self.place_card(card, x, area.y + slot["y"], width, slot["height"], full, chrome)
+        if timeline is not None:
+            card, full, chrome = timeline
+            self.place_card(card, x, area.y + CARD_MARGIN, width, layout["timeline"], full, chrome)
 
     def card_key(self, _widget, event, record):
         if event.keyval == Gdk.KEY_Escape:
@@ -1621,6 +1748,8 @@ class Renderer:
             self.destroy_surfaces()
         else:
             self.redraw_surfaces()
+        # A dismissed card frees dock room for whatever remains.
+        self.layout_dock()
         self.schedule_dock_release()
         return {"ok": True, **self.operation_ack("dismiss", "dismissed", overlay_id, "gtk3_overlay_dismissed")}
 
