@@ -26,6 +26,7 @@ const overlaySchema = z.object({
   dockSide: z.enum(["left", "right"]).optional(),
   dockWidthPercent: z.number().int().min(10).max(40).optional(),
   dockReserveSpace: z.boolean().optional(),
+  allowSyntheticControl: z.boolean().optional(),
   timeline: z.boolean().optional(),
   frame: z.boolean().optional(),
   actionPill: z.boolean().optional(),
@@ -34,7 +35,7 @@ const overlaySchema = z.object({
   targetRingDurationMs: z.number().int().min(200).max(2_000).optional(),
   pillAutoHideMs: z.number().int().min(0).max(30_000).optional()
 }).strict();
-const executionSchema = z.object({ placement: z.enum(["foreground", "background"]).optional() }).strict();
+const executionSchema = z.object({ placement: z.enum(["foreground", "background"]).optional(), yieldToUser: z.boolean().optional(), maxActionsPerTask: z.number().int().min(0).max(100_000).optional() }).strict();
 const speechSchema = z.object({
   enabled: z.boolean().optional(),
   providerPreference: z.array(z.enum(["espeak-ng", "piper", "speech-dispatcher"])).min(1).max(3).optional(),
@@ -157,6 +158,8 @@ const configFileSchema = z
     overlayRendererMode: overlayRendererModeSchema.optional(),
     overlay: overlaySchema.optional(),
     execution: executionSchema.optional(),
+    blockedApps: z.array(z.string().trim().min(2).max(80)).max(100).optional(),
+    notifications: z.object({ pushUrl: z.string().url().max(500).optional() }).strict().optional(),
     autoInstallDependencies: z.boolean().optional(),
     speech: speechSchema.optional(),
     optionalAdapters: z.record(z.object({ enabled: z.boolean() }).strict()).optional(),
@@ -306,6 +309,7 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     dockSide: fileConfig.overlay?.dockSide ?? "right",
     dockWidthPercent: fileConfig.overlay?.dockWidthPercent ?? 18,
     dockReserveSpace: fileConfig.overlay?.dockReserveSpace ?? true,
+    ...(fileConfig.overlay?.allowSyntheticControl === undefined ? {} : { allowSyntheticControl: fileConfig.overlay.allowSyntheticControl }),
     timeline: fileConfig.overlay?.timeline ?? true,
     frame: fileConfig.overlay?.frame ?? true,
     actionPill: fileConfig.overlay?.actionPill ?? true,
@@ -316,7 +320,7 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
   };
   const grants = (fileConfig.grants ?? []).map((grant) => normalizeGrant(grant));
   const placement = z.enum(["foreground", "background"]).parse(env.AGENTHOST_EXECUTION_PLACEMENT ?? fileConfig.execution?.placement ?? "foreground");
-  const execution = { placement };
+  const execution = { placement, yieldToUser: fileConfig.execution?.yieldToUser ?? true, maxActionsPerTask: fileConfig.execution?.maxActionsPerTask ?? 500 };
   const speech = {
     enabled: fileConfig.speech?.enabled ?? true,
     providerPreference: fileConfig.speech?.providerPreference ?? ["espeak-ng", "piper", "speech-dispatcher"] as Array<"espeak-ng" | "piper" | "speech-dispatcher">,
@@ -342,6 +346,8 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     overlayRendererMode,
     overlay,
     execution,
+    blockedApps: fileConfig.blockedApps ?? [],
+    ...(fileConfig.notifications?.pushUrl === undefined ? {} : { notifications: { pushUrl: fileConfig.notifications.pushUrl } }),
     autoInstallDependencies: fileConfig.autoInstallDependencies ?? true,
     speech,
     optionalAdapters: fileConfig.optionalAdapters ?? {},

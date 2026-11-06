@@ -24,7 +24,9 @@ export const LINUX_DESKTOP_REQUIREMENTS: LinuxDesktopRequirement[] = [
   { name: "tesseract", aptPackage: "tesseract-ocr", check: { command: "tesseract" }, required: false, impact: "OCR (vision.find_text*)" },
   { name: "ffmpeg", aptPackage: "ffmpeg", check: { command: "ffmpeg" }, required: false, impact: "JPEG, scaled, and cropped screenshots" },
   { name: "xclip", aptPackage: "xclip", check: { command: "xclip" }, required: false, impact: "faster paste (built-in GTK fallback otherwise)" },
-  { name: "notify-send", aptPackage: "libnotify-bin", check: { command: "notify-send" }, required: false, impact: "desktop notifications for approvals" }
+  { name: "notify-send", aptPackage: "libnotify-bin", check: { command: "notify-send" }, required: false, impact: "desktop notifications for approvals" },
+  { name: "xinput", aptPackage: "xinput", check: { command: "xinput" }, required: false, impact: "proving Approve, Continue, and Resume came from real hardware" },
+  { name: "Xephyr", aptPackage: "xserver-xephyr", check: { command: "Xephyr" }, required: false, impact: "background placement and Wayland sessions (nested X display)" }
 ];
 
 export function aptPackagesFor(requirements: LinuxDesktopRequirement[]): string[] {

@@ -112,7 +112,7 @@ Placement changes visibility, never permission.
 
 ### Background execution and live progress boundary
 
-`execution.placement` (`foreground` default, `background` opt-in via config or `AGENTHOST_EXECUTION_PLACEMENT`) declares where browser/desktop work runs. Background runs use an isolated Chromium profile under `~/.agenthost/browser/profiles/background/` (`browser.background_status` reports the headless launch args; it spawns nothing). Foreground `xdotool` remains last-resort fallback. Live progress never requires watching the app: `GET /api/v1/activity` exposes the bounded redacted runtime-activity feed (same 50-default/100-max pagination as other Control Room queries, rendered in the “Live background work” panel), and `agenthost task watch <id> [--follow] [--notify]` tails the redacted task event log with an optional desktop notification on terminal state. Background work passes the identical safety pipeline and stop/takeover gates; placement changes visibility, never permission.
+`execution.placement` (`foreground` default, `background` opt-in via config or `AGENTHOST_EXECUTION_PLACEMENT`) declares where desktop work runs. Background starts a nested Xephyr display; see the V2 guide section 12b. Live progress never requires watching the app: `GET /api/v1/activity` exposes the bounded redacted runtime-activity feed (same 50-default/100-max pagination as other Control Room queries, rendered in the “Live background work” panel), and `agenthost task watch <id> [--follow] [--notify]` tails the redacted task event log with an optional desktop notification on terminal state. Background work passes the identical safety pipeline and stop/takeover gates; placement changes visibility, never permission.
 
 ### Optional adapters
 

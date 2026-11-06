@@ -70,7 +70,7 @@ observation remains available.
 
 Control paths:
 
-- MCP: `agent.status`, `agent.stop`, `agent.takeover_begin`.
+- MCP: `agent.status`, `agent.stop`, `agent.takeover_begin`, `agent.request_handoff`.
 - CLI: `agenthost agent status|pause|stop|takeover-begin`.
 - Clearing is operator-only: `agenthost agent resume --stop`,
   `agenthost agent resume --takeover`, `agenthost agent resume --pause`, or a
@@ -216,8 +216,9 @@ the same central runner, metadata, preview/token, stop/takeover, and audit path.
 
 ## Removed product surfaces
 
-Control Room, Browser Bridge, browser DOM tools, the runtime-activity service,
-receipts/replay, checkpoints, Forge, workflow/scheduler tools, speech tools,
-accessibility MCP tools, and `task.execute_plan` are not registered in the
-current minimal-v2 tree. Sections in other documents that describe them are
+Control Room, the Browser Bridge (paired browser extension), the extension-based
+browser DOM tools, the runtime-activity service, receipts/replay, checkpoints,
+Forge, workflow/scheduler tools, speech tools, and `task.execute_plan` are not
+registered in the current minimal-v2 tree. (`ui.*` accessibility tools and the
+`browser.*` tools for AgentHost's own dedicated Chrome profile are live.) Sections in other documents that describe them are
 historical.

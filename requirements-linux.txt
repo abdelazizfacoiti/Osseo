@@ -11,3 +11,5 @@ tesseract-ocr
 ffmpeg
 xclip
 libnotify-bin
+xinput
+xserver-xephyr

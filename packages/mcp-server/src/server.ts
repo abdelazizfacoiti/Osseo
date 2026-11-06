@@ -1,3 +1,4 @@
+import { mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
@@ -6,12 +7,14 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { CallToolRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
+  ACTION_CARD_PAUSE_PREFIX,
   createAdapterRegistry,
   createBaseCapabilityRegistry,
   createSessionId,
   JsonlAuditLogger,
   JsonlTraceLogger,
   loadAgentHostConfig,
+  setUserBlockedApps,
   summarizeForLog,
   validateOptionalAdapterExecutionPolicy,
   readRunState,
@@ -69,7 +72,10 @@ import {
   setLinuxAccessibilityValue,
   typeLinuxText,
   writeLinuxFile,
-  analyzeLinuxImage
+  analyzeLinuxImage,
+  readUserIdleMs,
+  getBrowserSession,
+  startBackgroundDisplay
 } from "@agenthost/os-linux";
 import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator } from "@agenthost/app-overlay";
 import type { AgentHostMcpContext, LinuxAutomation } from "./context.js";
@@ -79,6 +85,11 @@ import { createDesktopTools } from "./tools/desktop.js";
 import { createAppTools } from "./tools/app.js";
 import { createUiTools } from "./tools/ui.js";
 import { createClipboardTools } from "./tools/clipboard.js";
+import { createBrowserTools } from "./tools/browser.js";
+import { createWorkflowTools } from "./tools/workflow.js";
+import { createMemoryTools } from "./tools/memory.js";
+import { createPushNotifier } from "./push-notify.js";
+import { PhoneBridge } from "./phone-bridge.js";
 import { createComputerTools } from "./tools/computer.js";
 import { createFileTools } from "./tools/file.js";
 import { createShellTools } from "./tools/shell.js";
@@ -95,11 +106,13 @@ import { HostAttention } from "./host-attention.js";
 import { inputGuardPath } from "./input-guard.js";
 import { bootstrapRequirements } from "./requirements-bootstrap.js";
 import { ActionTimeline } from "./action-timeline.js";
+import { HandoffOverlay } from "./handoff-overlay.js";
+import { ApprovalOverlay } from "./approval-overlay.js";
 import { TaskActivityOverlay } from "./task-overlay.js";
 import { shouldShowActionCard, shouldShowActivityCard } from "./activity.js";
 
 const SERVER_VERSION = AGENTHOST_VERSION;
-const ACTION_PAUSE_REASON = "agent_action_card_pause";
+const ACTION_PAUSE_REASON = ACTION_CARD_PAUSE_PREFIX;
 
 const SERVER_INSTRUCTIONS =
   "AgentHost is a universal local automation host. It provides desktop automation, file operations, shell commands, vision/OCR, and window management. Use GUI click/type as fallback when policy allows. Routine local actions execute directly. Consequential actions such as external sends/uploads, deletes, private-data reads, and financial effects require an exact dry-run preview and single-use confirmation token. Stop, takeover, and pause flags halt new state-changing calls. For fast decisions, inspect once, act, then verify; avoid repeating unchanged discovery.";
@@ -281,6 +294,19 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   closeResources: () => Promise<void>;
 }> {
   const config = options.config ?? (await loadAgentHostConfig());
+  setUserBlockedApps(config.blockedApps ?? []);
+  // Desktop commands run with this as their working directory; on a fresh install it may not exist yet.
+  await mkdir(config.agentHostDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
+  // Background placement: all desktop work happens on a nested display. If it
+  // cannot start, fail loudly: quietly acting on the person's screen is what
+  // they asked to avoid.
+  let backgroundDisplay: Extract<Awaited<ReturnType<typeof startBackgroundDisplay>>, { ok: true }> | undefined;
+  if (config.execution?.placement === "background" && options.linux === undefined) {
+    const started = await startBackgroundDisplay();
+    if (!started.ok) throw new Error(`background_display_unavailable: ${started.reason}`);
+    backgroundDisplay = started;
+  }
+  const desktopContext = { agentHostDir: config.agentHostDir, ...(backgroundDisplay === undefined ? {} : { env: backgroundDisplay.env }) };
   const sessionId = options.sessionId ?? createSessionId();
   const registry = options.registry ?? createBaseCapabilityRegistry();
   const adapters = options.adapters ?? createAdapterRegistry();
@@ -311,6 +337,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       dockSide: config.overlay?.dockSide ?? "right",
       dockWidthPercent: config.overlay?.dockWidthPercent ?? 18,
       dockReserveSpace: config.overlay?.dockReserveSpace ?? true,
+      allowSyntheticControl: config.overlay?.allowSyntheticControl ?? false,
       maxWidth: config.overlay?.maxWidth ?? 520
     }
   }), { sessionId }, { reducedMotion: config.overlay?.reducedMotion ?? false });
@@ -327,13 +354,14 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     autoHideMs: actionPill ? pillAutoHideMs : config.overlay?.autoHideMs ?? 15_000,
     compact: actionPill,
     frame: config.overlay?.frame ?? true,
-    targetRing: config.overlay?.targetRing ?? true,
+    // Nested-display coordinates mean nothing on the real screen.
+    targetRing: backgroundDisplay === undefined && (config.overlay?.targetRing ?? true),
     targetRingLeadMs: config.overlay?.targetRingLeadMs ?? 150,
     targetRingDurationMs: config.overlay?.targetRingDurationMs ?? 600,
     onPause: async () => { await requestPause(config.agentHostDir, ACTION_PAUSE_REASON); },
     onResume: async () => {
       const state = await readRunState(config.agentHostDir);
-      if (state.pause.requested && state.pause.reason === ACTION_PAUSE_REASON) await clearPause(config.agentHostDir);
+      if (state.pause.requested && state.pause.reason?.startsWith(ACTION_CARD_PAUSE_PREFIX) === true) await clearPause(config.agentHostDir);
     },
     onStop: async () => {
       await requestStop(config.agentHostDir, "Stop requested from the AgentHost action card");
@@ -355,6 +383,25 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       }
     })
     : undefined;
+  const pushNotify = createPushNotifier(config.notifications?.pushUrl);
+  const phoneBridge = options.linux === undefined ? new PhoneBridge({ agentHostDir: config.agentHostDir, sessionId }) : undefined;
+  const approvalOverlay = activityMode !== "off" && options.linux === undefined
+    ? new ApprovalOverlay(overlay, { agentHostDir: config.agentHostDir, sessionId })
+    : undefined;
+  const handoffOverlay = activityMode !== "off" && options.linux === undefined
+    ? new HandoffOverlay(overlay, {
+      agentHostDir: config.agentHostDir,
+      sessionId: sessionId.replace(/[^A-Za-z0-9._-]/g, "_"),
+      notify: (summary, body) => {
+        void pushNotify("handoff");
+        try {
+          const child = spawn("notify-send", ["-a", "AgentHost", "-u", "normal", summary, body.slice(0, 200)], { stdio: "ignore", detached: true });
+          child.on("error", () => undefined);
+          child.unref();
+        } catch { /* Desktop notifications are best effort. */ }
+      }
+    })
+    : undefined;
   if (process.env.NODE_ENV !== "test") sweepOrphanedOverlayRenderers();
   if (activityMode !== "off") {
     taskActivity = new TaskActivityOverlay({
@@ -370,47 +417,51 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   }
   const linux: LinuxAutomation =
     options.linux ?? {
+      ...(backgroundDisplay === undefined ? {} : { backgroundDisplay: backgroundDisplay.display }),
       getSystemInfo: () => getLinuxSystemInfo(config, registry),
       checkDependency: (input) => checkLinuxDependency(input),
-      detectApp: (input) => detectLinuxApp(input, policy),
+      detectApp: (input) => detectLinuxApp(input, policy, desktopContext),
       listInstalledApps: (input) => listInstalledLinuxApps(input),
-      openApp: (input) => openLinuxApp(input, policy),
-      openUrl: (input) => openLinuxUrl(input),
+      openApp: (input) => openLinuxApp(input, policy, desktopContext),
+      openUrl: (input) => openLinuxUrl(input, desktopContext),
       getAppStrategy: (input) => getLinuxAppStrategy(input, policy),
       runSafeCommand: (input) => runSafeLinuxCommand(input),
-      writeFile: (input) => writeLinuxFile(input, { agentHostDir: config.agentHostDir }),
-      readFile: (input) => readLinuxFile(input, { agentHostDir: config.agentHostDir }),
-      fileExists: (input) => linuxFileExists(input, { agentHostDir: config.agentHostDir }),
-      listDirectory: (input) => listLinuxDirectory(input, { agentHostDir: config.agentHostDir }),
-      ensureDir: (input) => ensureLinuxDir(input, { agentHostDir: config.agentHostDir }),
-      copyFile: (input) => copyLinuxFile(input, { agentHostDir: config.agentHostDir }),
-      moveFile: (input) => moveLinuxFile(input, { agentHostDir: config.agentHostDir }),
-      deletePath: (input) => deleteLinuxPath(input, { agentHostDir: config.agentHostDir }),
-      getDesktopCapabilities: () => getLinuxDesktopCapabilities({ agentHostDir: config.agentHostDir }),
-      getActiveWindow: () => getLinuxActiveWindow({ agentHostDir: config.agentHostDir }),
-      getScreenGeometry: () => getLinuxScreenGeometry({ agentHostDir: config.agentHostDir }),
-      getActiveWindowBounds: () => getLinuxActiveWindowBounds({ agentHostDir: config.agentHostDir }),
-      screenshot: (input) => captureLinuxScreenshot(input, { agentHostDir: config.agentHostDir }),
-      listWindows: (input) => listLinuxWindows(input, { agentHostDir: config.agentHostDir }),
+      writeFile: (input) => writeLinuxFile(input, desktopContext),
+      readFile: (input) => readLinuxFile(input, desktopContext),
+      fileExists: (input) => linuxFileExists(input, desktopContext),
+      listDirectory: (input) => listLinuxDirectory(input, desktopContext),
+      ensureDir: (input) => ensureLinuxDir(input, desktopContext),
+      copyFile: (input) => copyLinuxFile(input, desktopContext),
+      moveFile: (input) => moveLinuxFile(input, desktopContext),
+      deletePath: (input) => deleteLinuxPath(input, desktopContext),
+      getDesktopCapabilities: () => getLinuxDesktopCapabilities(desktopContext),
+      getActiveWindow: () => getLinuxActiveWindow(desktopContext),
+      getScreenGeometry: () => getLinuxScreenGeometry(desktopContext),
+      getActiveWindowBounds: () => getLinuxActiveWindowBounds(desktopContext),
+      screenshot: (input) => captureLinuxScreenshot(input, desktopContext),
+      listWindows: (input) => listLinuxWindows(input, desktopContext),
       invalidateWindowCache: () => clearWindowListCache(),
-      setClipboard: (input) => setLinuxClipboard(input.text, { agentHostDir: config.agentHostDir }),
-      getClipboard: () => getLinuxClipboard({ agentHostDir: config.agentHostDir }),
-      focusWindow: (input) => focusLinuxWindow(input, { agentHostDir: config.agentHostDir }),
-      hotkey: (input) => sendLinuxHotkey(input, { agentHostDir: config.agentHostDir }),
-      typeText: (input) => typeLinuxText(input, { agentHostDir: config.agentHostDir }),
-      click: (input) => clickLinuxDesktop(input, { agentHostDir: config.agentHostDir }),
-      pointer: (input) => performLinuxPointerAction(input, { agentHostDir: config.agentHostDir }),
+      setClipboard: (input) => setLinuxClipboard(input.text, desktopContext),
+      getClipboard: () => getLinuxClipboard(desktopContext),
+      // In a nested display nobody is competing for the cursor, so there is nothing to yield to.
+      ...(config.execution?.yieldToUser === false || backgroundDisplay !== undefined ? {} : { userIdleMs: () => readUserIdleMs() }),
+      browser: getBrowserSession(config.agentHostDir, backgroundDisplay?.env),
+      focusWindow: (input) => focusLinuxWindow(input, desktopContext),
+      hotkey: (input) => sendLinuxHotkey(input, desktopContext),
+      typeText: (input) => typeLinuxText(input, desktopContext),
+      click: (input) => clickLinuxDesktop(input, desktopContext),
+      pointer: (input) => performLinuxPointerAction(input, desktopContext),
       checkSandboxSupport: () => probeLinuxSandboxSupport({ env: process.env }),
       analyzeImage: (input) => analyzeLinuxImage(input, { env: process.env }),
-      getAccessibilityTree: (input) => getLinuxAccessibilityTree(input, { agentHostDir: config.agentHostDir }),
-      findAccessibilityElement: (input) => findLinuxAccessibilityElements(input, { agentHostDir: config.agentHostDir }),
+      getAccessibilityTree: (input) => getLinuxAccessibilityTree(input, desktopContext),
+      findAccessibilityElement: (input) => findLinuxAccessibilityElements(input, desktopContext),
       inspectAccessibilityElement: (input) =>
-        inspectLinuxAccessibilityElement(input, { agentHostDir: config.agentHostDir }),
+        inspectLinuxAccessibilityElement(input, desktopContext),
       invokeAccessibilityAction: (input) =>
-        invokeLinuxAccessibilityAction(input, { agentHostDir: config.agentHostDir }),
-      setAccessibilityValue: (input) => setLinuxAccessibilityValue(input, { agentHostDir: config.agentHostDir }),
+        invokeLinuxAccessibilityAction(input, desktopContext),
+      setAccessibilityValue: (input) => setLinuxAccessibilityValue(input, desktopContext),
       focusAccessibilityElement: (input) =>
-        focusLinuxAccessibilityElement(input, { agentHostDir: config.agentHostDir })
+        focusLinuxAccessibilityElement(input, desktopContext)
     };
   const serverModulePath = fileURLToPath(import.meta.url);
   const runtime = {
@@ -455,7 +506,10 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     ...createAgentTools(),
     ...createWindowTools(),
     ...createUiTools(),
-    ...createClipboardTools()
+    ...createClipboardTools(),
+    ...createBrowserTools(),
+    ...createWorkflowTools(),
+    ...createMemoryTools()
   ];
 
   const loadedTools = materializeToolDefinitions(applyProductionExecutionMetadata(tools));
@@ -550,6 +604,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     const result = await runTool(tool, rawInput, context);
     if (result.error?.code === "confirmation_required") {
       signalApprovalRequired();
+      void pushNotify("approval");
       void hostAttention?.requestConfirmation();
     }
     else if (result.overlay?.startsWith("unavailable:") === true) signalOverlayUnavailable();
@@ -572,6 +627,11 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     if (resourceClosePromise !== undefined) return await resourceClosePromise;
     resourceClosePromise = (async () => {
       await taskActivity?.close();
+      await handoffOverlay?.close();
+      await approvalOverlay?.close();
+      phoneBridge?.close();
+      await context.linux.browser?.close().catch(() => undefined);
+      await backgroundDisplay?.stop().catch(() => undefined);
       await actionOverlay.close();
       await actionTimeline?.close();
       await overlay.close();

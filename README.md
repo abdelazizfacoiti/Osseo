@@ -177,7 +177,7 @@ npm run start:mcp
 - No public listeners, hidden persistence, or unsupported background process.
 - No credential extraction, CAPTCHA/MFA/login/payment bypass, or sudo.
 - No silent send/submit/upload/delete/pay/buy; no arbitrary generated code.
-- No browser cookies, storage, or debugger access.
+- No access to the person's own browser profile, cookies, or storage (`browser.*` drives a separate AgentHost Chrome profile).
 - No raw private content, tokens, or secrets in logs or overlays.
   Visual surfaces never control target applications.
 

@@ -39,7 +39,7 @@ import type {
   ,VisionGroundingResult, VisionMode
 } from "@agenthost/core";
 import type { OverlayManager } from "@agenthost/app-overlay";
-import type { LinuxClipboardResult, RunSafeCommandInput, UrlOpenBrowser, UrlOpenResult } from "@agenthost/os-linux";
+import type { BrowserAutomation, LinuxClipboardResult, RunSafeCommandInput, UrlOpenBrowser, UrlOpenResult } from "@agenthost/os-linux";
 import type { GrantStore } from "./grants.js";
 import type { AnyAgentHostToolDefinition } from "./tool-runner.js";
 import type { ToolActionOverlay } from "./action-overlay.js";
@@ -82,6 +82,12 @@ export interface LinuxAutomation {
   invalidateWindowCache?(): void;
   setClipboard?(input: { text: string }): Promise<LinuxClipboardResult>;
   getClipboard?(): Promise<LinuxClipboardResult>;
+  /** Milliseconds since the last keyboard/pointer input, or undefined when unknown. */
+  userIdleMs?(): Promise<number | undefined>;
+  /** Dedicated-Chrome automation over the DevTools Protocol; absent when no browser is installed. */
+  browser?: BrowserAutomation;
+  /** Nested X display all desktop work runs on, when execution.placement is background. */
+  backgroundDisplay?: string;
   focusWindow(input: { windowId?: string; appName?: string; title?: string; pid?: number }): Promise<WindowFocusResult>;
   hotkey(input: { keys: string[]; activeWindow: DesktopWindowContext }): Promise<DesktopHotkeyResult>;
   typeText(input: { text: string; activeWindow: DesktopWindowContext }): Promise<DesktopTypeTextResult>;

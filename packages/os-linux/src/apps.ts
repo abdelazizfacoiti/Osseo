@@ -416,7 +416,8 @@ export async function openLinuxApp(
   const child = spawn(command, args, {
     detached: true,
     stdio: "ignore",
-    shell: false
+    shell: false,
+    env: context.env ?? process.env
   });
   child.unref();
 
@@ -474,7 +475,7 @@ export async function openLinuxUrl(
     return { opened: false, url: parsed.href, launcher: launcherName, reason: `${launcherName} is not installed or not on PATH.` };
   }
   const args = input.browser === undefined ? [parsed.href] : ["--new-tab", parsed.href];
-  const child = spawn(launcherPath, args, { detached: true, stdio: "ignore", shell: false });
+  const child = spawn(launcherPath, args, { detached: true, stdio: "ignore", shell: false, env: context.env ?? process.env });
   const spawnError = await new Promise<Error | undefined>((resolve) => {
     child.once("error", (error) => resolve(error));
     child.once("spawn", () => resolve(undefined));

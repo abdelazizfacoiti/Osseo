@@ -47,3 +47,6 @@ export * from "./runtime-activity.js";
 export * from "./release.js";
 export * from "./goal-planning.js";
 export * from "./capability-graph.js";
+export * from "./saved-workflows.js";
+export * from "./memory.js";
+export * from "./phone-approvals.js";

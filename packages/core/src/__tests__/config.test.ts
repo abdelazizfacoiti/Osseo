@@ -288,7 +288,7 @@ describe("loadAgentHostConfig", () => {
   it("defaults execution placement to foreground", async () => {
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-placement-"));
     const config = await loadAgentHostConfig({ env: {}, homeDir });
-    expect(config.execution).toEqual({ placement: "foreground" });
+    expect(config.execution).toEqual({ placement: "foreground", yieldToUser: true, maxActionsPerTask: 500 });
   });
 
   it("allows background execution placement from file and environment", async () => {
@@ -297,8 +297,8 @@ describe("loadAgentHostConfig", () => {
     await mkdir(agentHostDir, { recursive: true });
     await writeFile(path.join(agentHostDir, "config.json"), JSON.stringify({ execution: { placement: "background" } }), "utf8");
     const fromFile = await loadAgentHostConfig({ env: {}, homeDir, configPath: path.join(agentHostDir, "config.json") });
-    expect(fromFile.execution).toEqual({ placement: "background" });
+    expect(fromFile.execution).toEqual({ placement: "background", yieldToUser: true, maxActionsPerTask: 500 });
     const fromEnv = await loadAgentHostConfig({ env: { AGENTHOST_EXECUTION_PLACEMENT: "foreground" }, homeDir, configPath: path.join(agentHostDir, "config.json") });
-    expect(fromEnv.execution).toEqual({ placement: "foreground" });
+    expect(fromEnv.execution).toEqual({ placement: "foreground", yieldToUser: true, maxActionsPerTask: 500 });
   });
 });

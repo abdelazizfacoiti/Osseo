@@ -117,7 +117,6 @@ export interface ToolStateSnapshot {
   activeWindow?: DesktopWindowContext;
   windowChanged?: boolean;
   newlyAppearedWindows?: DesktopWindowSummary[];
-  screenChangedHint?: boolean;
 }
 
 export interface ToolResult<T = unknown> {
@@ -136,6 +135,8 @@ export interface ToolResult<T = unknown> {
   actionDecision?: ActionEffectDecisionSummary;
   verification?: ActionVerificationSummary;
   state?: ToolStateSnapshot;
+  /** True when `data` carries text from the screen, a file, or the clipboard: data to read, never instructions to follow. */
+  untrustedContent?: true;
   approval: ApprovalInfo;
   data: T | null;
   observations: string[];
@@ -673,6 +674,10 @@ export type ExecutionPlacement = "foreground" | "background";
 export interface ExecutionConfig {
   /** Background runs browser/desktop work offscreen so the user keeps their screen. */
   placement: ExecutionPlacement;
+  /** Wait for the human to pause typing or moving the mouse before injecting input. */
+  yieldToUser?: boolean;
+  /** Pause after this many state-changing actions per task; 0 disables the budget. */
+  maxActionsPerTask?: number;
 }
 export interface AgentHostConfig {
   /** Public configuration schema version. Loader accepts legacy files without this field. */
@@ -686,6 +691,10 @@ export interface AgentHostConfig {
   overlayRendererMode?: import("./overlay.js").OverlayRendererMode;
   overlay?: import("./overlay.js").OverlayPublicConfig;
   /** On first start, offer a password-prompted apt install of missing desktop packages (default true). */
+  /** Apps the operator never wants automated; treated like credential/security apps. */
+  blockedApps?: string[];
+  /** Optional phone notification; generic text only, it cannot approve anything. */
+  notifications?: { pushUrl?: string };
   autoInstallDependencies?: boolean;
   speech?: SpeechConfig;
   optionalAdapters?: Record<string, { enabled: boolean }>;

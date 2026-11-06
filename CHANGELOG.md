@@ -2,6 +2,75 @@
 
 ## Unreleased
 
+- Fixed a way around the approval cards: a process with `/dev/uinput` access
+  could press Approve, Continue, or Resume with a virtual mouse. Those presses
+  now require a device proven physical by its sysfs path. Stop and Pause are
+  unaffected.
+- Added `execution.placement: "background"`: a nested Xephyr display for all
+  desktop work, so the person keeps their screen. It is also the supported path
+  on Wayland, and the desktop layer now works without a window manager.
+- Fixed desktop commands ignoring `context.env`, which would have sent
+  nested-display actions to the real screen.
+- Added `memory.save|search|delete` and `agenthost memory` for short how-to
+  lessons; secrets are refused and results are marked untrusted.
+- Added opt-in `notifications.pushUrl` for a generic phone alert. It cannot
+  approve anything.
+- Added opt-in phone approvals (`agenthost phone pair|status|unpair`): outbound
+  polling of an ntfy-style channel, one-time codes stored only as hashes, and
+  pairing gated by a terminal plus a real-pointer press. Previews go to the
+  channel; see the risks in the V2 guide section 12b.
+- Added `agenthost workflow list|show|run|delete` and
+  `agenthost schedule list|add|remove`. A run goes through `computer.run_steps`
+  and never approves anything itself (exit 2 when a step needs approval, 3 when
+  halted); schedules are systemd user timers, previewed unless `--apply`.
+- Added saved workflows (`workflow.save|list|get|delete`): a plan that worked is
+  stored with named parameters and recalled instead of re-derived. They only
+  store data; running one means passing the expanded steps to
+  `computer.run_steps`, so every approval and safety gate still applies. Secrets,
+  unknown tools, and agent/task control steps are rejected at save time.
+- Added the `browser.*` tools (`open`, `snapshot`, `click`, `type`, `navigate`,
+  `close`): a dedicated Chrome/Chromium profile driven over the DevTools
+  Protocol with a built-in loopback WebSocket client (no new dependency).
+  Elements are addressed by ref from a snapshot, not coordinates. Pages are
+  classified by origin and path only, login/MFA pages are blocked and point at
+  `agent.request_handoff`, password/one-time-code/card fields are never typed
+  into, and clicks that pay, send, delete, or submit password/payment forms
+  need an exact confirmation. Page text is marked `untrustedContent`.
+- Added an "Approve this action?" card: pending confirmations can be approved or
+  denied on screen, bound one-to-one to their token, with the redacted preview
+  and no token shown. Control buttons (Approve, Deny, Continue, Pause, Resume,
+  Stop) now ignore synthetic XTEST clicks by default
+  (`overlay.allowSyntheticControl` to allow them).
+- AgentHost now waits while the person is typing or moving the mouse before it
+  injects input (`execution.yieldToUser`, default on), and fails with
+  `user_active` instead of fighting for the cursor.
+- A stuck loop (same call 10 times) or `execution.maxActionsPerTask` actions
+  (default 500) now pauses the agent until the person presses Resume, instead
+  of only adding guidance.
+- Added `blockedApps` config: apps the operator never wants automated, treated
+  like credential/security apps for input and reads.
+- Results that carry screen, file, or clipboard text are marked
+  `untrustedContent`, and the skill tells agents not to follow instructions in
+  them.
+- Removed `screenChangedHint` from state results: it compared screen geometry,
+  not pixels, so it could never report a change.
+- Added `agent.request_handoff` and a "Your turn" card for steps the agent must
+  not do itself (login, MFA, CAPTCHA, payment). State-changing and
+  screen-reading tools are refused until the human presses Continue (pointer
+  only) or runs `agenthost agent resume --takeover`. `agent.status` and
+  `agenthost agent status` report the handoff.
+- Fixed the dock timeline growing over the task card and its Pause/Resume/Stop
+  buttons. Card bodies now scroll while header and footer stay pinned, a pure
+  `dock_layout` gives bottom cards priority and the timeline the remaining
+  room, and the layout recomputes when a dock card is shown, updated, or
+  dismissed. The dock also stays inside the monitor work area, clear of
+  desktop panels.
+- Timeline rows are reused in place (no flicker or spinner restarts), up to 40
+  entries are shown, and repeated finished actions merge for display
+  (`Click (5,6) ×3`, `Looked at screen ×N`). Failed, waiting, halted, and
+  running entries never merge, and audit logs are unchanged.
+- The task card now ends with a one-line summary (error and recovery counts)
+  and the `agenthost task export` command.
 - Added `agenthost integrations <client> add|status|remove` for opencode,
   Claude Code, Codex, Copilot (VS Code + CLI), and Cursor. `--apply` writes
   one server entry, preserves existing settings, and backs up an existing

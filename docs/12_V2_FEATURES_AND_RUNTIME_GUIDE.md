@@ -68,12 +68,15 @@ app adapter -> official API -> CLI/script -> browser automation
 -> accessibility -> local OCR/vision -> GUI input -> guide mode
 ```
 
-Browser DOM, accessibility MCP tools, and guide mode are not live surfaces in
-this tree. Browser work uses ordinary desktop automation when policy allows.
+The extension-based Browser Bridge and guide mode are not live surfaces in this
+tree. Browser work uses the `browser.*` tools (a dedicated Chrome profile driven
+over the DevTools Protocol) when Chrome or Chromium is installed, and ordinary
+desktop automation otherwise. Accessibility tools
+(`ui.tree`, `ui.find`, `ui.activate`, `ui.set_text`) are live and wrap AT-SPI.
 
 ## 3. Live surface
 
-The current server exposes **48 base MCP tools** and **3 resources**.
+The current server exposes **62 base MCP tools** and **3 resources**.
 
 Tool counts are generated from the loaded set at startup. The authoritative
 source is always:
@@ -89,7 +92,11 @@ source is always:
 |---|---|---|
 | System | `system.get_info`, `system.list_capabilities`, `system.check_dependency` | Runtime/system information, live capability inventory, dependency availability |
 | Adapters | `adapter.list`, `adapter.get` | Inspect registered optional adapters |
-| Computer observation | `computer.observe_state`, `computer.wait_for` | Active window, window-appears, title, file, and screen condition waits with state snapshots |
+| Computer observation | `computer.observe_state`, `computer.wait`, `computer.wait_for` | Active window snapshot, bounded sleep, and window-appears, title, file, and screen condition waits with state snapshots |
+| Browser | `browser.open`, `browser.snapshot`, `browser.click`, `browser.type`, `browser.navigate`, `browser.close` | Dedicated Chrome profile over the DevTools Protocol: element refs, no coordinates; security pages blocked, sensitive fields refused, consequential clicks confirmed |
+| Apps | `app.open`, `app.open_url` | Launch an application or open a URL in a browser |
+| Clipboard | `clipboard.get`, `clipboard.set` | Read or set the clipboard (reads are private-data gated) |
+| Accessibility | `ui.tree`, `ui.find`, `ui.activate`, `ui.set_text` | AT-SPI tree, search, activate, and set text; credential/security apps are blocked |
 | Governed plans | `computer.run_steps` | Up to 20 nested governed calls with plan-scoped low/medium approval |
 | Windows | `window.list`, `window.focus` | Enumerate windows; focus and verify by ID/app/title/PID |
 | Desktop | `desktop.screenshot`, `desktop.click`, `desktop.pointer`, `desktop.hotkey`, `desktop.type_text` | Screenshot, click, pointer movement/scroll/drag, key chords, typing |
@@ -97,7 +104,9 @@ source is always:
 | Shell | `shell.run` | Governed argv execution without an implicit shell |
 | Vision | `vision.analyze_image`, `vision.find_text`, `vision.find_target`, `vision.find_text_on_screen` | Local OCR; fresh screen OCR returns absolute-coordinate suggestions |
 | Tasks | `task.create`, `task.status`, `task.list`, `task.update`, `task.update_status`, `task.add_event` | Persistent task state and definition-of-done tracking |
-| Agent control | `agent.status`, `agent.stop`, `agent.takeover_begin` | Runtime flags and emergency controls |
+| Workflows | `workflow.save`, `workflow.list`, `workflow.get`, `workflow.delete` | Saved, parameterized plans recalled instead of re-derived; executed only by passing the expanded steps to `computer.run_steps` |
+| Memory | `memory.save`, `memory.search`, `memory.delete` | Short how-to lessons across sessions; no task content or secrets |
+| Agent control | `agent.status`, `agent.stop`, `agent.takeover_begin`, `agent.request_handoff` | Runtime flags, emergency controls, and the human handoff |
 
 ### Execution classes
 
@@ -278,7 +287,9 @@ These require an exact preview and single-use confirmation token:
 
 These remain denied even with a valid token:
 
-- Credential and security apps.
+- Credential and security apps, and any app listed in config `blockedApps`
+  (case-insensitive substring of app id, name, or URL; applies to input and to
+  `ui.*`/`vision.*` reads).
 - Secret data.
 - Protected system paths.
 - AgentHost control-plane writes and deletes.
@@ -327,6 +338,36 @@ agenthost confirmations
 agenthost confirm <tokenId>
 agenthost deny <tokenId>
 ```
+
+### Approving from the screen
+
+Each pending confirmation created by the running MCP server also appears as an
+"Approve this action?" card with the redacted preview, tool, risk, and expiry,
+plus Approve and Deny buttons. Cards are shown one at a time (oldest first)
+and each is bound to its own token, which is never displayed. Approve and Deny
+make exactly the decision `agenthost confirm|deny` makes; they do not run the
+action, the agent still retries with its token.
+
+Control buttons (Approve, Deny, Continue, Pause, Resume, Stop) are accepted
+only from a real pointer or touch device. The renderer ignores keyboard and
+accessibility activation, input AgentHost injects itself, and synthetic XTEST
+clicks (for example `xdotool` run through `shell.run`), which GTK reports as
+`Virtual core XTEST pointer`.
+
+Approve, Continue, and Resume grant something, so they must also come from
+provably physical hardware. A process with `/dev/uinput` access can create a
+mouse with any name, so the renderer ignores names: it resolves the event's
+device through `xinput list-props` to its evdev node and refuses anything under
+`/sys/devices/virtual/input/`, where the kernel places every uinput device. If
+this cannot be proven (`xinput` missing, no device node) the press is ignored
+and the CLI is the fallback. Stop and Pause skip this check, because they only
+halt the agent and must always work.
+
+Known limits: clients that start a fresh server process per call may not show
+cards for tokens made by another process. A process that can write
+`/dev/input/event*` for a real device, which needs the `input` group or root,
+could still inject through that device. Remote-desktop or on-screen-keyboard users
+can set `overlay.allowSyntheticControl: true`, which turns these checks off.
 
 ### Active task approval
 
@@ -408,6 +449,29 @@ The runner tracks identical calls for non-control tools. It adds guidance on the
 3rd and 6th identical call to force verification, a strategy change, or
 reporting the blocker.
 
+Two guards actually pause the agent (a scoped pause the action card can
+Resume, reason prefix `agent_action_card_pause:`), because guidance alone does
+not stop a runaway loop:
+
+- The same state-changing call repeating 10 times without observable progress
+  (then again every 5).
+- `execution.maxActionsPerTask` successful state-changing actions in one task
+  (default 500; `0` disables). The count restarts at `task.create`.
+
+### Human-aware execution
+
+- **Yield to the user.** Before injecting input (`desktop.click`,
+  `desktop.pointer`, `desktop.hotkey`, `desktop.type_text`, `ui.activate`,
+  `ui.set_text`) the runner reads X idle time. If the person touched the
+  keyboard or mouse in the last 1.2 s and it was not AgentHost's own injection
+  (compared with the `run/input-active` marker), it waits up to 15 s, then
+  fails with `user_active` and sends nothing. Disable with
+  `execution.yieldToUser: false`. It needs the XScreenSaver extension
+  (`libXss`); when idle time is unreadable it never blocks.
+- **Untrusted content.** Results of OCR, `ui.*`, file reads, and clipboard reads
+  carry `untrustedContent: true` and an observation telling the agent to treat
+  the text as data, not instructions.
+
 ## 7. Agent control and operator authority
 
 ### MCP tools
@@ -416,6 +480,13 @@ reporting the blocker.
   provenance.
 - `agent.stop`: writes the emergency-stop flag and clears active task approval.
 - `agent.takeover_begin`: marks human takeover and clears active task approval.
+- `agent.request_handoff`: asks the human to do a login, MFA, CAPTCHA, or
+  payment step. It raises the takeover flag and writes `run/handoff.active`.
+  While active, state-changing tools halt and screen-reading tools
+  (`desktop.screenshot`, `vision.find_text_on_screen`, `ui.tree`, `ui.find`,
+  `clipboard.get`, `computer.wait_for`, `computer.observe_state`) fail with
+  `handoff_active`. A "Your turn" card with a pointer-only Continue button, or
+  `agenthost agent resume --takeover`, ends it.
 
 Neither stop nor takeover is gated by the flag it sets, so the agent can request
 them safely.
@@ -570,6 +641,35 @@ every turn.
 
 ## 10. CLI features
 
+### Saved workflows and schedules
+
+```bash
+agenthost workflow list
+agenthost workflow show <name>
+agenthost workflow run <name> [--param key=value ...] [--unattended]
+agenthost workflow delete <name>
+agenthost schedule list
+agenthost schedule add <name> (--daily HH:MM | --weekdays HH:MM | --every 30m|2h) [--param k=v ...] [--apply]
+agenthost schedule remove <name> [--apply]
+```
+
+`workflow run` loads a saved workflow (see `workflow.save`), fills in the
+parameters, and runs it through the real `computer.run_steps` tool in a fresh
+server context with `stopOnError`, so every approval, safety, stop, pause, and
+takeover gate applies. It never approves anything itself. Exit codes: `0`
+completed, `1` failed, `2` stopped because a step needs an exact confirmation
+(run `agenthost confirmations`), `3` halted by stop/pause/takeover, a handoff,
+or because the user was active. `--unattended` also sends a desktop
+notification when a run does not complete.
+
+`schedule add` previews by default; `--apply` writes a systemd user
+`agenthost-wf-<name>.service` and `.timer` and enables the timer. Parameters sit
+in a plain-text unit file, so values that look like secrets are refused. The
+unit captures `DISPLAY`, `XAUTHORITY`, `DBUS_SESSION_BUS_ADDRESS`,
+`XDG_RUNTIME_DIR`, and the AgentHost home at creation time; re-run `schedule add
+--apply` if your session changes. AgentHost still runs no daemon of its own:
+systemd starts a one-shot process per run.
+
 ### Setup and diagnostics
 
 ```bash
@@ -714,6 +814,9 @@ Main fields:
 | `agentHostDir` | Runtime data directory |
 | `logFile` | Audit log path |
 | `overlay` | Renderer mode, activity mode, theme, density, persistence, placement, width, monitor policy |
+| `execution` | `placement` (`foreground` default, `background` nested display), `yieldToUser` (default true), `maxActionsPerTask` (default 500; 0 = off) |
+| `notifications` | `pushUrl`: optional generic phone alert (https); never approves |
+| `blockedApps` | Apps the operator never wants automated (substring match) |
 | `grants` | Capability-scoped allow/deny/guide-only rules |
 | `optionalAdapters` | Explicit enablement map for optional adapters |
 
@@ -756,6 +859,100 @@ Documented environment overrides:
 configuration compatibility, but they do not register removed tools. Removed
 top-level config keys such as `runtimeActivityOverlay`, `browserBridge`,
 `controlRoom`, and `profile` are stripped before strict validation.
+
+## 12b. Background placement, Wayland, memory, and phone alerts
+
+### Background placement (nested display)
+
+`execution.placement: "background"` (or `AGENTHOST_EXECUTION_PLACEMENT`) starts a
+nested Xephyr display (`:90` upward) when the server starts. Screenshots, input,
+window tools, app launch, and a headed `browser.open` all target it, so the
+person keeps their own cursor, keyboard, and screen; the nested desktop appears
+as one window they can watch or minimize. If it cannot start, the server fails
+with `background_display_unavailable` instead of acting on the real screen.
+
+Limits, all by design or environment:
+
+- There is usually no window manager inside it: windows open at the corner and
+  "active window" means X input focus (`getwindowfocus`, `windowfocus`,
+  `xwininfo -root -children`).
+- `ui.*` fails with `unsupported_in_background`: AT-SPI is one session-wide bus
+  and would reach apps on the real desktop.
+- `shell.run` still runs with the server's environment, so a command that
+  opens a window appears on the real display.
+- Yield-to-user and the target ring are off; overlay cards stay on the real
+  screen so stop and approval remain reachable.
+- The nested display has its own clipboard.
+
+### Wayland
+
+Direct control is not available on Wayland: there is no XTEST or global window
+list, and the overlay needs X11. `execution.placement: "background"` is the
+supported path, because Xephyr runs under XWayland and gives AgentHost a real X
+display. Apps must be started by AgentHost to live inside it; it cannot control
+native Wayland windows outside it. This was verified end to end against a
+headless GNOME Wayland compositor using a standalone `Xwayland`; mutter's own
+on-demand XWayland did not serve clients in headless mode, so a normal logged-in
+Wayland session has not been exercised. `agenthost doctor` prints this guidance
+on Wayland.
+
+### Memory
+
+`memory.save`, `memory.search`, and `memory.delete` keep short lessons about how
+to work on this computer, at most 200 entries of 300 characters in
+`~/.agenthost/memory/lessons.json`. Secrets are refused, and search results are
+marked `untrustedContent` because a lesson can originate from a hostile page.
+Operators can inspect and erase everything: `agenthost memory
+list|delete <id>|clear --yes`.
+
+### Phone notifications and approvals
+
+`notifications.pushUrl` (https, opt-in) receives one fixed POST, at most every 30
+seconds, saying AgentHost is waiting at the computer. It carries no preview,
+app name, task text, or token, and it cannot approve anything.
+
+Phone approvals are a separate opt-in, off until paired:
+
+```bash
+agenthost phone pair --publish <url> --poll <url> [--max-risk medium|high]
+agenthost phone status
+agenthost phone unpair
+```
+
+The channel is any ntfy-style pair of URLs, for example private `ntfy.sh` topics.
+AgentHost makes outbound requests only and polls only while a request is pending.
+Each pending confirmation from this server is published with its redacted preview
+and a short reference. Reply `approve <ref> <code>` or `deny <ref> <code>`. That
+makes the same decision as `agenthost confirm|deny`: the agent may retry that one
+exact action, once. Requests above `--max-risk` (default `medium`) stay
+computer-only, and the card and CLI keep working.
+
+Trust model:
+
+- The machine stores only salted hashes of 20 one-time codes, so nothing an agent
+  can read on this computer can answer a request. Codes are shown once at
+  pairing. A code works once. Five wrong codes disable the channel.
+- Pairing needs a real terminal and a real-pointer press on a card, and it is
+  refused when `overlay.allowSyntheticControl` is on.
+
+Known risks, accepted by choosing to pair:
+
+- **Previews leave the machine.** Redacted summaries go to the channel's operator
+  and anyone who knows the topic name. Use a self-hosted server or long random
+  topic names.
+- **A spoofed request.** The channel URLs are readable on this machine, so an
+  agent could post a fake request to the channel showing a harmless preview with
+  the reference of a real one, and trick you into approving it. Approve only what
+  you just asked for; when in doubt, deny and check at the computer.
+- **Weaker than the card.** Approval no longer proves someone is at the machine.
+- **Codes on screen.** An agent with screen access could read codes left in the
+  terminal. Clear it after saving them, and `phone unpair` if in doubt.
+
+### Dropped
+
+A pixel-based "did the click do anything" check: AgentHost's own cards and rings
+would always register as change. The old geometry-based hint could never change,
+so it was removed.
 
 ## 13. Data, privacy, and logging
 
@@ -811,7 +1008,7 @@ A failed audit write does not repeat a completed action.
 - No public listener.
 - No telemetry upload.
 - No cloud OCR.
-- No browser cookies, storage, or debugger access.
+- No access to the person's own browser profile, cookies, or storage. `browser.*` drives a separate AgentHost profile on a loopback-only debugger port.
 - No credential extraction.
 - No CAPTCHA, MFA, login, payment, or security bypass.
 - No generated code execution in this tree.
@@ -893,7 +1090,7 @@ Current v2 safeguards include:
 
 Do not treat these as available features:
 
-- Browser DOM or Browser Bridge tools.
+- The extension-based Browser Bridge.
 - Accessibility MCP tools.
 - Speech tools.
 - Forge runtime tools.
@@ -949,7 +1146,7 @@ At the time of writing, the tree passes:
 - `npm run build`
 - `npm run lint`
 - `npm test` — 60 files, 371 tests
-- `npm run smoke:mcp` — 48 tools, 3 resources
+- `npm run smoke:mcp` — 62 tools, 3 resources
 - `npm run benchmark:agent` — isolated, non-destructive runner overhead benchmark
 - `npm run benchmark:tasks` — 20 isolated scenarios, 22 governed calls in the latest run; desktop-input/OCR scenarios use mocked backends
 - `git diff --check`

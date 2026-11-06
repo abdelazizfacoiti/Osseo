@@ -202,6 +202,7 @@ async function runDesktopCommand(
     timeoutMs: number;
     maxOutputBytes: number;
     cwd?: string;
+    env?: NodeJS.ProcessEnv;
   } = {
     command,
     args,
@@ -211,6 +212,16 @@ async function runDesktopCommand(
 
   if (context.agentHostDir !== undefined) {
     input.cwd = context.agentHostDir;
+  }
+
+  // Without this a nested display would silently act on the person's real
+  // screen. Only the display target changes: context.env.PATH is for locating
+  // tools, and the tools themselves keep the normal environment.
+  if (context.env?.DISPLAY !== undefined) {
+    const env: NodeJS.ProcessEnv = { ...process.env, DISPLAY: context.env.DISPLAY };
+    if (context.env.XAUTHORITY === undefined) delete env.XAUTHORITY;
+    else env.XAUTHORITY = context.env.XAUTHORITY;
+    input.env = env;
   }
 
   return runSafeLinuxCommand(input);
@@ -367,7 +378,7 @@ async function detectGuiInputSupport(context: LinuxDesktopContext = {}): Promise
   }
 
   if (session.sessionType !== "x11") {
-    return unsupported(session.backend, "Safe generic GUI input is only supported on X11 in this phase.");
+    return unsupported(session.backend, "Direct GUI input needs X11. On Wayland, set execution.placement to background to work on a nested X display.");
   }
 
   const xdotoolPath = await findCommandPath("xdotool", context);
@@ -452,6 +463,13 @@ export async function getLinuxDesktopCapabilities(
   return result;
 }
 
+/** The window holding X input focus, for displays without an EWMH window manager. */
+async function focusedWindowId(xdotoolPath: string, context: LinuxDesktopContext): Promise<string | undefined> {
+  const focus = await runDesktopCommand(xdotoolPath, ["getwindowfocus"], context).catch(() => undefined);
+  const id = focus === undefined || focus.exitCode !== 0 ? undefined : normalizeWindowId(focus.stdout.split(/\r?\n/)[0] ?? "");
+  return id !== undefined && /^[0-9]+$/.test(id) && id !== "0" ? id : undefined;
+}
+
 async function activeWindowViaXdotool(
   xdotoolPath: string,
   context: LinuxDesktopContext = {}
@@ -462,9 +480,15 @@ async function activeWindowViaXdotool(
   // pid is then misread as the window id. pid+title share a second spawn
   // with an explicit wid (both print reliably with explicit args).
   const widResult = await runDesktopCommand(xdotoolPath, ["getactivewindow"], context);
-  const windowId = normalizeWindowId(widResult.stdout.split(/\r?\n/)[0] ?? "");
+  let windowId = normalizeWindowId(widResult.stdout.split(/\r?\n/)[0] ?? "");
 
   if (widResult.exitCode !== 0 || windowId === undefined) {
+    // No EWMH window manager (for example a nested background display): the X
+    // input focus is the only notion of an active window.
+    windowId = await focusedWindowId(xdotoolPath, context);
+  }
+
+  if (windowId === undefined) {
     return unsupportedResult("xdotool", "Unable to determine the active window on X11.", {});
   }
 
@@ -519,7 +543,7 @@ export async function getLinuxActiveWindow(
 
 export async function getLinuxScreenGeometry(context: LinuxDesktopContext = {}): Promise<{ supported: boolean; bounds?: DesktopWindowBounds; reason: string }> { const xdotool = await findCommandPath("xdotool", context); if (xdotool === undefined) return { supported: false, reason: "Screen geometry requires xdotool on X11." }; const values = resultValues((await runDesktopCommand(xdotool, ["getdisplaygeometry"], context)).stdout); const width = values[0], height = values[1]; if (width === undefined || height === undefined || !Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) return { supported: false, reason: "Unable to read X11 display geometry." }; return { supported: true, bounds: { x: 0, y: 0, width, height }, reason: "Read X11 display geometry." }; }
 function resultValues(value: string): number[] { return value.trim().split(/\s+/).map(Number); }
-export async function getLinuxActiveWindowBounds(context: LinuxDesktopContext = {}): Promise<{ supported: boolean; bounds?: DesktopWindowBounds; reason: string }> { const xdotool = await findCommandPath("xdotool", context); if (xdotool === undefined) return { supported: false, reason: "Window geometry requires xdotool on X11." }; const id = (await runDesktopCommand(xdotool, ["getactivewindow"], context)).stdout.trim(); if (!id) return { supported: false, reason: "No active window." }; const result = await runDesktopCommand(xdotool, ["getwindowgeometry", "--shell", id], context); const values = Object.fromEntries(result.stdout.trim().split(/\r?\n/).map((line) => line.split("=", 2)).filter(([key, value]) => key !== undefined && value !== undefined)); const x = Number(values.X), y = Number(values.Y), width = Number(values.WIDTH), height = Number(values.HEIGHT); return [x,y,width,height].every(Number.isInteger) && width > 0 && height > 0 ? { supported: true, bounds: { x, y, width, height }, reason: "Read active X11 window geometry." } : { supported: false, reason: "Unable to read active window geometry." }; }
+export async function getLinuxActiveWindowBounds(context: LinuxDesktopContext = {}): Promise<{ supported: boolean; bounds?: DesktopWindowBounds; reason: string }> { const xdotool = await findCommandPath("xdotool", context); if (xdotool === undefined) return { supported: false, reason: "Window geometry requires xdotool on X11." }; const id = (await runDesktopCommand(xdotool, ["getactivewindow"], context)).stdout.trim() || (await focusedWindowId(xdotool, context)) || ""; if (!id) return { supported: false, reason: "No active window." }; const result = await runDesktopCommand(xdotool, ["getwindowgeometry", "--shell", id], context); const values = Object.fromEntries(result.stdout.trim().split(/\r?\n/).map((line) => line.split("=", 2)).filter(([key, value]) => key !== undefined && value !== undefined)); const x = Number(values.X), y = Number(values.Y), width = Number(values.WIDTH), height = Number(values.HEIGHT); return [x,y,width,height].every(Number.isInteger) && width > 0 && height > 0 ? { supported: true, bounds: { x, y, width, height }, reason: "Read active X11 window geometry." } : { supported: false, reason: "Unable to read active window geometry." }; }
 
 async function runAndValidateScreenshot(
   backend: string,
@@ -942,7 +966,7 @@ async function readActiveWindowId(
   if (xdotoolPath === undefined) return undefined;
   try {
     const id = normalizeWindowId((await runDesktopCommand(xdotoolPath, ["getactivewindow"], context)).stdout.trim());
-    return id !== undefined && /^[0-9]+$/.test(id) ? id : undefined;
+    return id !== undefined && /^[0-9]+$/.test(id) ? id : await focusedWindowId(xdotoolPath, context);
   } catch {
     return undefined;
   }
@@ -986,6 +1010,17 @@ async function activateWindowById(
       focused: true,
       backend: "xdotool",
       reason: "Focused the requested X11 window through xdotool after wmctrl did not change the active window."
+    };
+  }
+
+  // Without a window manager there is nothing to activate through; give the window X input focus directly.
+  await runDesktopCommand(xdotoolPath, ["windowfocus", targetId], context).catch(() => undefined);
+  await runDesktopCommand(xdotoolPath, ["windowraise", targetId], context).catch(() => undefined);
+  if ((await readActiveWindowId(xdotoolPath, context)) === targetId) {
+    return {
+      focused: true,
+      backend: "xdotool",
+      reason: "Focused the requested X11 window by X input focus (no EWMH window manager)."
     };
   }
 
@@ -1231,6 +1266,12 @@ async function listRawWindows(context: LinuxDesktopContext = {}): Promise<  | { 
   const result = await runDesktopCommand(wmctrlPath, ["-lpG"], context);
 
   if (result.exitCode !== 0) {
+    // No EWMH window manager: list the root's top-level children instead.
+    const fallback = await listToplevelWindowsWithoutWm(context);
+    if (fallback !== undefined) {
+      windowListCache.set(cacheKey, { at: Date.now(), windows: fallback });
+      return { supported: true, backend: "xwininfo", windows: fallback, reason: "Listed top-level X11 windows through xwininfo (no EWMH window manager)." };
+    }
     return {
       supported: false,
       backend: "wmctrl",
@@ -1271,6 +1312,50 @@ async function listRawWindows(context: LinuxDesktopContext = {}): Promise<  | { 
     windows,
     reason: "Listed visible X11 windows through wmctrl."
   };
+}
+
+const XWININFO_CHILD = /^\s*(0x[0-9a-f]+)\s+(?:"([^"]*)"|\(has no name\)):?\s*(?:\("([^"]*)"\s+"([^"]*)"\)|\(\))?\s*(\d+)x(\d+)[+-]-?\d+[+-]-?\d+\s+\+?(-?\d+)\+?(-?\d+)\s*$/i;
+
+/** Parses `xwininfo -root -children` into top-level windows; exported for tests. */
+export function parseXwininfoChildren(output: string): Array<{ windowId: string; title?: string; appClass?: string; bounds: DesktopWindowBounds }> {
+  const windows: Array<{ windowId: string; title?: string; appClass?: string; bounds: DesktopWindowBounds }> = [];
+  for (const line of output.split(/\r?\n/)) {
+    const match = XWININFO_CHILD.exec(line);
+    if (match === null) continue;
+    const width = Number(match[5]), height = Number(match[6]);
+    if (width <= 1 || height <= 1) continue;
+    windows.push({
+      windowId: String(Number.parseInt(match[1]!, 16)),
+      ...(match[2] === undefined || match[2] === "" ? {} : { title: match[2] }),
+      ...(match[4] === undefined ? {} : { appClass: match[4] }),
+      bounds: { x: Number(match[7]), y: Number(match[8]), width, height }
+    });
+  }
+  return windows;
+}
+
+async function listToplevelWindowsWithoutWm(context: LinuxDesktopContext): Promise<RawWindowSummary[] | undefined> {
+  const xwininfo = await findCommandPath("xwininfo", context);
+  if (xwininfo === undefined) return undefined;
+  const result = await runDesktopCommand(xwininfo, ["-root", "-children"], context).catch(() => undefined);
+  if (result === undefined || result.exitCode !== 0) return undefined;
+  const xdotool = await findCommandPath("xdotool", context);
+  const windows: RawWindowSummary[] = [];
+  for (const entry of parseXwininfoChildren(result.stdout)) {
+    const raw: RawWindowSummary = { windowId: entry.windowId, bounds: entry.bounds, ...(entry.title === undefined ? {} : { title: entry.title }) };
+    const pidResult = xdotool === undefined ? undefined : await runDesktopCommand(xdotool, ["getwindowpid", entry.windowId], context).catch(() => undefined);
+    const pid = pidResult?.exitCode === 0 ? Number(pidResult.stdout.trim()) : NaN;
+    if (Number.isInteger(pid) && pid > 0) {
+      raw.pid = pid;
+      const appName = await readProcessName(pid);
+      if (appName !== undefined) { raw.appName = appName; raw.appSensitivity = classifyAppSensitivity({ appName }); }
+    } else if (entry.appClass !== undefined) {
+      raw.appName = entry.appClass.toLowerCase();
+      raw.appSensitivity = classifyAppSensitivity({ appName: raw.appName });
+    }
+    windows.push(raw);
+  }
+  return windows;
 }
 
 const XWININFO_LINE = /^\s*(0x[0-9a-f]+)\s.*?\s(\d+)x(\d+)[+-]-?\d+[+-]-?\d+\s+\+?(-?\d+)\+?(-?\d+)\s*$/i;

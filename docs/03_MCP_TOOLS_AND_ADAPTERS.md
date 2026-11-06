@@ -1,7 +1,7 @@
 # AgentHost MCP Tools and Adapter Specification
 
 All callable tools return `ToolResult`. MCP transport is stdio. The current
-minimal-v2 server exposes 48 base tools. This number is generated from the
+minimal-v2 server exposes 62 base tools. This number is generated from the
 loaded set at startup; treat `system.list_capabilities` and
 `agenthost://capabilities` as authoritative instead of hard-coding counts.
 
@@ -67,6 +67,24 @@ present before the call. Missing backend data is omitted rather than guessed.
 | `file.delete` | high | state_changing + exact confirmation |
 | `shell.run` | high (classifier may lower) | state_changing; high effects confirm |
 
+### Browser (dedicated Chrome profile)
+
+| Tool | Risk | Execution |
+|---|---|---|
+| `browser.open` | medium | state_changing (routine) |
+| `browser.snapshot` | low | read_only |
+| `browser.click` | medium | state_changing (routine; pay/send/delete/submit controls need confirmation) |
+| `browser.type` | medium | state_changing (routine; password/OTP/card fields refused) |
+| `browser.navigate` | medium | state_changing (routine) |
+| `browser.close` | low | state_changing (routine) |
+
+These drive a separate Chrome/Chromium profile (`~/.agenthost/browser/profiles/agent`)
+over the DevTools Protocol on a loopback port, never the person's own profile.
+Elements are addressed by ref from the latest `browser.snapshot`; a ref from an
+older snapshot fails with `stale_ref`. Safety evaluates the page's origin and
+path (never the query string). Login, MFA, and other security pages are
+blocked and the result points the agent at `agent.request_handoff`.
+
 ### Agent control and tasks
 
 | Tool | Risk | Execution |
@@ -74,12 +92,31 @@ present before the call. Missing backend data is omitted rather than guessed.
 | `agent.status` | observe | read_only |
 | `agent.stop` | medium | metadata_only |
 | `agent.takeover_begin` | medium | metadata_only |
+| `agent.request_handoff` | medium | metadata_only |
 | `task.create` | low | metadata_only |
 | `task.status` | observe | metadata_only |
 | `task.list` | observe | metadata_only |
 | `task.update` | low | metadata_only |
 | `task.update_status` | low | metadata_only |
 | `task.add_event` | low | metadata_only |
+| `workflow.save` | low | metadata_only |
+| `workflow.list` | observe | metadata_only |
+| `workflow.get` | observe | metadata_only |
+| `workflow.delete` | low | metadata_only |
+| `memory.save` | low | metadata_only |
+| `memory.search` | observe | metadata_only |
+| `memory.delete` | low | metadata_only |
+
+Saved workflows are recalled plans, not a second way to execute. `workflow.save`
+stores up to 20 steps (max 100 workflows) under `~/.agenthost/workflows/` with
+`{{param}}` placeholders; it rejects unknown tools, `agent.*`/`task.*`/
+`workflow.*`/`computer.run_steps` steps, undeclared or unused parameters, and
+anything that looks like a secret. `workflow.get` returns the steps with
+parameters filled in and executes nothing: the agent passes them to
+`computer.run_steps`, so plan approval, per-step safety, stop/takeover, and
+audit apply as for any plan. Put `computer.wait_for` steps between actions to
+verify each one landed. Parameter values are substituted into string values
+structurally, so a value cannot add or change steps.
 
 `task.create` starts a persistent task, accepts observable `definitionOfDone`
 criteria (max 12), and clears any active task approval. Its guidance uses a
@@ -91,7 +128,7 @@ criterion; otherwise the call fails with `definition_of_done_unverified` and no
 state changes. Verified criteria are logged as `verification` events.
 Completed and cancelled tasks are terminal and clear active approval.
 
-`agent.stop` and `agent.takeover_begin` are not gated by the flags they set.
+`agent.stop`, `agent.takeover_begin` and `agent.request_handoff` are not gated by the flags they set.
 There is intentionally no MCP tool to resume or clear a stop/takeover; those
 are operator-only CLI actions. Agent/task control tools are metadata-only so a
 model can organize work or request a stop without minting action tokens.
@@ -248,9 +285,11 @@ central runner, dry-run, confirmation, stop/takeover, and audit path.
 
 ## Removed product surfaces
 
-Control Room, Browser Bridge, browser DOM tools, the runtime-activity service,
-workflow/scheduler/Forge tool families, speech tools, accessibility tools,
-and `task.execute_plan` are not registered in this minimal-v2 tree. Older
+Control Room, the Browser Bridge (paired browser extension), the extension-based
+browser DOM tools, the runtime-activity service, workflow/scheduler/Forge tool
+families, speech tools, and `task.execute_plan` are not registered in this
+minimal-v2 tree (saved plans via `workflow.*` are live; they only store data). The `ui.*` accessibility tools and the `browser.*` tools for
+AgentHost's own dedicated Chrome profile are live. Older
 sections of documents that mention them are historical.
 
 ## Overlay lifecycle

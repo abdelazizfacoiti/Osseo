@@ -5,9 +5,11 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, acceptConfirmation, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
+import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, acceptConfirmation, createPhonePairing, readPhonePairing, removePhonePairing, isValidChannelUrl, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
 import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
 import { attentionClear, attentionRequest, attentionStatus } from "./attention.js";
+import { physicalConsent } from "./phone.js";
+import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
 import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@agenthost/os-linux";
 import { claudeHooksAdd, claudeHooksRemove, claudeHooksStatus } from "./hooks.js";
 import { INTEGRATION_TARGETS, integrationAdd, integrationRemove, integrationStatus, publicIntegrationReport, type IntegrationAction, type IntegrationPaths, type IntegrationTarget } from "./integrations.js";
@@ -403,8 +405,8 @@ async function confirmationsCommand(args: ReturnType<typeof parseFlags>): Promis
 async function agentCommand(args: ReturnType<typeof parseFlags>): Promise<Output> {
   const action = args.positional[1];
   if (action === undefined || action === "status") {
-    const [runState, approval] = await Promise.all([readRunState(agentHome), readActiveTaskApproval(agentHome)]);
-    return { ok: true, command: "agent status", data: { runState, activeTaskApproval: approval ?? null } };
+    const [runState, approval, handoff] = await Promise.all([readRunState(agentHome), readActiveTaskApproval(agentHome), readHandoff(agentHome)]);
+    return { ok: true, command: "agent status", data: { runState, activeTaskApproval: approval ?? null, handoff } };
   }
   if (action === "stop") {
     const reason = args.values.get("reason") ?? "cli_agent_stop";
@@ -429,7 +431,10 @@ async function agentCommand(args: ReturnType<typeof parseFlags>): Promise<Output
     const clearPauseFlag = args.flags.has("pause");
     if (!clearStopFlag && !clearTakeoverFlag && !clearPauseFlag) return fail("agent resume", "usage: agenthost agent resume --stop|--takeover|--pause [flags may be combined]");
     if (clearStopFlag) await clearStop(agentHome);
-    if (clearTakeoverFlag) await endTakeover(agentHome);
+    if (clearTakeoverFlag) {
+      await endHandoff(agentHome);
+      await endTakeover(agentHome);
+    }
     if (clearPauseFlag) await clearPause(agentHome);
     return { ok: true, command: "agent resume", data: { runState: await readRunState(agentHome), cleared: { stop: clearStopFlag, takeover: clearTakeoverFlag, pause: clearPauseFlag } } };
   }
@@ -498,7 +503,7 @@ async function setupDeps(args: ReturnType<typeof parseFlags>): Promise<Output> {
 }
 async function doctor(): Promise<Output> {
   const config = await configValidate(); const mcp = await probeMcp(mcpEntry()); const checks = { platform: process.platform === "linux", architecture: process.arch === "x64", node: Number(process.versions.node.split(".")[0]) >= 20, python: commandExists("python3"), x11: Boolean(process.env.DISPLAY), gtkProbe: pythonModuleExists("import gi; from gi.repository import Gtk"), mcpEntry: existsSync(mcpEntry()), mcpHandshake: mcp.handshake, codexConfig: existsSync(path.join(process.env.CODEX_HOME ?? path.join(home, ".codex"), "config.toml")), storage: existsSync(agentHome) };
-  const warnings = [!checks.architecture ? "x86_64 is the public RC target." : "", !checks.python ? "Install Python 3 for overlay diagnostics." : "", !checks.x11 ? "X11 DISPLAY is unavailable; visible overlay is unsupported." : ""].filter(Boolean);
+  const warnings = [!checks.architecture ? "x86_64 is the public RC target." : "", !checks.python ? "Install Python 3 for overlay diagnostics." : "", !checks.x11 ? "X11 DISPLAY is unavailable; visible overlay is unsupported." : "", process.env.XDG_SESSION_TYPE === "wayland" ? "Wayland session: direct desktop control is unavailable. Set execution.placement to \"background\" (needs Xephyr) to work on a nested X display." : ""].filter(Boolean);
   if (!mcp.handshake) warnings.push(mcp.reason ?? "mcp_handshake_unavailable");
   const desktopDependencies = await checkLinuxRequirements();
   const missingPackages = missingAptPackages(desktopDependencies);
@@ -562,10 +567,100 @@ async function update(args: ReturnType<typeof parseFlags>): Promise<Output> {
   const releases = path.join(home, ".local", "share", "agenthost", "releases"); const manifestVersion = JSON.parse(await readFile(path.join(staged, "version.json"), "utf8")).version as string; if (manifestVersion !== version) return fail("update", "release_version_mismatch"); const destination = path.join(releases, version); await mkdir(releases, { recursive: true, mode: 0o700 }); await rm(destination, { recursive: true, force: true }); await rename(staged, destination); await safeWrite(`${publicConfig}.update.bak`, existsSync(publicConfig) ? await readFile(publicConfig, "utf8") : ""); const previous = `${current}.previous`; await rm(previous, { recursive: true, force: true }); if (existsSync(current)) await rename(current, previous); try { await rename(destination, current); } catch (error) { await rename(previous, current).catch(() => undefined); throw error; } return { ok: true, command: "update", data: { applied: true, version, checksumVerified: true, backup: "[config-backup]", rollbackAvailable: true } };
 }
 async function uninstall(flags: ReturnType<typeof parseFlags>): Promise<Output> { const data = { preview: !flags.flags.has("yes"), removes: ["[installed-release]", "[agenthost-wrapper]"], preserves: flags.flags.has("remove-data") ? [] : ["[agenthost-home]", "[config]"] }; if (!flags.flags.has("yes")) return { ok: true, command: "uninstall", data }; await stop(); await rm(path.join(home, ".local", "share", "agenthost"), { recursive: true, force: true }); await rm(path.join(home, ".local", "bin", "agenthost"), { force: true }); if (flags.flags.has("remove-data")) { await rm(agentHome, { recursive: true, force: true }); await rm(path.dirname(publicConfig), { recursive: true, force: true }); } return { ok: true, command: "uninstall", data: { ...data, preview: false } }; }
+async function workflowCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output & { exitCode?: number }> {
+  const name = args.positional[2];
+  if (sub === undefined || sub === "list") {
+    const workflows = await listWorkflows(agentHome);
+    return { ok: true, command: "workflow list", data: { workflows: workflows.map((workflow) => ({ name: workflow.name, description: workflow.description, parameters: workflow.parameters.map((parameter) => parameter.name), steps: workflow.steps.length, uses: workflow.uses, updatedAt: workflow.updatedAt })) } };
+  }
+  if (name === undefined) return fail(`workflow ${sub}`, `usage: agenthost workflow ${sub} <name>`);
+  if (sub === "show") {
+    const workflow = await loadWorkflow(agentHome, name);
+    return workflow === undefined ? fail("workflow show", "workflow_not_found") : { ok: true, command: "workflow show", data: redact(workflow) };
+  }
+  if (sub === "delete") return (await deleteWorkflow(agentHome, name)) ? { ok: true, command: "workflow delete", data: { deleted: name } } : fail("workflow delete", "workflow_not_found");
+  if (sub === "run") {
+    const summary = await runSavedWorkflow({ agentHome, mcpEntry: mcpEntry(), name, params: parseParams(process.argv.slice(2)) });
+    if (args.flags.has("unattended") && summary.status !== "completed") {
+      const body = summary.status === "needs_approval" ? `Workflow ${name} stopped: it needs your approval. Run: agenthost confirmations` : `Workflow ${name} stopped: ${summary.code ?? summary.status}`;
+      spawnSync("notify-send", ["-a", "AgentHost", "AgentHost scheduled workflow", body.slice(0, 200)], { stdio: "ignore" });
+    }
+    return { ok: summary.status === "completed", command: "workflow run", data: summary, exitCode: exitCodeFor(summary.status), ...(summary.status === "completed" ? {} : { error: `${summary.status}${summary.code === undefined ? "" : `:${summary.code}`}${summary.message === undefined ? "" : ` ${summary.message}`}` }) };
+  }
+  return fail("workflow", "usage: agenthost workflow list|show <name>|run <name> [--param k=v]|delete <name>");
+}
+async function memoryCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
+  if (sub === undefined || sub === "list") return { ok: true, command: "memory list", data: { lessons: await listMemory(agentHome) } };
+  if (sub === "delete") {
+    const id = args.positional[2];
+    if (id === undefined) return fail("memory delete", "usage: agenthost memory delete <id>");
+    await deleteMemory(agentHome, id);
+    return { ok: true, command: "memory delete", data: { deleted: id } };
+  }
+  if (sub === "clear") {
+    if (!args.flags.has("yes")) return { ok: true, command: "memory clear", data: { preview: true, lessons: (await listMemory(agentHome)).length, note: "Re-run with --yes to erase every lesson." } };
+    await clearMemory(agentHome);
+    return { ok: true, command: "memory clear", data: { cleared: true } };
+  }
+  return fail("memory", "usage: agenthost memory list|delete <id>|clear [--yes]");
+}
+async function phoneCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
+  if (sub === undefined || sub === "status") {
+    const pairing = await readPhonePairing(agentHome);
+    return { ok: true, command: "phone status", data: pairing === undefined ? { paired: false } : { paired: true, disabled: pairing.disabled, codesLeft: pairing.codes.length, maxRisk: pairing.maxRisk, publishUrl: "[configured]", pairedAt: pairing.pairedAt } };
+  }
+  if (sub === "unpair") { await removePhonePairing(agentHome); return { ok: true, command: "phone unpair", data: { paired: false } }; }
+  if (sub !== "pair") return fail("phone", "usage: agenthost phone status|pair --publish <url> --poll <url> [--max-risk medium|high]|unpair");
+  const publishUrl = args.values.get("publish"); const pollUrl = args.values.get("poll"); const maxRisk = args.values.get("max-risk") ?? "medium";
+  if (publishUrl === undefined || pollUrl === undefined) return fail("phone pair", "usage: agenthost phone pair --publish <url> --poll <url> [--max-risk medium|high]");
+  if (!isValidChannelUrl(publishUrl) || !isValidChannelUrl(pollUrl)) return fail("phone pair", "phone_channel_url_invalid: use https");
+  if (maxRisk !== "medium" && maxRisk !== "high") return fail("phone pair", "phone_max_risk_invalid: medium or high");
+  // Pairing grants approval power, so an agent must not be able to do it. Its
+  // shell has no terminal, and it cannot press the card with synthetic input.
+  if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return fail("phone pair", "phone_pair_needs_terminal: run this yourself in a terminal");
+  const config = await loadAgentHostConfig({ env: process.env });
+  if (config.overlay?.allowSyntheticControl === true) return fail("phone pair", "phone_pair_refused: overlay.allowSyntheticControl lets synthetic clicks press the card");
+  const consent = await physicalConsent(agentHome, publishUrl);
+  if (consent !== "allowed") return fail("phone pair", `phone_pair_not_confirmed: ${consent}`);
+  const { codes, pairing } = await createPhonePairing(agentHome, { publishUrl, pollUrl, maxRisk });
+  return { ok: true, command: "phone pair", data: `Paired. Approvals up to ${pairing.maxRisk} risk can now be answered from your phone.\n\nOne-time codes, shown only now. Save them on your phone, then clear this terminal:\n\n${codes.join("\n")}\n\nReply on the channel with: approve <ref> <code>  or  deny <ref> <code>` };
+}
+function systemdUserDir(): string { return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"), "systemd", "user"); }
+async function scheduleCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const name = args.positional[2];
+  const dir = systemdUserDir();
+  if (sub === undefined || sub === "list") {
+    const files = (await readdir(dir).catch(() => [] as string[])).filter((file) => file.startsWith("agenthost-wf-") && file.endsWith(".timer"));
+    return { ok: true, command: "schedule list", data: { timers: files.map((file) => file.slice("agenthost-wf-".length, -".timer".length)) } };
+  }
+  if (name === undefined) return fail(`schedule ${sub}`, `usage: agenthost schedule ${sub} <workflow>`);
+  const unit = scheduleUnitName(name);
+  if (sub === "add") {
+    if (await loadWorkflow(agentHome, name) === undefined) return fail("schedule add", "workflow_not_found");
+    const units = buildScheduleUnits({ workflow: name, schedule: parseSchedule(args.values), params: parseParams(process.argv.slice(2)), nodePath: process.execPath, cliPath: path.resolve(process.argv[1] ?? ""), agentHome, environment: process.env });
+    if (!args.flags.has("apply")) return { ok: true, command: "schedule add", data: { preview: true, wouldWrite: [path.join(dir, `${unit}.service`), path.join(dir, `${unit}.timer`)], service: units.service, timer: units.timer, note: "Re-run with --apply to install. A scheduled run never approves anything: it stops at the first step that needs approval and notifies you." } };
+    await safeMkdir(dir);
+    await writeFile(path.join(dir, `${unit}.service`), units.service, { mode: 0o600 });
+    await writeFile(path.join(dir, `${unit}.timer`), units.timer, { mode: 0o600 });
+    const reload = spawnSync("systemctl", ["--user", "daemon-reload"], { encoding: "utf8" });
+    const enable = spawnSync("systemctl", ["--user", "enable", "--now", `${unit}.timer`], { encoding: "utf8" });
+    if (reload.status !== 0 || enable.status !== 0) return fail("schedule add", `systemctl_failed: ${(enable.stderr || reload.stderr || "").trim().slice(0, 200)}`);
+    return { ok: true, command: "schedule add", data: { installed: `${unit}.timer` } };
+  }
+  if (sub === "remove") {
+    if (!args.flags.has("apply")) return { ok: true, command: "schedule remove", data: { preview: true, wouldRemove: [`${unit}.timer`, `${unit}.service`], note: "Re-run with --apply to remove." } };
+    spawnSync("systemctl", ["--user", "disable", "--now", `${unit}.timer`], { stdio: "ignore" });
+    await rm(path.join(dir, `${unit}.timer`), { force: true });
+    await rm(path.join(dir, `${unit}.service`), { force: true });
+    spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
+    return { ok: true, command: "schedule remove", data: { removed: unit } };
+  }
+  return fail("schedule", "usage: agenthost schedule list|add <workflow> --daily HH:MM|--weekdays HH:MM|--every 30m [--param k=v] [--apply]|remove <workflow> [--apply]");
+}
 async function main(): Promise<number> {
   const args = parseFlags(process.argv.slice(2)); const json = args.flags.has("json"); const [top, sub] = args.positional; let result: Output;
   try {
-    if (top === undefined || top === "help") result = { ok: true, command: "help", data: "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall" };
+    if (top === undefined || top === "help") result = { ok: true, command: "help", data: "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|phone|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall" };
     else if (top === "version") result = { ok: true, command: "version", data: { version: AGENTHOST_VERSION, platform: process.platform, architecture: process.arch } };
     else if (top === "doctor") result = await doctor();
     else if (top === "setup") result = sub === "deps" ? await setupDeps(args) : await setup(args);
@@ -585,8 +680,12 @@ async function main(): Promise<number> {
     else if (top === "update") result = await update(args);
     else if (top === "uninstall") result = await uninstall(args);
     else if (top === "overlay") result = await overlayCommand(sub, args);
+    else if (top === "workflow") result = await workflowCommand(sub, args);
+    else if (top === "schedule") result = await scheduleCommand(sub, args);
+    else if (top === "memory") result = await memoryCommand(sub, args);
+    else if (top === "phone") result = await phoneCommand(sub, args);
     else result = fail(top, "unknown_command");
   } catch (error) { result = fail(top ?? "agenthost", error instanceof Error ? error.message : "command_failed"); }
-  await print(result, json); return result.ok ? 0 : 1;
+  await print(result, json); return result.ok ? 0 : (result as { exitCode?: number }).exitCode ?? 1;
 }
 void main().then((code) => { process.exitCode = code; });

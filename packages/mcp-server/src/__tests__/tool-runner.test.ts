@@ -4,10 +4,14 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import {
+  beginHandoff,
+  endHandoff,
   acceptConfirmation,
   createTask,
   loadTask,
+  ACTION_CARD_PAUSE_PREFIX,
   clearPause,
+  readRunState,
   getDefaultPolicy,
   requestPause,
   requestStop,
@@ -192,6 +196,72 @@ describe("governed tool runner", () => {
     };
     const readResult = await runTool(readTool, {}, context);
     expect(readResult.ok).toBe(true);
+  });
+
+  it("refuses screen-reading tools during a human handoff and allows other reads", async () => {
+    const home = await tempHome();
+    await beginHandoff(home, { kind: "login", message: "Log in" });
+    const context = makeContext(home, []);
+    const makeRead = (name: string): AgentHostToolDefinition<Record<string, never>, unknown> => ({
+      name,
+      description: name,
+      riskLevel: "observe",
+      inputSchema: z.object({}).strict(),
+      mcpInputSchema: {},
+      inputSummary: name,
+      safety: { actionType: "observe" },
+      execution: readOnly(),
+      handler: async () => toolSuccess({ tool: name, riskLevel: "observe", data: { observed: true } })
+    });
+    for (const name of ["ui.tree", "clipboard.get", "vision.find_text_on_screen"]) {
+      const blocked = await runTool(makeRead(name), {}, context);
+      expect(blocked.error?.code, name).toBe("handoff_active");
+    }
+    expect((await runTool(makeRead("test.read"), {}, context)).ok).toBe(true);
+    await endHandoff(home);
+    expect((await runTool(makeRead("ui.tree"), {}, context)).ok).toBe(true);
+  });
+
+  it("pauses itself on a stuck loop and on the per-task action budget, and the card can resume", async () => {
+    const home = await tempHome();
+    const context = makeContext(home, []);
+    const handler = vi.fn(async () => undefined);
+    const tool: AgentHostToolDefinition<{ value: string }, unknown> = {
+      name: "test.direct",
+      description: "Direct state-changing test tool",
+      riskLevel: "low",
+      inputSchema: z.object({ value: z.string() }).strict(),
+      mcpInputSchema: {},
+      inputSummary: "test.direct",
+      safety: { actionType: "inspect" },
+      execution: { ...stateChanging(), requiresDryRun: false, requiresConfirmationToken: false, requiresExactTarget: false },
+      handler: async () => { await handler(); return toolSuccess({ tool: "test.direct", riskLevel: "low", data: {} }); }
+    };
+    let last = await runTool(tool, { value: "same" }, context);
+    for (let index = 1; index < 10; index += 1) last = await runTool(tool, { value: "same" }, context);
+    expect(handler).toHaveBeenCalledTimes(10);
+    expect(last.observations?.join(" ")).toContain("paused itself");
+    const state = await readRunState(home);
+    expect(state.pause.reason?.startsWith(ACTION_CARD_PAUSE_PREFIX)).toBe(true);
+    const halted = await runTool(tool, { value: "different" }, context);
+    expect(halted.error?.code).toBe("pause_requested");
+    expect(halted.error?.message).toContain("without progress");
+
+    await clearPause(home);
+    const budgetHome = await tempHome();
+    const budgetContext = makeContext(budgetHome, []);
+    budgetContext.config.execution = { placement: "foreground", maxActionsPerTask: 3 };
+    for (let index = 0; index < 3; index += 1) await runTool(tool, { value: `v${index}` }, budgetContext);
+    expect((await readRunState(budgetHome)).pause.reason).toContain("3 actions ran");
+  });
+
+  it("refuses ui tools on a nested display because AT-SPI reaches the real desktop", async () => {
+    const home = await tempHome();
+    const context = { ...makeContext(home, []), linux: { backgroundDisplay: ":90" } } as unknown as AgentHostMcpContext;
+    const handler = vi.fn(async () => toolSuccess({ tool: "ui.tree", riskLevel: "observe", data: {} }));
+    const uiTree: AgentHostToolDefinition<Record<string, never>, unknown> = { name: "ui.tree", description: "x", riskLevel: "observe", inputSchema: z.object({}).strict(), mcpInputSchema: {}, inputSummary: "x", safety: { actionType: "observe" }, execution: readOnly(), handler };
+    expect((await runTool(uiTree, {}, context)).error?.code).toBe("unsupported_in_background");
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it("halts state-changing tools under pause while allowing observation", async () => {
