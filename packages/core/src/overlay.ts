@@ -29,6 +29,8 @@ export interface OverlayPublicConfig {
   dockSide: OverlayDockSide;
   dockWidthPercent: number;
   dockReserveSpace: boolean;
+  /** Let synthetic (XTEST) clicks press control buttons such as Approve and Stop. Default false. */
+  allowSyntheticControl?: boolean;
   /** Newest-first list of agent actions inside the dock (dock layout only). */
   timeline: boolean;
   frame: boolean;

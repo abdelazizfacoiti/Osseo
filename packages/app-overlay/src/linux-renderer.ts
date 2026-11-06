@@ -17,6 +17,8 @@ export interface OverlayVisualConfig {
   dockWidthPercent: number;
   dockReserveSpace: boolean;
   maxWidth: number;
+  /** Let XTEST (synthetic) clicks press control buttons. Off by default; remote-desktop users may need it. */
+  allowSyntheticControl?: boolean;
 }
 export interface LinuxOverlayRendererOptions { environment?: OverlayEnvironment; mode?: OverlayRendererMode; sessionId?: string; pythonCommand?: string; scriptPath?: string; commandTimeoutMs?: number; startupTimeoutMs?: number; renderAckTimeoutMs?: number; maxRestarts?: number; probe?: () => Promise<OverlayCapabilityReport> | OverlayCapabilityReport; spawnProcess?: LinuxOverlaySpawn; pidFilePath?: string | null; visual?: Partial<OverlayVisualConfig>; /** File AgentHost touches while it injects pointer/keyboard input; control buttons ignore clicks while it is fresh. */ inputGuardPath?: string; }
 

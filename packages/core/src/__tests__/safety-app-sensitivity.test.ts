@@ -33,3 +33,18 @@ describe("classifyAppSensitivity", () => {
     expect(classifyAppSensitivity({ appName: "Mystery App" })).toBe("unknown");
   });
 });
+
+describe("user blocked apps", () => {
+  it("treats configured apps like credential/security apps and can be cleared", async () => {
+    const { classifyAppSensitivity, setUserBlockedApps } = await import("../safety/app-sensitivity.js");
+    expect(classifyAppSensitivity({ appName: "Spotify" })).toBe("unknown");
+    setUserBlockedApps(["spotify", "x"]);
+    try {
+      expect(classifyAppSensitivity({ appName: "Spotify Premium" })).toBe("credential_or_security");
+      expect(classifyAppSensitivity({ appName: "Firefox" })).toBe("unknown");
+    } finally {
+      setUserBlockedApps([]);
+    }
+    expect(classifyAppSensitivity({ appName: "Spotify" })).toBe("unknown");
+  });
+});

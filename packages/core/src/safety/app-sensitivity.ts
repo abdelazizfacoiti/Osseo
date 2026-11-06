@@ -80,6 +80,23 @@ function matchesAny(value: string, patterns: RegExp[]): boolean {
   return patterns.some((pattern) => pattern.test(value));
 }
 
+let userBlockedApps: string[] = [];
+
+/**
+ * Apps the operator never wants automated (config `blockedApps`). Matching is a
+ * case-insensitive substring of the app id, name, or URL, and a match is
+ * treated exactly like a credential/security app: blocked for control and reads.
+ */
+export function setUserBlockedApps(names: readonly string[]): void {
+  userBlockedApps = names.map((name) => name.trim().toLowerCase()).filter((name) => name.length >= 2);
+}
+
+export function isUserBlockedApp(input: Pick<SafetyInput, "appId" | "appName" | "url">): boolean {
+  if (userBlockedApps.length === 0) return false;
+  const value = combinedInput(input).toLowerCase();
+  return value.length > 0 && userBlockedApps.some((name) => value.includes(name));
+}
+
 export function classifyAppSensitivity(input: Pick<SafetyInput, "appId" | "appName" | "url">): AppSensitivity {
   const value = combinedInput(input);
 
@@ -87,7 +104,7 @@ export function classifyAppSensitivity(input: Pick<SafetyInput, "appId" | "appNa
     return "unknown";
   }
 
-  if (matchesAny(value, CREDENTIAL_OR_SECURITY_PATTERNS)) {
+  if (isUserBlockedApp(input) || matchesAny(value, CREDENTIAL_OR_SECURITY_PATTERNS)) {
     return "credential_or_security";
   }
 

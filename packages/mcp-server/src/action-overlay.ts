@@ -388,7 +388,7 @@ export class ToolActionOverlay {
       { type: "status_badge", status: badge.status, text: this.#compact ? `${badge.text} · ${riskLabel(risk)}` : badge.text },
       { type: "text", text: this.#detailText(phase, current) }
     ];
-    if (phase === "waiting_approval") components.push({ type: "warning", text: "Approval required. Run: agenthost confirmations" });
+    if (phase === "waiting_approval") components.push({ type: "warning", text: "Approval required. Press Approve on the approval card, or run: agenthost confirmations" });
     if (phase === "paused") components.push({ type: "warning", text: "Paused. Resume here or run: agenthost agent resume --pause" });
     if (phase === "halted" && this.#stopRequested) components.push({ type: "warning", text: "Stop is active. Dismiss this card or run: agenthost agent resume --stop" });
     if (this.#controlError !== undefined) components.push({ type: "warning", text: this.#controlError });
