@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `agenthost overlay check-input`: a harmless card to confirm that a real
+  mouse or touchpad press is accepted by the Approve/Continue/Resume checks.
 - Fixed a way around the approval cards: a process with `/dev/uinput` access
   could press Approve, Continue, or Resume with a virtual mouse. Those presses
   now require a device proven physical by its sysfs path. Stop and Pause are

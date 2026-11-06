@@ -6,6 +6,21 @@ import path from "node:path";
  * accepted/rejected, so an agent driving this machine cannot complete pairing.
  */
 export async function physicalConsent(agentHome: string, publishUrl: string, timeoutMs = 90_000): Promise<"allowed" | "denied" | "timed_out" | "overlay_unavailable"> {
+  return pressCard(agentHome, {
+    title: "Allow phone approvals?",
+    badge: "Only press this if you started it",
+    text: `Approval requests, with previews, will be sent to ${new URL(publishUrl).hostname}, and replies from there can approve actions on this computer.`,
+    allow: "Allow",
+    deny: "Cancel"
+  }, timeoutMs);
+}
+
+/** Harmless card for checking that a real press is accepted. It changes nothing. */
+export function pressCheck(agentHome: string, timeoutMs = 60_000): Promise<"allowed" | "denied" | "timed_out" | "overlay_unavailable"> {
+  return pressCard(agentHome, { title: "Input check", badge: "Test only, nothing changes", text: "Press Allow with your mouse or touchpad. A press from a script or virtual mouse is ignored.", allow: "Allow", deny: "Cancel" }, timeoutMs);
+}
+
+async function pressCard(agentHome: string, card: { title: string; badge: string; text: string; allow: string; deny: string }, timeoutMs: number): Promise<"allowed" | "denied" | "timed_out" | "overlay_unavailable"> {
   const { createOverlayRenderer, OverlayManager } = await import("@agenthost/app-overlay");
   const sessionId = `cli-phone-pair-${process.pid}`;
   const renderer = createOverlayRenderer("auto", { sessionId, environment: process.env, inputGuardPath: path.join(agentHome, "run", "input-active") });
@@ -15,12 +30,12 @@ export async function physicalConsent(agentHome: string, publishUrl: string, tim
     const widgetId = `agenthost-phone-pair-${process.pid}`;
     const shown = await manager.showWidget({
       widgetId,
-      title: "Allow phone approvals?",
+      title: card.title,
       components: [
-        { type: "status_badge", status: "warning", text: "Only press this if you started it" },
-        { type: "text", text: `Approval requests, with previews, will be sent to ${new URL(publishUrl).hostname}, and replies from there can approve actions on this computer.` },
-        { type: "button", label: "Allow", event: "accepted" },
-        { type: "button", label: "Cancel", event: "rejected" }
+        { type: "status_badge", status: "warning", text: card.badge },
+        { type: "text", text: card.text },
+        { type: "button", label: card.allow, event: "accepted" },
+        { type: "button", label: card.deny, event: "rejected" }
       ],
       placement: "top_center",
       style: { semantic: "warning", elevation: "high" },

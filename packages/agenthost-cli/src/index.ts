@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, acceptConfirmation, createPhonePairing, readPhonePairing, removePhonePairing, isValidChannelUrl, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
 import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
 import { attentionClear, attentionRequest, attentionStatus } from "./attention.js";
-import { physicalConsent } from "./phone.js";
+import { physicalConsent, pressCheck } from "./phone.js";
 import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
 import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@agenthost/os-linux";
 import { claudeHooksAdd, claudeHooksRemove, claudeHooksStatus } from "./hooks.js";
@@ -473,6 +473,14 @@ async function attentionCommand(args: ReturnType<typeof parseFlags>): Promise<Ou
 }
 async function overlayCommand(sub: string | undefined, flags: ReturnType<typeof parseFlags>): Promise<Output> {
   const { listOverlayRendererPids, sweepOrphanedOverlayRenderers } = await import("@agenthost/app-overlay");
+  if (sub === "check-input") {
+    const result = await pressCheck(agentHome);
+    const advice = result === "allowed" ? "Your press was accepted as a real hardware press."
+      : result === "denied" ? "You pressed Cancel."
+      : result === "timed_out" ? "No accepted press. If you did press Allow, it was rejected: check that xinput is installed (agenthost setup deps) and that you used a physical mouse or touchpad."
+      : "No overlay could be shown here (needs an X11 display and GTK).";
+    return { ok: result === "allowed", command: "overlay check-input", data: { result, note: advice }, ...(result === "allowed" ? {} : { error: `${result}: ${advice}` }) };
+  }
   if (sub === "hide") {
     const orphansOnly = flags.flags.has("orphans");
     if (!orphansOnly) await safeWrite(path.join(agentHome, "run", "overlay.hide"), `${JSON.stringify({ hidden: true, reason: "cli_overlay_hide", at: new Date().toISOString() })}\n`);

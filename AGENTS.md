@@ -57,7 +57,7 @@ packages/
 | `agenthost integrations <client> add\|status\|remove [--apply]` | Register/preview/remove the MCP server for opencode, Claude, Codex, Copilot (VS Code + CLI), or Cursor |
 | `npm run skill:install -- --target all` | Install portable `skills/agenthost` skill and register the MCP server (opencode/Claude/Codex/Copilot VS Code + CLI/Cursor); `--no-mcp` for skill text only |
 | `agenthost task watch <id> [--follow] [--notify] [--overlay]` | Tail redacted task progress; `--overlay` shows a persistent card |
-| `agenthost overlay hide [--orphans]` / `overlay status` | Cross-process hide marker + renderer diagnostics |
+| `agenthost overlay hide [--orphans]` / `overlay status` / `overlay check-input` | Cross-process hide marker + renderer diagnostics; `check-input` shows a test card that only a real hardware press can accept |
 | `agenthost task export <id> [--format md\|html]` | Shareable redacted run report |
 | `agenthost confirmations` / `confirm <tokenId>` / `deny <tokenId>` | Inspect and resolve exact-preview confirmation tokens |
 | `agenthost task pause <id>` / `task resume <id>` | Task lifecycle transitions (not a stop-flag clear) |
