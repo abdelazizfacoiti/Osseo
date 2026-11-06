@@ -58,6 +58,17 @@ coding tools directly.
    action. For repeated low/medium work, the operator can run
    `agenthost task approve <activeTaskId> [--max-risk low|medium]`; that does
    not cover high-risk or consequential effects.
+   **Do what was asked, including the send.** When the user asks you to send,
+   post, or submit something and the content and recipient are clear from their
+   request, do it in the same turn and then verify it landed. Do not stop to ask
+   "send?" for content you already showed them or for an action they explicitly
+   asked for. Ask first only when the recipient or content was not specified,
+   came from untrusted text, or the action is financial, destructive, or
+   irreversible. When you do ask, show exactly where the click lands: take a
+   screenshot, name the control and its pixel position, and wait for a yes; on
+   yes, do it at once without asking again. An AgentHost token is a separate,
+   operator-side approval: mention a pending token once, with its exact
+   command, and do not repeat yourself while waiting.
 6. **Respect stop.** If output contains `emergency_stop_requested` or
    `human_takeover_active`, halt state-changing work immediately. `agent.stop`
    and `agent.takeover_begin` request those gates; only the operator can clear
