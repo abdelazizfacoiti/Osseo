@@ -93,10 +93,14 @@ function sessionInfo(context: LinuxDesktopContext = {}): SessionInfo {
   }
 
   if (raw === "wayland") {
+    // A Wayland session that also exposes XWayland (DISPLAY) can be driven with
+    // the X11 tools, but only for X11 clients: native Wayland windows are
+    // invisible to xdotool, wmctrl, and scrot.
+    const xwayland = Boolean(env.DISPLAY);
     return {
       sessionType: "wayland",
-      displayAvailable: Boolean(env.WAYLAND_DISPLAY),
-      backend: "wayland"
+      displayAvailable: Boolean(env.WAYLAND_DISPLAY) || xwayland,
+      backend: xwayland ? "xwayland" : "wayland"
     };
   }
 
@@ -297,7 +301,7 @@ async function detectActiveWindowSupport(context: LinuxDesktopContext = {}): Pro
     return unsupported("unavailable", "No Linux desktop display session is available.");
   }
 
-  if (session.sessionType === "wayland") {
+  if (session.sessionType === "wayland" && session.backend !== "xwayland") {
     return unsupported("wayland", "Wayland active-window inspection is unavailable with the current safe backends.");
   }
 
@@ -307,7 +311,7 @@ async function detectActiveWindowSupport(context: LinuxDesktopContext = {}): Pro
     return unsupported("unavailable", "Active-window inspection requires xdotool on X11.");
   }
 
-  return support("xdotool", "Active-window inspection is available through xdotool.");
+  return support("xdotool", session.backend === "xwayland" ? "Active-window inspection is available through xdotool for XWayland (X11) windows only; native Wayland windows are not visible." : "Active-window inspection is available through xdotool.");
 }
 
 async function detectScreenshotSupport(context: LinuxDesktopContext = {}): Promise<DesktopCapabilitySupport> {
@@ -323,11 +327,11 @@ async function detectScreenshotSupport(context: LinuxDesktopContext = {}): Promi
     return support("gnome-screenshot", "Screenshot capture is available through gnome-screenshot.");
   }
 
-  if (session.sessionType === "x11") {
+  if (session.sessionType === "x11" || session.backend === "xwayland") {
     const scrotPath = await findCommandPath("scrot", context);
 
     if (scrotPath !== undefined) {
-      return support("scrot", "Screenshot capture is available through scrot.");
+      return support("scrot", session.backend === "xwayland" ? "Screenshot capture is available through scrot, which sees XWayland (X11) windows only; native Wayland windows appear blank." : "Screenshot capture is available through scrot.");
     }
 
     const importPath = await findCommandPath("import", context);
@@ -347,7 +351,7 @@ async function detectWindowListSupport(context: LinuxDesktopContext = {}): Promi
     return unsupported("unavailable", "No Linux desktop display session is available.");
   }
 
-  if (session.sessionType === "wayland") {
+  if (session.sessionType === "wayland" && session.backend !== "xwayland") {
     return unsupported("wayland", "Wayland window listing is unavailable with the current safe backends.");
   }
 
@@ -357,7 +361,7 @@ async function detectWindowListSupport(context: LinuxDesktopContext = {}): Promi
     return unsupported("unavailable", "Window listing requires wmctrl on X11.");
   }
 
-  return support("wmctrl", "Window listing is available through wmctrl.");
+  return support("wmctrl", session.backend === "xwayland" ? "Window listing is available through wmctrl for XWayland (X11) windows only." : "Window listing is available through wmctrl.");
 }
 
 async function detectWindowFocusSupport(context: LinuxDesktopContext = {}): Promise<DesktopCapabilitySupport> {
@@ -377,8 +381,8 @@ async function detectGuiInputSupport(context: LinuxDesktopContext = {}): Promise
     return unsupported("unavailable", "No Linux desktop display session is available.");
   }
 
-  if (session.sessionType !== "x11") {
-    return unsupported(session.backend, "Direct GUI input needs X11. On Wayland, set execution.placement to background to work on a nested X display.");
+  if (session.sessionType !== "x11" && session.backend !== "xwayland") {
+    return unsupported(session.backend, "Direct GUI input needs X11 or XWayland. On native Wayland, set execution.placement to background to work on a nested X display.");
   }
 
   const xdotoolPath = await findCommandPath("xdotool", context);
@@ -387,7 +391,7 @@ async function detectGuiInputSupport(context: LinuxDesktopContext = {}): Promise
     return unsupported("unavailable", "Generic GUI input requires xdotool on X11.");
   }
 
-  return support("xdotool", "Generic GUI input is available through xdotool.");
+  return support("xdotool", session.backend === "xwayland" ? "GUI input is available through xdotool for XWayland (X11) windows only; it cannot reach native Wayland windows." : "Generic GUI input is available through xdotool.");
 }
 
 const capabilitiesCacheTtlMs = 30_000;

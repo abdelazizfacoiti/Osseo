@@ -14,6 +14,7 @@ import {
   JsonlAuditLogger,
   JsonlTraceLogger,
   loadAgentHostConfig,
+  describeDesktopPlatform,
   setUserBlockedApps,
   summarizeForLog,
   validateOptionalAdapterExecutionPolicy,
@@ -415,8 +416,10 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     if (process.env.NODE_ENV !== "test") await overlay.prewarm();
     await taskActivity.initialize();
   }
+  const platformReport = describeDesktopPlatform();
   const linux: LinuxAutomation =
     options.linux ?? {
+      ...(platformReport.os !== "linux" ? { unsupportedPlatform: platformReport.guidance[0] ?? "This operating system has no desktop adapter." } : {}),
       ...(backgroundDisplay === undefined ? {} : { backgroundDisplay: backgroundDisplay.display }),
       getSystemInfo: () => getLinuxSystemInfo(config, registry),
       checkDependency: (input) => checkLinuxDependency(input),

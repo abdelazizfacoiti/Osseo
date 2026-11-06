@@ -405,4 +405,16 @@ describe("Linux desktop helpers", () => {
     expect(geometry.has(String(0x300000b))).toBe(false);
     expect(geometry.get(String(0x3000002))).toEqual({ x: -100, y: -100, width: 10, height: 10 });
   });
+
+  it("treats a Wayland session with XWayland as X11-capable for X11 windows only", async () => {
+    const env = { PATH: "", WAYLAND_DISPLAY: "wayland-0", XDG_SESSION_TYPE: "wayland", DISPLAY: ":0" };
+    const capabilities = await getLinuxDesktopCapabilities({ env });
+    expect(capabilities.backend).toBe("xwayland");
+    expect(capabilities.guiInput.reason).toMatch(/XWayland|xdotool/);
+    // Native Wayland (no XWayland) stays unsupported and says why.
+    const native = await getLinuxDesktopCapabilities({ env: { PATH: "", WAYLAND_DISPLAY: "wayland-0", XDG_SESSION_TYPE: "wayland" } });
+    expect(native.guiInput.supported).toBe(false);
+    expect(native.guiInput.reason).toMatch(/nested X display/);
+    expect(native.backend).toBe("wayland");
+  });
 });

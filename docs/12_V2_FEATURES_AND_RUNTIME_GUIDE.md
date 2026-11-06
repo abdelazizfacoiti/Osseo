@@ -886,9 +886,12 @@ Limits, all by design or environment:
 
 ### Wayland
 
-Direct control is not available on Wayland: there is no XTEST or global window
-list, and the overlay needs X11. `execution.placement: "background"` is the
-supported path, because Xephyr runs under XWayland and gives AgentHost a real X
+On a Wayland session with XWayland, windows, input, screenshots, and cards work
+for X11 (XWayland) apps. Native Wayland windows are not reachable directly: there
+is no XTEST or global window list. See `docs/13_PLATFORMS.md`.
+
+For native Wayland apps, `execution.placement: "background"` is the supported
+path, because Xephyr runs under XWayland and gives AgentHost a real X
 display. Apps must be started by AgentHost to live inside it; it cannot control
 native Wayland windows outside it. This was verified end to end against a
 headless GNOME Wayland compositor using a standalone `Xwayland`; mutter's own

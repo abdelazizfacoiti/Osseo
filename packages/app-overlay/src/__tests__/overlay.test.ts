@@ -103,6 +103,9 @@ describe("overlay foundation", () => {
   it("probes X11, Wayland, and headless without opening windows", () => {
     expect(probeLinuxOverlay({ XDG_SESSION_TYPE: "x11", DISPLAY: ":0" }).sessionType).toBe("x11");
     expect(probeLinuxOverlay({ XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" }).sessionType).toBe("wayland");
+    // XWayland lets the GTK3 renderer run through GDK_BACKEND=x11; without it Wayland stays unsupported.
+    expect(probeLinuxOverlay({ XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0", DISPLAY: ":0" }, { gtk3Available: true })).toMatchObject({ supported: true, sessionType: "wayland", renderer: "gtk3-x11" });
+    expect(probeLinuxOverlay({ XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" }, { gtk3Available: true }).supported).toBe(false);
     expect(probeLinuxOverlay({}).displayAvailable).toBe(false);
   });
 });

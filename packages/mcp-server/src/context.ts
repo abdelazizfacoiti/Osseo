@@ -88,6 +88,8 @@ export interface LinuxAutomation {
   browser?: BrowserAutomation;
   /** Nested X display all desktop work runs on, when execution.placement is background. */
   backgroundDisplay?: string;
+  /** Set when this OS has no desktop adapter; desktop-touching tools then fail with unsupported_platform. */
+  unsupportedPlatform?: string;
   focusWindow(input: { windowId?: string; appName?: string; title?: string; pid?: number }): Promise<WindowFocusResult>;
   hotkey(input: { keys: string[]; activeWindow: DesktopWindowContext }): Promise<DesktopHotkeyResult>;
   typeText(input: { text: string; activeWindow: DesktopWindowContext }): Promise<DesktopTypeTextResult>;

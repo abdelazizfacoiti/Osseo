@@ -264,6 +264,17 @@ describe("governed tool runner", () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
+  it("fails desktop tools with unsupported_platform where there is no adapter, but not other tools", async () => {
+    const home = await tempHome();
+    const context = { ...makeContext(home, []), linux: { unsupportedPlatform: "Windows desktop control is not implemented yet." } } as unknown as AgentHostMcpContext;
+    const make = (name: string, handler: () => Promise<unknown>): AgentHostToolDefinition<Record<string, never>, unknown> => ({ name, description: "x", riskLevel: "observe", inputSchema: z.object({}).strict(), mcpInputSchema: {}, inputSummary: "x", safety: { actionType: "observe" }, execution: readOnly(), handler: handler as never });
+    const desktopHandler = vi.fn(async () => toolSuccess({ tool: "window.list", riskLevel: "observe", data: {} }));
+    const blocked = await runTool(make("window.list", desktopHandler), {}, context);
+    expect(blocked.error?.code).toBe("unsupported_platform");
+    expect(desktopHandler).not.toHaveBeenCalled();
+    expect((await runTool(make("file.exists", async () => toolSuccess({ tool: "file.exists", riskLevel: "observe", data: {} })), {}, context)).ok).toBe(true);
+  });
+
   it("halts state-changing tools under pause while allowing observation", async () => {
     const home = await tempHome();
     await requestPause(home, "test pause");

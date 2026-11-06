@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, acceptConfirmation, createPhonePairing, readPhonePairing, removePhonePairing, isValidChannelUrl, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
+import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, describeDesktopPlatform, acceptConfirmation, createPhonePairing, readPhonePairing, removePhonePairing, isValidChannelUrl, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
 import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
 import { attentionClear, attentionRequest, attentionStatus } from "./attention.js";
 import { physicalConsent, pressCheck } from "./phone.js";
@@ -511,12 +511,13 @@ async function setupDeps(args: ReturnType<typeof parseFlags>): Promise<Output> {
 }
 async function doctor(): Promise<Output> {
   const config = await configValidate(); const mcp = await probeMcp(mcpEntry()); const checks = { platform: process.platform === "linux", architecture: process.arch === "x64", node: Number(process.versions.node.split(".")[0]) >= 20, python: commandExists("python3"), x11: Boolean(process.env.DISPLAY), gtkProbe: pythonModuleExists("import gi; from gi.repository import Gtk"), mcpEntry: existsSync(mcpEntry()), mcpHandshake: mcp.handshake, codexConfig: existsSync(path.join(process.env.CODEX_HOME ?? path.join(home, ".codex"), "config.toml")), storage: existsSync(agentHome) };
-  const warnings = [!checks.architecture ? "x86_64 is the public RC target." : "", !checks.python ? "Install Python 3 for overlay diagnostics." : "", !checks.x11 ? "X11 DISPLAY is unavailable; visible overlay is unsupported." : "", process.env.XDG_SESSION_TYPE === "wayland" ? "Wayland session: direct desktop control is unavailable. Set execution.placement to \"background\" (needs Xephyr) to work on a nested X display." : ""].filter(Boolean);
+  const desktopPlatform = describeDesktopPlatform();
+  const warnings = [!checks.architecture ? "x86_64 is the public RC target." : "", !checks.python ? "Install Python 3 for overlay diagnostics." : "", ...desktopPlatform.guidance].filter(Boolean);
   if (!mcp.handshake) warnings.push(mcp.reason ?? "mcp_handshake_unavailable");
   const desktopDependencies = await checkLinuxRequirements();
   const missingPackages = missingAptPackages(desktopDependencies);
   if (missingPackages.length > 0) warnings.push(`Missing desktop tools (${desktopDependencies.filter((dependency) => !dependency.installed).map((dependency) => dependency.name).join(", ")}). Run: agenthost setup deps --apply (or sudo apt install ${missingPackages.join(" ")})`);
-  return { ok: config.ok, command: "doctor", data: { version: AGENTHOST_VERSION, checks, desktopDependencies, config: config.ok ? "valid" : config.error, mcp, process: await status(), activity: (await readActivityStatus(agentHome)) ?? null, paths: { agentHostHome: "[agenthost-home]", config: "[config]", mcpEntry: "[installed-mcp-runtime]" } }, warnings };
+  return { ok: config.ok, command: "doctor", data: { version: AGENTHOST_VERSION, checks, desktopPlatform, desktopDependencies, config: config.ok ? "valid" : config.error, mcp, process: await status(), activity: (await readActivityStatus(agentHome)) ?? null, paths: { agentHostHome: "[agenthost-home]", config: "[config]", mcpEntry: "[installed-mcp-runtime]" } }, warnings };
 }
 async function integrationsCommand(targetArg: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
   const action = (args.positional[2] ?? "status") as IntegrationAction;

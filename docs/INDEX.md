@@ -11,6 +11,7 @@ surfaces that are not registered in this tree.
 | [System architecture](02_SYSTEM_ARCHITECTURE.md) | Packages, stores, renderer, and runtime flow |
 | [MCP tools and adapters](03_MCP_TOOLS_AND_ADAPTERS.md) | Live tool inventory and adapter boundaries |
 | [Security, permissions, and logging](04_SECURITY_PERMISSIONS_AND_LOGGING.md) | Grants, confirmations, redaction, and privacy |
+| [Platforms and session types](13_PLATFORMS.md) | What works on X11, XWayland, native Wayland, Windows, and macOS; how to add an adapter |
 | [Release and operations](08_RELEASE_AND_OPERATIONS.md) | Packaging, install, CLI, and release checks |
 | [Privacy and support](11_PRIVACY_AND_SUPPORT.md) | Data boundary, support states, and manual checks |
 | [V2 features and runtime guide](12_V2_FEATURES_AND_RUNTIME_GUIDE.md) | Consolidated live feature inventory, safety flow, CLI, overlay, and limits |

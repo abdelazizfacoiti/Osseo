@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Wayland sessions that expose XWayland now work for X11 apps: window list,
+  focus, type, click, screenshot, and the overlay cards (GTK runs with
+  `GDK_BACKEND=x11`). Each result says it reaches XWayland windows only.
+- Added `describeDesktopPlatform()` and a `desktopPlatform` section in
+  `agenthost doctor`. On Windows and macOS, desktop tools now fail with
+  `unsupported_platform` instead of a Linux error. See `docs/13_PLATFORMS.md`.
 - Added `agenthost overlay check-input`: a harmless card to confirm that a real
   mouse or touchpad press is accepted by the Approve/Continue/Resume checks.
 - Fixed a way around the approval cards: a process with `/dev/uinput` access

@@ -421,6 +421,9 @@ async function executeGoverned(
       });
     }
   }
+  if (context.linux?.unsupportedPlatform !== undefined && (DESKTOP_FAMILIES.has(tool.name.split(".", 1)[0] ?? "") || tool.name === "vision.find_text_on_screen")) {
+    return toolFailure({ tool: tool.name, riskLevel: tool.riskLevel, error: { code: "unsupported_platform", message: context.linux.unsupportedPlatform }, observations: ["No action was executed.", "File, shell, task, workflow, memory, and handoff tools still work on this machine."] });
+  }
   if (context.linux?.backgroundDisplay !== undefined && tool.name.startsWith("ui.")) {
     // AT-SPI is one session-wide bus, so ui.* would reach the person's real apps.
     const message = "ui.* tools are unavailable in background placement because they would reach apps on the real desktop. Use screenshots and desktop input on the nested display.";
@@ -661,6 +664,8 @@ interface RepeatEntry {
 
 /** Tools whose results carry text written by someone else (a web page, document, or clipboard). */
 const UNTRUSTED_CONTENT_TOOLS = new Set(["vision.analyze_image", "vision.find_text", "vision.find_target", "vision.find_text_on_screen", "ui.tree", "ui.find", "file.read", "file.read_many", "clipboard.get", "browser.snapshot", "memory.search"]);
+/** Tool families that need a desktop adapter for the host OS. */
+const DESKTOP_FAMILIES = new Set(["desktop", "window", "app", "ui", "clipboard"]);
 const ACTION_COUNTS = new WeakMap<AgentHostMcpContext, number>();
 const LOOP_GUARD_REPEATS = 10;
 const REPEAT_TRACKER = new WeakMap<AgentHostMcpContext, Map<string, RepeatEntry>>();

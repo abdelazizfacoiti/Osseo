@@ -191,7 +191,8 @@ export class LinuxOverlayRenderer implements OverlayRenderer {
   async #probe(): Promise<OverlayCapabilityReport> {
     if (this.#probeOverride !== undefined) { this.#gtk3Available = true; this.#report = await this.#probeOverride(); return this.#report; }
     const session = (this.#environment.XDG_SESSION_TYPE ?? (this.#environment.DISPLAY ? "x11" : this.#environment.WAYLAND_DISPLAY ? "wayland" : "unknown")).toLowerCase();
-    if (session !== "x11" || this.#environment.DISPLAY === undefined) { this.#gtk3Available = false; const report = probeLinuxOverlay(this.#environment, { gtk3Available: false }); this.#report = fallbackReport(report, report.reason); return this.#report; }
+    const viaXwayland = session === "wayland" && this.#environment.DISPLAY !== undefined;
+    if ((session !== "x11" && !viaXwayland) || this.#environment.DISPLAY === undefined) { this.#gtk3Available = false; const report = probeLinuxOverlay(this.#environment, { gtk3Available: false }); this.#report = fallbackReport(report, report.reason); return this.#report; }
     const gtkAvailable = await probeGtk3(this.#environment); this.#gtk3Available = gtkAvailable;
     const report = probeLinuxOverlay(this.#environment, { gtk3Available: gtkAvailable });
     this.#report = report.supported ? report : fallbackReport(report, report.reason);
@@ -313,7 +314,7 @@ export class LinuxOverlayRenderer implements OverlayRenderer {
   }
 
   #captureStderr(chunk: string): void { const safe = chunk.slice(-2_048).replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[A-Za-z0-9+/=_-]{32,}/g, "[redacted]").replace(/\s+/g, " ").trim(); if (!safe) return; this.#lastStderrSummary = `${this.#lastStderrSummary ?? ""} ${safe}`.trim().slice(-512); }
-  #safeEnvironment(): NodeJS.ProcessEnv { return { PATH: this.#environment.PATH ?? process.env.PATH ?? "/usr/bin:/bin", PYTHONUNBUFFERED: "1", ...(this.#environment.DISPLAY === undefined ? {} : { DISPLAY: this.#environment.DISPLAY }), ...(this.#environment.XAUTHORITY === undefined ? {} : { XAUTHORITY: this.#environment.XAUTHORITY }), ...(this.#environment.XDG_SESSION_TYPE === undefined ? {} : { XDG_SESSION_TYPE: this.#environment.XDG_SESSION_TYPE }) }; }
+  #safeEnvironment(): NodeJS.ProcessEnv { return { PATH: this.#environment.PATH ?? process.env.PATH ?? "/usr/bin:/bin", PYTHONUNBUFFERED: "1", ...(this.#environment.DISPLAY === undefined ? {} : { DISPLAY: this.#environment.DISPLAY }), ...(this.#environment.XAUTHORITY === undefined ? {} : { XAUTHORITY: this.#environment.XAUTHORITY }), ...(this.#environment.XDG_SESSION_TYPE === undefined ? {} : { XDG_SESSION_TYPE: this.#environment.XDG_SESSION_TYPE }), ...(this.#environment.XDG_SESSION_TYPE === "wayland" && this.#environment.DISPLAY !== undefined ? { GDK_BACKEND: "x11" } : {}) }; }
 
   #request(command: OverlayRendererCommand, payload: unknown, timeoutMs = this.#commandTimeoutMs): Promise<OverlayRendererReply> {
     if (this.#child === undefined || this.#child.stdin.destroyed) return Promise.reject(new Error("renderer_process_exited"));
