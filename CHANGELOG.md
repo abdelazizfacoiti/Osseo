@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added `npm run check:live` (`scripts/live-check.mjs`): an end-to-end check of the build in a throwaway home, on a nested display and headless Chrome.
+- Fixed: typing into a terminal did nothing after the paste-by-default change,
+  because terminals ignore Ctrl+V. Paste now uses Ctrl+Shift+V in terminal apps
+  (GNOME Terminal and other VTE apps) and Shift+Insert in xterm. Found by a live
+  test against a real VTE terminal, which now runs in `npm run check:live`.
 - Verified actions: `desktop.click`, `desktop.type_text`, and `desktop.hotkey`
   compare the window before and after the action and return
   `effect.screenChanged` (true, false, or null when the window could not be

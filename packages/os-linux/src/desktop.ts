@@ -886,17 +886,30 @@ async function readClipboard(command: string, args: string[], context: LinuxDesk
   return result.exitCode === 0 ? result.stdout : undefined;
 }
 
+/**
+ * The paste key for the focused app. Terminals never paste on plain Ctrl+V: they
+ * receive a literal control character. GNOME Terminal and VTE apps paste on
+ * Ctrl+Shift+V, and xterm pastes on Shift+Insert.
+ */
+const TERMINAL_APPS = new Set(["gnome-terminal-", "gnome-terminal", "mate-terminal", "xfce4-terminal", "konsole", "tilix", "terminator", "alacritty", "kitty", "wezterm-gui", "foot", "ptyxis", "lxterminal", "qterminal", "guake", "tilda", "sakura", "urxvt", "st"]);
+export function pasteKeyFor(appName: string | undefined): string {
+  const name = appName?.toLowerCase();
+  if (name === undefined) return "ctrl+v";
+  if (TERMINAL_APPS.has(name)) return "ctrl+shift+v";
+  if (name === "xterm") return "shift+Insert";
+  return "ctrl+v";
+}
+
 /** Time the target gets to read the clipboard before the old contents are restored. */
 const PASTE_SETTLE_MS = 350;
 
 async function pasteViaClipboard(
   xdotoolPath: string,
   text: string,
-  context: LinuxDesktopContext
-): Promise<{ ok: boolean; reason: string }> {
+  context: LinuxDesktopContext, pasteKey = "ctrl+v"): Promise<{ ok: boolean; reason: string }> {
   const xclip = await findCommandPath("xclip", context);
   const xsel = xclip === undefined ? await findCommandPath("xsel", context) : undefined;
-  if (xclip === undefined && xsel === undefined) return await pasteViaGtkClipboard(xdotoolPath, text, context);
+  if (xclip === undefined && xsel === undefined) return await pasteViaGtkClipboard(xdotoolPath, text, context, pasteKey);
   const clipboardCommand = xclip ?? xsel!;
   const readArgs = xclip !== undefined ? ["-selection", "clipboard", "-o"] : ["--clipboard", "--output"];
   const writeArgs = xclip !== undefined ? ["-selection", "clipboard", "-i"] : ["--clipboard", "--input"];
@@ -905,7 +918,7 @@ async function pasteViaClipboard(
     ? await feedClipboard(xclip, ["-selection", "clipboard", "-i"], text, context)
     : await feedClipboard(xsel!, ["--clipboard", "--input"], text, context);
   if (!fed) return { ok: false, reason: "The clipboard backend did not accept the text." };
-  const paste = await runDesktopCommand(xdotoolPath, ["key", "ctrl+v"], context);
+  const paste = await runDesktopCommand(xdotoolPath, ["key", pasteKey], context);
   // Restoring at once let the old clipboard text win the race against the paste.
   await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
   if (paste.exitCode !== 0) return { ok: false, reason: "The clipboard paste hotkey did not complete successfully." };
@@ -958,14 +971,13 @@ export async function getLinuxClipboard(context: LinuxDesktopContext = {}): Prom
 async function pasteViaGtkClipboard(
   xdotoolPath: string,
   text: string,
-  context: LinuxDesktopContext
-): Promise<{ ok: boolean; reason: string }> {
+  context: LinuxDesktopContext, pasteKey = "ctrl+v"): Promise<{ ok: boolean; reason: string }> {
   const previousClipboard = await readGtkClipboard(context);
   const lease = await leaseGtkClipboard(text, context);
   if (lease === undefined) {
     return { ok: false, reason: "Layout-unsafe characters require a clipboard backend; install xclip (sudo apt install xclip) or python3-gi for non-ASCII typing." };
   }
-  const paste = await runDesktopCommand(xdotoolPath, ["key", "ctrl+v"], context);
+  const paste = await runDesktopCommand(xdotoolPath, ["key", pasteKey], context);
   // Restoring at once let the old clipboard text win the race against the paste.
   await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
   // The target app requests the selection asynchronously after Ctrl+V; keep
@@ -1106,7 +1118,7 @@ export async function typeLinuxText(
   }
 
   if (method === "clipboard") {
-    const paste = await pasteViaClipboard(verification.xdotoolPath, input.text, context);
+    const paste = await pasteViaClipboard(verification.xdotoolPath, input.text, context, pasteKeyFor(verification.activeWindow?.appName));
     return {
       supported: paste.ok,
       backend: verification.backend,

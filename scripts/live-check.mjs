@@ -1,0 +1,447 @@
+#!/usr/bin/env node
+/*
+ * Live check of this AgentHost build, end to end.
+ *
+ *   npm run build && npm run check:live
+ *
+ * It runs in a throwaway AGENTHOST_HOME, so your ~/.agenthost is never touched.
+ *   1. CLI: --help is read-only, the stop flag is respected, bare `agent resume` works.
+ *   2. Desktop: a nested X display (Xephyr) opens as a small window on your screen for
+ *      about a minute, with a GTK probe app. The MCP server drives it over stdio:
+ *      verified clicks, typed text with punctuation and accents, hotkey repeat,
+ *      inline screenshots, and the loop guard with its pause.
+ *   3. Browser: headless Chrome, no window. fill, select, upload (confirmed through the
+ *      CLI), a confirmed consequential click, wait_for, and an inline page screenshot.
+ *
+ * Needs: Xephyr, python3 with GTK 3 (PyGObject), Chrome or Chromium, and a host DISPLAY.
+ * Set LIVE_CHECK_LAYOUT=fr to run the desktop checks on a French (AZERTY) keyboard layout.
+ * It prints PASS or FAIL for each check and exits non-zero if anything failed.
+ */
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const CLI = path.join(REPO, "packages/agenthost-cli/dist/index.js");
+const SERVER = path.join(REPO, "packages/mcp-server/dist/index.js");
+const HOST_DISPLAY = process.env.DISPLAY ?? ":0";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const results = [];
+
+function check(name, ok, detail = "") {
+  results.push({ name, ok: Boolean(ok) });
+  console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? `  (${detail})` : ""}`);
+}
+
+function hasCommand(name) {
+  try {
+    execFileSync("which", [name], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function freeDisplay() {
+  for (let number = 131; number < 160; number += 1) {
+    if (!existsSync(`/tmp/.X11-unix/X${number}`) && !existsSync(`/tmp/.X${number}-lock`)) return `:${number}`;
+  }
+  throw new Error("no free display number between :131 and :159");
+}
+
+function runCli(env, args) {
+  try {
+    return { code: 0, out: execFileSync(process.execPath, [CLI, ...args], { env, encoding: "utf8", timeout: 20_000 }) };
+  } catch (error) {
+    return { code: error.status ?? -1, out: `${error.stdout ?? ""}${error.stderr ?? ""}` };
+  }
+}
+
+function cli(env, args) {
+  const result = runCli(env, [...args, "--json"]);
+  try {
+    return JSON.parse(result.out);
+  } catch {
+    return { ok: false, out: result.out };
+  }
+}
+
+const PROBE = `
+import gi, sys
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+out = sys.argv[1]
+win = Gtk.Window(title="Live probe")
+win.set_default_size(360, 240)
+win.move(0, 0)
+fixed = Gtk.Fixed()
+label = Gtk.Label(label="idle")
+label.set_size_request(320, 20)
+fixed.put(label, 20, 8)
+change = Gtk.Button(label="Change label")
+change.set_size_request(200, 40)
+change.connect("clicked", lambda b: label.set_text("changed"))
+fixed.put(change, 20, 40)
+nothing = Gtk.Button(label="Does nothing")
+nothing.set_size_request(200, 40)
+fixed.put(nothing, 20, 100)
+entry = Gtk.Entry()
+entry.set_size_request(320, 30)
+entry.connect("changed", lambda e: open(out, "w", encoding="utf-8").write(e.get_text()))
+fixed.put(entry, 20, 160)
+win.add(fixed)
+win.show_all()
+win.connect("destroy", Gtk.main_quit)
+Gtk.main()
+`;
+
+// A VTE terminal named like GNOME Terminal (Ctrl+Shift+V pastes, plain Ctrl+V sends a control character).
+const VTE_PROBE = `
+import ctypes, gi, sys
+ctypes.CDLL(None).prctl(15, b"gnome-terminal-", 0, 0, 0)
+gi.require_version("Gtk", "3.0")
+gi.require_version("Vte", "2.91")
+from gi.repository import Gtk, Gdk, Vte, GLib
+out = sys.argv[1]
+win = Gtk.Window(title="VTE probe")
+win.set_default_size(380, 200)
+win.move(400, 0)
+term = Vte.Terminal()
+win.add(term)
+def on_key(_window, event):
+    mask = event.state & Gtk.accelerator_get_default_mod_mask()
+    if event.keyval in (Gdk.KEY_V, Gdk.KEY_v) and mask & Gdk.ModifierType.CONTROL_MASK and mask & Gdk.ModifierType.SHIFT_MASK:
+        term.paste_clipboard()
+        return True
+    return False
+win.connect("key-press-event", on_key)
+win.show_all()
+term.spawn_sync(Vte.PtyFlags.DEFAULT, None, ["/bin/sh", "-c", "cat > " + out], None, GLib.SpawnFlags.DEFAULT, None, None, None)
+win.connect("destroy", Gtk.main_quit)
+Gtk.main()
+`;
+
+const FORM = `<!doctype html><meta charset="utf-8"><title>Live form</title>
+<label>Name <input id="name" placeholder="Name"></label>
+<label>Country <select id="country"><option value="a">Alpha</option><option value="b">Beta</option></select></label>
+<label>Attach <input type="file" id="cv" onchange="document.getElementById('msg').textContent='files:' + this.files.length"></label>
+<label>Password <input type="password" id="pw" placeholder="Password"></label>
+<button type="button" id="save" onclick="document.getElementById('msg').textContent='saved:' + document.getElementById('name').value">Save profile</button>
+<button type="button" id="send" onclick="document.getElementById('msg').textContent='sent'">Send</button>
+<p id="msg">ready</p>`;
+
+function hasVte() {
+  try {
+    execFileSync("python3", ["-c", "import gi; gi.require_version('Vte', '2.91'); from gi.repository import Vte"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function terminalChecks(mcp, work, display) {
+  const file = path.join(work, "terminal.txt");
+  writeFileSync(file, "");
+  const script = path.join(work, "vte_probe.py");
+  writeFileSync(script, VTE_PROBE);
+  const probe = spawn("python3", ["-W", "ignore", script, file], { env: { ...process.env, DISPLAY: display }, stdio: "ignore" });
+  await sleep(2500);
+  const listed = await mcp.call("window.list", { includeTitles: true });
+  const win = listed.body?.data?.windows?.find((item) => item.title === "VTE probe");
+  check("AgentHost lists the terminal window", Boolean(win));
+  if (win) {
+    const origin = win.bounds ?? { x: 0, y: 0 };
+    const activeWindow = { windowId: win.windowId };
+    await mcp.call("window.focus", { windowId: win.windowId });
+    await mcp.call("desktop.click", { x: origin.x + 190, y: origin.y + 120, activeWindow });
+    const typed = await mcp.call("desktop.type_text", { text: "Hello W-Z", activeWindow });
+    check("typing into a terminal works (paste with Ctrl+Shift+V)", typed.ok, typed.error ?? "");
+    await mcp.call("desktop.hotkey", { keys: ["ctrl", "d"], activeWindow });
+    await sleep(800);
+    const got = readFileSync(file, "utf8");
+    check("the terminal receives exactly what was typed", got === "Hello W-Z", got === "Hello W-Z" ? "" : `got ${JSON.stringify(got)}`);
+  }
+  probe.kill();
+}
+
+function cliChecks(env) {
+  const stopFile = path.join(env.AGENTHOST_HOME, "run", "stop.requested");
+  mkdirSync(path.dirname(stopFile), { recursive: true });
+  writeFileSync(stopFile, JSON.stringify({ requested: true, reason: "live-check" }));
+  const before = readFileSync(stopFile, "utf8");
+  for (const args of [["agent", "resume", "--help"], ["overlay", "check-input", "--help"], ["doctor", "--help"], ["workflow", "run", "--help"]]) {
+    const started = Date.now();
+    const result = runCli(env, args);
+    check(`agenthost ${args.join(" ")} prints usage and runs nothing`, result.code === 0 && result.out.startsWith("usage: agenthost") && Date.now() - started < 10_000, result.out.split("\n")[0].slice(0, 80));
+  }
+  check("help left the stop flag untouched", readFileSync(stopFile, "utf8") === before);
+  const cleared = cli(env, ["agent", "resume", "--stop"]);
+  check("the operator clears the stop flag with --stop", cleared.ok === true && cleared.data?.cleared?.stop === true);
+  const idle = cli(env, ["agent", "resume"]);
+  check("bare resume with nothing active says so", idle.data?.note === "Nothing to resume: no pause, stop, or takeover is active.", idle.data?.note ?? idle.out);
+}
+
+function mcpClient(server) {
+  const replies = new Map();
+  let buffer = "";
+  let stderr = "";
+  server.stdout.on("data", (chunk) => {
+    buffer += chunk;
+    let index;
+    while ((index = buffer.indexOf("\n")) >= 0) {
+      const line = buffer.slice(0, index);
+      buffer = buffer.slice(index + 1);
+      try {
+        const message = JSON.parse(line);
+        if (message.id !== undefined) replies.set(message.id, message);
+      } catch {
+        /* Not a protocol message. */
+      }
+    }
+  });
+  server.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-4000); });
+  const wait = async (id, ms = 120_000) => {
+    const end = Date.now() + ms;
+    while (Date.now() < end) {
+      if (replies.has(id)) return replies.get(id);
+      await sleep(50);
+    }
+    throw new Error(`no reply to request ${id}. Server stderr tail: ${stderr.slice(-600)}`);
+  };
+  let next = 100;
+  return {
+    async initialize() {
+      server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "live-check", version: "1" } } })}\n`);
+      await wait(1, 60_000);
+      server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "notifications/initialized" })}\n`);
+    },
+    async call(name, args = {}) {
+      const id = next;
+      next += 1;
+      server.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } })}\n`);
+      const reply = await wait(id);
+      const text = reply.result?.content?.find((item) => item.type === "text")?.text;
+      let body;
+      try {
+        body = text === undefined ? undefined : JSON.parse(text);
+      } catch {
+        body = undefined;
+      }
+      return {
+        ok: body?.ok === true,
+        body,
+        error: body?.error?.code ?? (reply.error ? "rpc_error" : undefined),
+        images: (reply.result?.content ?? []).filter((item) => item.type === "image")
+      };
+    }
+  };
+}
+
+async function desktopChecks(mcp, entryFile) {
+  const listed = await mcp.call("window.list", { includeTitles: true });
+  const win = listed.body?.data?.windows?.find((item) => item.title === "Live probe");
+  check("AgentHost lists the probe window", Boolean(win), win ? `bounds ${JSON.stringify(win.bounds)}` : JSON.stringify(listed.body?.error ?? "not listed"));
+  if (!win) return undefined;
+  const origin = win.bounds ?? { x: 0, y: 0 };
+  await mcp.call("window.focus", { windowId: win.windowId });
+  const activeWindow = { windowId: win.windowId };
+  const clickAt = (x, y) => mcp.call("desktop.click", { x: origin.x + x, y: origin.y + y, activeWindow });
+
+  const nothing = await clickAt(120, 120);
+  check("a click on a control that does nothing reports no change", nothing.ok && nothing.body?.data?.effect?.screenChanged === false, JSON.stringify(nothing.body?.data?.effect ?? nothing.error ?? null));
+  const changed = await clickAt(120, 60);
+  check("a click that changes the window reports the change", changed.ok && changed.body?.data?.effect?.screenChanged === true, JSON.stringify(changed.body?.data?.effect ?? changed.error ?? null));
+
+  await clickAt(180, 175);
+  const text = 'Plan: W-Z "quotes" & #tag 12/34 é€';
+  const typed = await mcp.call("desktop.type_text", { text, activeWindow });
+  await sleep(400);
+  const entry = readFileSync(entryFile, "utf8");
+  check("typed text arrives exactly (punctuation, accents, euro sign)", entry === text, entry === text ? "" : `got ${JSON.stringify(entry)}`);
+  check("type_text reports that the window changed", typed.ok && typed.body?.data?.effect?.screenChanged === true, JSON.stringify(typed.body?.data?.effect ?? typed.error ?? null));
+
+  const back = await mcp.call("desktop.hotkey", { keys: ["BackSpace"], repeat: 5, activeWindow });
+  await sleep(400);
+  const expected = Array.from(text).slice(0, -5).join("");
+  const afterBack = readFileSync(entryFile, "utf8");
+  check("hotkey repeat 5 removes exactly five characters", back.ok && afterBack === expected, afterBack === expected ? "" : `got ${JSON.stringify(afterBack)}`);
+
+  const shot = await mcp.call("desktop.screenshot", { includeActiveWindowOnly: true });
+  const image = shot.images[0];
+  check("a desktop screenshot comes back as an inline JPEG", image?.mimeType === "image/jpeg" && image.data.startsWith("/9j/"), image ? `${Math.round((image.data.length * 3) / 4 / 1024)} KB` : "no image part");
+  return { mcp, win, activeWindow, clickAt };
+}
+
+async function pauseChecks(mcp, env, activeWindow, clickAt) {
+  let last;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    last = await mcp.call("desktop.hotkey", { keys: ["Shift_L"], activeWindow });
+  }
+  check("ten identical unchanged calls trigger a self-pause", /paused itself/.test((last.body?.observations ?? []).join(" ")));
+  const status = await mcp.call("agent.status", {});
+  const pause = status.body?.data?.runState?.pause;
+  check("the pause is stored with its reason", pause?.requested === true && /no visible change/.test(pause?.reason ?? ""), (pause?.reason ?? "").slice(0, 90));
+  const blocked = await clickAt(120, 120);
+  check("while paused, a state-changing action is refused", !blocked.ok && blocked.error === "pause_requested", blocked.error ?? "not refused");
+  const resumed = cli(env, ["agent", "resume"]);
+  check("bare agent resume clears the pause", resumed.data?.note === "Pause cleared.", resumed.data?.note ?? resumed.out);
+  const after = await mcp.call("agent.status", {});
+  check("actions run again after resume", after.body?.data?.runState?.pause?.requested === false);
+  return mcp;
+}
+
+async function browserChecks(mcp, work, env) {
+  const form = path.join(work, "form.html");
+  writeFileSync(form, FORM);
+  const cvPath = path.join(work, "cv.txt");
+  writeFileSync(cvPath, "cv");
+  const opened = await mcp.call("browser.open", { url: pathToFileURL(form).toString(), headless: true });
+  check("browser.open loads the local form in headless Chrome", opened.ok, opened.body?.error?.message ?? "");
+
+  const snap = await mcp.call("browser.snapshot", {});
+  const elements = snap.body?.data?.elements ?? [];
+  const find = (predicate) => elements.find(predicate)?.ref;
+  const refs = {
+    name: find((item) => item.name === "Name"),
+    country: find((item) => item.tag === "select"),
+    cv: find((item) => item.type === "file"),
+    password: find((item) => item.type === "password"),
+    save: find((item) => item.name === "Save profile"),
+    send: find((item) => item.name === "Send")
+  };
+  const missingRefs = Object.entries(refs).filter(([, value]) => !value).map(([key]) => key);
+  check("the snapshot finds every control by ref", missingRefs.length === 0, missingRefs.length ? `missing ${missingRefs.join(", ")}` : "");
+
+  const filled = await mcp.call("browser.fill", { fields: [{ ref: refs.name, text: "Ada Lovelace" }] });
+  check("browser.fill types a value and reads it back", filled.ok && (filled.body?.data?.fields ?? []).every((item) => item.confirmed));
+  const refused = await mcp.call("browser.fill", { fields: [{ ref: refs.name, text: "x" }, { ref: refs.password, text: "hunter2" }] });
+  check("browser.fill refuses a password field before typing", refused.error === "sensitive_field", refused.error ?? "");
+
+  const wrong = await mcp.call("browser.select", { ref: refs.country, label: "Gamma" });
+  check("browser.select lists the options when none matches", wrong.error === "option_not_found" && JSON.stringify(wrong.body?.observations ?? []).includes("Alpha"));
+  const chosen = await mcp.call("browser.select", { ref: refs.country, label: "Beta" });
+  check("browser.select chooses an option by its label", chosen.ok && chosen.body?.data?.selected === "Beta");
+
+  const uploadBare = await mcp.call("browser.upload", { ref: refs.cv, files: [cvPath] });
+  check("browser.upload refuses without a confirmation", !uploadBare.ok, uploadBare.error ?? "");
+  const uploadPreview = await mcp.call("browser.upload", { ref: refs.cv, files: [cvPath], dryRun: true });
+  const uploadToken = uploadPreview.body?.confirmation?.tokenId;
+  check("the upload preview mints a one-time token", Boolean(uploadToken));
+  const uploadApproved = uploadToken ? cli(env, ["confirm", uploadToken]) : { ok: false };
+  check("the operator confirms the upload with `agenthost confirm`", uploadApproved.ok === true);
+  const uploaded = await mcp.call("browser.upload", { ref: refs.cv, files: [cvPath], confirmationToken: uploadToken });
+  check("the confirmed upload attaches the file", uploaded.ok, uploaded.error ?? "");
+  const seen = await mcp.call("browser.wait_for", { text: "files:1", timeoutMs: 5000 });
+  check("the page reports the attached file", seen.ok && seen.body?.data?.matched === true);
+
+  const saved = await mcp.call("browser.click", { ref: refs.save });
+  check("a non-consequential click runs without a token", saved.ok, saved.error ?? "");
+  const savedSeen = await mcp.call("browser.wait_for", { text: "saved:Ada Lovelace", timeoutMs: 5000 });
+  check("the click had its effect on the page", savedSeen.ok);
+
+  const sendBare = await mcp.call("browser.click", { ref: refs.send });
+  check("a consequential Send click needs confirmation", !sendBare.ok, sendBare.error ?? "");
+  const sendPreview = await mcp.call("browser.click", { ref: refs.send, dryRun: true });
+  const sendToken = sendPreview.body?.confirmation?.tokenId;
+  if (sendToken) cli(env, ["confirm", sendToken]);
+  const sent = await mcp.call("browser.click", { ref: refs.send, confirmationToken: sendToken });
+  check("a confirmed Send runs once", sent.ok, sent.error ?? "");
+  const sentSeen = await mcp.call("browser.wait_for", { text: "sent", timeoutMs: 5000 });
+  check("the page shows the sent state", sentSeen.ok);
+
+  const pageShot = await mcp.call("browser.screenshot", {});
+  const image = pageShot.images[0];
+  check("browser.screenshot returns an inline JPEG", image?.mimeType === "image/jpeg" && image.data.startsWith("/9j/"));
+  await mcp.call("browser.close", {});
+}
+
+async function main() {
+  if (!existsSync(SERVER) || !existsSync(CLI)) {
+    console.log("Build first: npm run build");
+    process.exitCode = 2;
+    return;
+  }
+  const missing = ["Xephyr", "python3"].filter((tool) => !hasCommand(tool));
+  if (missing.length > 0) {
+    console.log(`Missing: ${missing.join(", ")}. Install them, then run this again.`);
+    process.exitCode = 2;
+    return;
+  }
+  const chrome = ["google-chrome-stable", "google-chrome", "chromium-browser", "chromium"].some(hasCommand);
+  const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-live-"));
+  const home = path.join(root, "home");
+  const work = path.join(root, "work");
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  mkdirSync(work, { recursive: true });
+  const config = path.join(home, "config.json");
+  writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
+  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config };
+  const children = [];
+  try {
+    console.log("== CLI");
+    cliChecks(env);
+
+    const display = freeDisplay();
+    console.log(`== Desktop on nested display ${display} (a small window opens on your screen for about a minute)`);
+    const xephyr = spawn("Xephyr", [display, "-screen", "800x600", "-no-host-grab"], { env: { ...process.env, DISPLAY: HOST_DISPLAY }, stdio: "ignore" });
+    children.push(xephyr);
+    for (let attempt = 0; attempt < 60 && !existsSync(`/tmp/.X11-unix/X${display.slice(1)}`); attempt += 1) await sleep(100);
+    if (!existsSync(`/tmp/.X11-unix/X${display.slice(1)}`)) throw new Error(`Xephyr did not open ${display}. Is DISPLAY=${HOST_DISPLAY} reachable?`);
+    if (process.env.LIVE_CHECK_LAYOUT) {
+      try {
+        execFileSync("setxkbmap", [process.env.LIVE_CHECK_LAYOUT], { env: { ...process.env, DISPLAY: display }, stdio: "ignore" });
+        console.log(`(keyboard layout set to ${process.env.LIVE_CHECK_LAYOUT} on ${display} only)`);
+      } catch {
+        console.log(`(could not set layout ${process.env.LIVE_CHECK_LAYOUT}; setxkbmap failed)`);
+      }
+    }
+    const entryFile = path.join(work, "entry.txt");
+    writeFileSync(entryFile, "");
+    const probeScript = path.join(work, "probe_app.py");
+    writeFileSync(probeScript, PROBE);
+    children.push(spawn("python3", ["-W", "ignore", probeScript, entryFile], { env: { ...process.env, DISPLAY: display }, stdio: "ignore" }));
+    await sleep(2500);
+
+    const server = spawn(process.execPath, [SERVER], { env: { ...env, DISPLAY: display, XDG_SESSION_TYPE: "x11" }, stdio: ["pipe", "pipe", "pipe"] });
+    children.push(server);
+    const mcp = mcpClient(server);
+    await mcp.initialize();
+    const desktop = await desktopChecks(mcp, entryFile);
+    if (desktop) {
+      await pauseChecks(mcp, env, desktop.activeWindow, desktop.clickAt);
+      if (hasVte()) await terminalChecks(mcp, work, display);
+      else console.log("(terminal check skipped: no VTE 2.91 bindings for python3)");
+    }
+
+    if (chrome) {
+      console.log("== Browser (headless Chrome)");
+      await browserChecks(mcp, work, env);
+    } else {
+      console.log("== Browser: SKIPPED (no Chrome or Chromium found)");
+    }
+  } finally {
+    for (const child of children.reverse()) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* Already gone. */
+      }
+    }
+    await sleep(1000);
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      /* Chrome may still be flushing its profile; the temp folder is harmless. */
+    }
+  }
+  const failed = results.filter((item) => !item.ok);
+  console.log(`\n${results.length - failed.length} passed, ${failed.length} failed`);
+  process.exitCode = failed.length === 0 ? 0 : 1;
+}
+
+main().catch((error) => {
+  console.log(`ERROR  ${error.message}`);
+  process.exitCode = 1;
+});
