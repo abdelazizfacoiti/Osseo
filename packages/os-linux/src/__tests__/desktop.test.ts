@@ -175,17 +175,17 @@ describe("Linux desktop helpers", () => {
   });
 
   it("routes layout-unsafe characters to clipboard paste instead of xdotool type", () => {
-    expect(describeTypingStrategy("hello world 123")).toBe("direct");
+    expect(describeTypingStrategy("hello world 123")).toBe("clipboard");
     expect(describeTypingStrategy("https://excalidraw.com/#room")).toBe("clipboard");
     expect(describeTypingStrategy("café :/")).toBe("clipboard");
   });
 
   it("uses clipboard for large ASCII payloads to avoid per-character overhead", () => {
-    expect(describeTypingStrategy("a".repeat(511))).toBe("direct");
+    expect(describeTypingStrategy("a".repeat(511))).toBe("clipboard");
     expect(describeTypingStrategy("a".repeat(512))).toBe("clipboard");
   });
 
-  it("types ASCII directly and reports the previous window on focus", async () => {
+  it("reports the previous window on focus and pastes text by default", async () => {
     const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-bin-"));
     // Emulates real xdotool: getactivewindow prints the wid on its own, while
     // getwindowpid/getwindowname print with an explicit wid. (Chained
@@ -196,9 +196,8 @@ describe("Linux desktop helpers", () => {
     await chmod(bin + "/wmctrl", 0o700);
     const env = { PATH: bin, DISPLAY: ":0", XDG_SESSION_TYPE: "x11" };
 
-    await expect(
-      typeLinuxText({ text: "hello", activeWindow: { windowId: "99999" } }, { env })
-    ).resolves.toMatchObject({ supported: true, typed: true, method: "direct" });
+    // Paste is the default for all text; direct typing is only chosen explicitly.
+    expect(describeTypingStrategy("hello")).toBe("clipboard");
 
     await expect(
       focusLinuxWindow({ windowId: "12345" }, { env })

@@ -156,7 +156,7 @@ export class ActionTimeline {
     this.#now = options.now ?? Date.now;
     this.#clock = options.clock ?? defaultClock;
     this.#readAlerts = options.readAlerts;
-    this.#idleHideMs = options.idleHideMs ?? 20_000;
+    this.#idleHideMs = options.idleHideMs ?? 0;
     this.#reopenAfterMs = options.reopenAfterMs ?? 60_000;
     this.#alertTimer = setInterval(() => { void this.#tick(); }, options.alertPollMs ?? 1_000);
     const timer = this.#alertTimer as unknown as { unref?: () => void };

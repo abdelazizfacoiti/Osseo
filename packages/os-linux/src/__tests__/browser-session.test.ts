@@ -84,3 +84,45 @@ describe.skipIf(chrome === undefined)("BrowserSession (real headless Chrome)", (
     expect(await session.click({ ref: "s1-e0" })).toEqual({ ok: false, reason: "browser_not_open" });
   }, 90_000);
 });
+
+describe.skipIf(chrome === undefined)("BrowserSession forms (real headless Chrome)", () => {
+  let home: string;
+  let session: BrowserSession;
+
+  beforeAll(async () => {
+    home = await mkdtemp(path.join(os.tmpdir(), "agenthost-forms-"));
+    const file = path.join(home, "form.html");
+    await writeFile(file, `<!doctype html><title>Form</title>
+      <input type="file" id="f" onchange="document.getElementById('msg').textContent = 'files:' + this.files.length">
+      <select id="s"><option value="a">Alpha</option><option value="b">Beta</option></select>
+      <input id="name" placeholder="Name"><p id="msg">ready</p>`);
+    session = new BrowserSession({ agentHostDir: home });
+    await session.open({ url: pathToFileURL(file).toString(), headless: true });
+  }, 60_000);
+
+  afterAll(async () => {
+    await session.close();
+    await rm(home, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
+  });
+
+  it("uploads a file, selects an option, waits for text, reads values back, and captures an image", async () => {
+    const upload = path.join(home, "upload.txt");
+    await writeFile(upload, "hello");
+    const snap = await session.snapshot({ maxElements: 50 });
+    const fileRef = snap.elements.find((element) => element.type === "file")!.ref;
+    const selectRef = snap.elements.find((element) => element.tag === "select")!.ref;
+    const nameRef = snap.elements.find((element) => element.name === "Name")!.ref;
+
+    expect(await session.upload({ ref: fileRef, files: [upload] })).toMatchObject({ ok: true });
+    expect(await session.waitFor({ text: "files:1", timeoutMs: 5_000 })).toMatchObject({ matched: true });
+    expect(await session.select({ ref: selectRef, label: "Beta" })).toMatchObject({ ok: true, selected: "Beta" });
+    expect(await session.select({ ref: selectRef, label: "Gamma" })).toMatchObject({ ok: false, reason: "option_not_found", options: ["Alpha", "Beta"] });
+    await session.type({ ref: nameRef, text: "Ada", clear: true });
+    expect(await session.readValue({ ref: nameRef })).toBe("Ada");
+    const image = await session.screenshot({ ref: nameRef });
+    expect(image.ok).toBe(true);
+    expect(image.image?.data.length ?? 0).toBeGreaterThan(200);
+    expect((await session.waitFor({ text: "never-appears", timeoutMs: 300 })).matched).toBe(false);
+  }, 60_000);
+});
+

@@ -183,6 +183,22 @@ There is one autonomous policy. Do the task; do not ask for routine clicks.
    `confirmationToken: "<tokenId>"`. On denial, stop.
 4. Never type credentials or payment secrets; ask the operator.
 
+## What tool results tell you
+
+- `desktop.click`, `desktop.type_text`, and `desktop.hotkey` return
+  `effect.screenChanged`. `true` means the window changed; `false` means nothing
+  visible happened, so check the target before repeating (the control may be
+  disabled). `verify: false` skips the check for fast repeats.
+- `desktop.screenshot` returns the picture inline (JPEG) with `inline.scale`. Map
+  a point in it with `screen = screenOrigin + image / inline.scale`.
+- Web forms: `browser.snapshot`, then `browser.fill` (several fields, read back),
+  `browser.select`, `browser.upload` (needs confirmation), `browser.wait_for`
+  instead of sleeps, and `browser.screenshot` when layout matters.
+- A pause that AgentHost set itself says so and names the resume command. Tell
+  the user what you were doing, then wait; `agenthost agent resume` clears it.
+- Budgets reset when you call `task.update` with a new phase or verify a criterion.
+- `agenthost <command> --help` prints usage only and never changes state.
+
 ## Operator controls
 
 The human can always intervene outside the chat:

@@ -6,7 +6,8 @@ import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../too
 
 const createInput = z.object({
   goal: z.string().trim().min(1).max(2000),
-  definitionOfDone: z.array(z.string().trim().min(1).max(300)).max(12).optional()
+  definitionOfDone: z.array(z.string().trim().min(1).max(300)).max(12).optional(),
+  maxActions: z.number().int().min(0).max(100_000).optional()
 }).strict();
 const idInput = z.object({ taskId: z.string().trim().min(1).max(200) }).strict();
 const updateInput = z.object({
@@ -47,7 +48,8 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     inputSchema: createInput,
     mcpInputSchema: schema({
       goal: { type: "string", minLength: 1, maxLength: 2000 },
-      definitionOfDone: { type: "array", maxItems: 12, items: { type: "string", minLength: 1, maxLength: 300 } }
+      definitionOfDone: { type: "array", maxItems: 12, items: { type: "string", minLength: 1, maxLength: 300 } },
+      maxActions: { type: "integer", minimum: 0, maximum: 100000, description: "Actions allowed before a pause. Verified progress resets the count. 0 disables the budget." }
     }, ["goal"]),
     inputSummary: "Create task",
     safety: { actionType: "inspect" },

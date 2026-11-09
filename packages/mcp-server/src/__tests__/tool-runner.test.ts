@@ -245,7 +245,7 @@ describe("governed tool runner", () => {
     expect(state.pause.reason?.startsWith(ACTION_CARD_PAUSE_PREFIX)).toBe(true);
     const halted = await runTool(tool, { value: "different" }, context);
     expect(halted.error?.code).toBe("pause_requested");
-    expect(halted.error?.message).toContain("without progress");
+    expect(halted.error?.message).toContain("no visible change");
 
     await clearPause(home);
     const budgetHome = await tempHome();
@@ -273,6 +273,57 @@ describe("governed tool runner", () => {
     expect(blocked.error?.code).toBe("unsupported_platform");
     expect(desktopHandler).not.toHaveBeenCalled();
     expect((await runTool(make("file.exists", async () => toolSuccess({ tool: "file.exists", riskLevel: "observe", data: {} })), {}, context)).ok).toBe(true);
+  });
+
+  it("counts identical calls only inside the last minute", async () => {
+    const home = await tempHome();
+    const context = makeContext(home, []);
+    const handler = vi.fn(async () => undefined);
+    const tool: AgentHostToolDefinition<{ value: string }, unknown> = {
+      name: "test.direct",
+      description: "Direct state-changing test tool",
+      riskLevel: "low",
+      inputSchema: z.object({ value: z.string() }).strict(),
+      mcpInputSchema: {},
+      inputSummary: "test.direct",
+      safety: { actionType: "inspect" },
+      execution: { ...stateChanging(), requiresDryRun: false, requiresConfirmationToken: false, requiresExactTarget: false },
+      handler: async () => { await handler(); return toolSuccess({ tool: "test.direct", riskLevel: "low", data: {} }); }
+    };
+    let clock = 1_000_000;
+    const spy = vi.spyOn(Date, "now").mockImplementation(() => clock);
+    try {
+      let last = await runTool(tool, { value: "same" }, context);
+      for (let index = 1; index < 9; index += 1) last = await runTool(tool, { value: "same" }, context);
+      clock += 61_000;
+      for (let index = 0; index < 9; index += 1) last = await runTool(tool, { value: "same" }, context);
+      expect(last.observations?.join(" ") ?? "").not.toContain("paused itself");
+      expect(handler).toHaveBeenCalledTimes(18);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("never counts navigation chords such as ctrl+End as a loop", async () => {
+    const home = await tempHome();
+    const context = makeContext(home, []);
+    const handler = vi.fn(async () => undefined);
+    const hotkey: AgentHostToolDefinition<{ keys: string[] }, unknown> = {
+      name: "desktop.hotkey",
+      description: "test hotkey",
+      riskLevel: "low",
+      inputSchema: z.object({ keys: z.array(z.string()) }).strict(),
+      mcpInputSchema: {},
+      inputSummary: "test hotkey",
+      safety: { actionType: "inspect" },
+      execution: { ...stateChanging(), requiresDryRun: false, requiresConfirmationToken: false, requiresExactTarget: false },
+      handler: async () => { await handler(); return toolSuccess({ tool: "desktop.hotkey", riskLevel: "low", data: {} }); }
+    };
+    for (let index = 0; index < 12; index += 1) await runTool(hotkey, { keys: ["ctrl+End"] }, context);
+    expect(handler).toHaveBeenCalledTimes(12);
+    expect((await readRunState(home)).pause.requested).toBe(false);
+    for (let index = 0; index < 10; index += 1) await runTool(hotkey, { keys: ["ctrl", "v"] }, context);
+    expect((await readRunState(home)).pause.requested).toBe(true);
   });
 
   it("halts state-changing tools under pause while allowing observation", async () => {
@@ -695,10 +746,10 @@ describe("governed tool runner", () => {
     };
     const results = [];
     for (let index = 0; index < 6; index += 1) results.push(await runTool(probe, { query: "domains" }, context));
-    expect(results[1]?.observations?.join(" ")).not.toContain("run 3 times");
-    expect(results[2]?.observations?.join(" ")).toContain("run 3 times");
-    expect(results[4]?.observations?.join(" ")).not.toContain("run 6 times");
-    expect(results[5]?.observations?.join(" ")).toContain("run 6 times");
+    expect(results[1]?.observations?.join(" ")).not.toContain("ran 3 times");
+    expect(results[2]?.observations?.join(" ")).toContain("ran 3 times");
+    expect(results[4]?.observations?.join(" ")).not.toContain("ran 6 times");
+    expect(results[5]?.observations?.join(" ")).toContain("ran 6 times");
   });
 
   it("attaches bounded post-action state for governed desktop-family calls", async () => {
@@ -777,7 +828,7 @@ describe("governed tool runner", () => {
     expect(paging.map((result) => result.observations?.join(" ") ?? "").join(" ")).not.toContain("exact call");
     const copies = [];
     for (let index = 0; index < 3; index += 1) copies.push(await runTool(hotkey, { keys: ["ctrl", "c"] }, context));
-    expect(copies[2]?.observations?.join(" ")).toContain("run 3 times");
+    expect(copies[2]?.observations?.join(" ")).toContain("ran 3 times");
   });
 
   it("passes window.focus geometry to the target ring before the handler", async () => {
@@ -911,7 +962,7 @@ describe("governed tool runner", () => {
     const results = [];
     for (let index = 0; index < 3; index += 1) results.push(await runTool(runSteps, plan, context));
     expect(results[2]?.error?.code).toBe("safety_blocked");
-    expect(results[2]?.observations?.join(" ")).toContain("run 3 times");
+    expect(results[2]?.observations?.join(" ")).toContain("ran 3 times");
   });
 
   it("stops a governed batch at the first failed expectation", async () => {

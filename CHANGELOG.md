@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- Verified actions: `desktop.click`, `desktop.type_text`, and `desktop.hotkey`
+  compare the window before and after the action and return
+  `effect.screenChanged` (true, false, or null when the window could not be
+  captured). Clicks hover the target first so hover styling is not read as a
+  change. `verify: false` skips the check.
+- Text entry pastes by default. Direct xdotool typing swapped W and Z on AZERTY,
+  so it is no longer the default. Paste waits 350 ms before restoring the
+  clipboard, which fixes the stale-paste race.
+- `desktop.hotkey` accepts `repeat` (1-50, 20 ms apart). Modifier-plus-navigation
+  chords such as `ctrl+End` never count as a loop.
+- `desktop.screenshot` returns a downscaled JPEG inline (ffmpeg), so no second
+  call is needed to read the file. `inline: false` turns it off.
+- New browser tools: `browser.upload` (needs confirmation, file policy checked),
+  `browser.select`, `browser.wait_for`, `browser.fill` (refuses sensitive fields
+  before typing, reads values back), and `browser.screenshot` (inline image).
+- Loop guard counts identical calls only within 60 seconds, and only when the
+  screen state did not change. Repeat warnings say what to check.
+- Budget and pause: `task.create` takes `maxActions`; verified progress (a new
+  `task.update` phase or a verified criterion) resets the action count. A pause
+  set by a guard keeps its card up and sends one persistent desktop notification
+  with the resume command.
+- `agenthost <command> --help` only prints usage and never changes state. Bare
+  `agenthost agent resume` clears a pause and names any stop or takeover still
+  active.
+- Overlay failures are reported once per session instead of on every result. The
+  dock keeps its reserved space for the session, so the target window no longer
+  resizes after every idle gap.
 - Wayland sessions that expose XWayland now work for X11 apps: window list,
   focus, type, click, screenshot, and the overlay cards (GTK runs with
   `GDK_BACKEND=x11`). Each result says it reaches XWayland windows only.

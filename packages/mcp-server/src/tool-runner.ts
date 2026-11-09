@@ -47,7 +47,7 @@ export interface ToolPreviewEffect {
 }
 
 /** Tools that read what is on screen or the clipboard; refused while a human handoff is active. */
-const HANDOFF_BLOCKED_TOOLS = new Set(["desktop.screenshot", "vision.find_text_on_screen", "ui.tree", "ui.find", "clipboard.get", "computer.wait_for", "computer.observe_state", "browser.snapshot"]);
+const HANDOFF_BLOCKED_TOOLS = new Set(["desktop.screenshot", "vision.find_text_on_screen", "ui.tree", "ui.find", "clipboard.get", "computer.wait_for", "computer.observe_state", "browser.snapshot", "browser.screenshot"]);
 
 export interface AgentHostToolDefinition<Input, Output, Context = AgentHostMcpContext> {
   name: string;
@@ -658,12 +658,19 @@ async function executeGoverned(
 }
 
 interface RepeatEntry {
-  count: number;
+  /** Times of identical calls that left the observable state unchanged, newest last. */
+  times: number[];
   stateKey?: string;
 }
+/** Identical calls only count as a loop when they happen close together. */
+const REPEAT_WINDOW_MS = 60_000;
+const MODIFIER_KEYS = new Set(["ctrl", "control", "alt", "shift", "super", "meta"]);
+const TASK_BUDGETS = new WeakMap<AgentHostMcpContext, number>();
+const TASK_PHASES = new WeakMap<AgentHostMcpContext, string>();
+const OVERLAY_NOTED = new WeakSet<AgentHostMcpContext>();
 
 /** Tools whose results carry text written by someone else (a web page, document, or clipboard). */
-const UNTRUSTED_CONTENT_TOOLS = new Set(["vision.analyze_image", "vision.find_text", "vision.find_target", "vision.find_text_on_screen", "ui.tree", "ui.find", "file.read", "file.read_many", "clipboard.get", "browser.snapshot", "memory.search"]);
+const UNTRUSTED_CONTENT_TOOLS = new Set(["vision.analyze_image", "vision.find_text", "vision.find_target", "vision.find_text_on_screen", "ui.tree", "ui.find", "file.read", "file.read_many", "clipboard.get", "browser.snapshot", "browser.screenshot", "memory.search"]);
 /** Tool families that need a desktop adapter for the host OS. */
 const DESKTOP_FAMILIES = new Set(["desktop", "window", "app", "ui", "clipboard"]);
 const ACTION_COUNTS = new WeakMap<AgentHostMcpContext, number>();
@@ -683,8 +690,22 @@ function isRepeatExempt(toolName: string, input: unknown): boolean {
   const record = input as Record<string, unknown>;
   if (toolName === "desktop.pointer" && record.action === "scroll") return true;
   if (toolName === "desktop.hotkey" && Array.isArray(record.keys)) {
-    const keys = record.keys.map((key) => String(key).toLowerCase()).filter((key) => key !== "shift");
+    // "ctrl+End" may arrive as one chord or as separate keys; modifiers never make a chord a loop.
+    const keys = record.keys.flatMap((key) => String(key).toLowerCase().split("+")).filter((key) => !MODIFIER_KEYS.has(key));
     return keys.length > 0 && keys.every((key) => NAVIGATION_KEYS.has(key));
+  }
+  return false;
+}
+
+/** True when this call shows the task moved forward. Repeating the same phase does not count. */
+function progressSignal(context: AgentHostMcpContext, toolName: string, input: unknown): boolean {
+  const record = input !== null && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  if (toolName === "task.add_event") return record.kind === "verification";
+  if (toolName === "task.update_status") return Array.isArray(record.verifiedCriteria) && record.verifiedCriteria.length > 0;
+  if (toolName === "task.update" && typeof record.phase === "string") {
+    const changed = TASK_PHASES.get(context) !== record.phase;
+    TASK_PHASES.set(context, record.phase);
+    return changed;
   }
   return false;
 }
@@ -717,19 +738,21 @@ function noteRepeatedCall(context: AgentHostMcpContext, toolName: string, input:
     REPEAT_TRACKER.set(context, session);
   }
   const key = `${toolName}:${stableKey(comparable)}`;
-  const entry: RepeatEntry = session.get(key) ?? { count: 0 };
+  const now = Date.now();
+  const entry: RepeatEntry = session.get(key) ?? { times: [] };
   // A call whose observable state differs from the last identical call made
   // progress, so the streak restarts instead of escalating.
-  entry.count = entry.count > 0 && stateKey !== undefined && entry.stateKey !== undefined && entry.stateKey !== stateKey
-    ? 1
-    : entry.count + 1;
+  entry.times = entry.times.filter((time) => now - time < REPEAT_WINDOW_MS);
+  const progressed = stateKey !== undefined && entry.stateKey !== undefined && entry.stateKey !== stateKey;
+  if (progressed) entry.times = [];
+  entry.times.push(now);
   if (stateKey !== undefined) entry.stateKey = stateKey;
   if (session.size > 200 && !session.has(key)) {
     const oldest = session.keys().next().value;
     if (oldest !== undefined) session.delete(oldest);
   }
   session.set(key, entry);
-  return entry.count;
+  return entry.times.length;
 }
 
 export async function runTool<Input>(
@@ -742,6 +765,10 @@ export async function runTool<Input>(
   if (tool.name === "task.create") {
     REPEAT_TRACKER.delete(context);
     ACTION_COUNTS.delete(context);
+    TASK_PHASES.delete(context);
+    const requested = input !== null && typeof input === "object" ? (input as { maxActions?: unknown }).maxActions : undefined;
+    if (typeof requested === "number" && Number.isInteger(requested) && requested >= 0) TASK_BUDGETS.set(context, requested);
+    else TASK_BUDGETS.delete(context);
   }
   const activityMode = context.config.overlay?.mode ?? "always";
   const audit: AuditMeta = { inputSummary: "Tool call", preview: false, timings: emptyTimings() };
@@ -857,25 +884,27 @@ export async function runTool<Input>(
   if (repeats === 3 || repeats === 6) {
     result.observations = [
       ...(result.observations ?? []),
-      repeats === 3
-        ? `This exact call has now run ${repeats} times. Decide now: if the outcome is already satisfied, verify and report; otherwise change strategy instead of repeating.`
-        : `This exact call has now run ${repeats} times. Stop looping: verify the definition of done, then complete the task or report the blocker.`
+      `This exact call ran ${repeats} times in the last minute with no visible change. Check whether it worked (take a screenshot or read the field), then continue or try a different approach.`
     ];
   }
+  // Real progress resets the action budget: a new task phase, or a verified criterion.
+  if (result.ok && progressSignal(context, tool.name, input)) ACTION_COUNTS.set(context, 0);
 
   if (tool.execution?.executionClass === "state_changing" && options.previewOnly !== true && result.ok) {
     const actions = (ACTION_COUNTS.get(context) ?? 0) + 1;
     ACTION_COUNTS.set(context, actions);
-    const budget = context.config.execution?.maxActionsPerTask ?? 500;
+    const budget = TASK_BUDGETS.get(context) ?? context.config.execution?.maxActionsPerTask ?? 500;
     const loopTripped = repeats >= LOOP_GUARD_REPEATS && (repeats - LOOP_GUARD_REPEATS) % 5 === 0;
     const budgetTripped = budget > 0 && actions > 0 && actions % budget === 0;
     if (loopTripped || budgetTripped) {
       const reason = loopTripped
-        ? `The same ${tool.name} call ran ${repeats} times without progress. Press Resume if it should continue.`
-        : `${actions} actions ran in this task. Press Resume to allow more.`;
+        ? `The same ${tool.name} call ran ${repeats} times in a minute with no visible change. Press Resume on the card, or run: agenthost agent resume`
+        : `${actions} actions ran since the last progress update. Press Resume on the card, or run: agenthost agent resume`;
       try {
         await requestPause(context.config.agentHostDir, `${ACTION_CARD_PAUSE_PREFIX}: ${reason}`);
-        result.observations = [...(result.observations ?? []), `AgentHost paused itself: ${reason} Stop and tell the user what you are trying to do.`];
+        result.observations = [...(result.observations ?? []), `AgentHost paused itself: ${reason} Tell the user what you are doing and that they can resume. Call task.update with the new phase as you make progress so the budget resets.`];
+        await context.actionOverlay?.notePaused?.().catch(() => undefined);
+        try { context.notifySelfPause?.(reason); } catch { /* Notification is best effort. */ }
       } catch {
         /* A failed pause write never changes the tool result. */
       }
@@ -916,7 +945,11 @@ export async function runTool<Input>(
   void finishTimelineEntry?.(result).catch(() => undefined);
   const actionStatus = await action?.finish(result).catch(() => undefined);
   if (actionStatus !== undefined && !actionStatus.hidden && (!actionStatus.visible || actionStatus.error !== undefined)) {
-    result.overlay = `unavailable:${actionStatus.error ?? "overlay_not_visible"}`;
+    // Report an overlay failure once per session: repeating it on every result is noise.
+    if (!OVERLAY_NOTED.has(context)) {
+      OVERLAY_NOTED.add(context);
+      result.overlay = `unavailable:${actionStatus.error ?? "overlay_not_visible"}`;
+    }
   }
 
   await traceEvent(context, tool.name, "finish", startedAt, {

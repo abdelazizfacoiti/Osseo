@@ -1,7 +1,7 @@
 # AgentHost MCP Tools and Adapter Specification
 
 All callable tools return `ToolResult`. MCP transport is stdio. The current
-minimal-v2 server exposes 62 base tools. This number is generated from the
+minimal-v2 server exposes 67 base tools. This number is generated from the
 loaded set at startup; treat `system.list_capabilities` and
 `agenthost://capabilities` as authoritative instead of hard-coding counts.
 
@@ -77,6 +77,11 @@ present before the call. Missing backend data is omitted rather than guessed.
 | `browser.type` | medium | state_changing (routine; password/OTP/card fields refused) |
 | `browser.navigate` | medium | state_changing (routine) |
 | `browser.close` | low | state_changing (routine) |
+| `browser.upload` | high | state_changing (confirmed: exact preview and token) |
+| `browser.select` | medium | state_changing (routine) |
+| `browser.fill` | medium | state_changing (routine; sensitive fields refused before typing) |
+| `browser.wait_for` | observe | read_only |
+| `browser.screenshot` | low | read_only (inline JPEG) |
 
 These drive a separate Chrome/Chromium profile (`~/.agenthost/browser/profiles/agent`)
 over the DevTools Protocol on a loopback port, never the person's own profile.
@@ -84,6 +89,13 @@ Elements are addressed by ref from the latest `browser.snapshot`; a ref from an
 older snapshot fails with `stale_ref`. Safety evaluates the page's origin and
 path (never the query string). Login, MFA, and other security pages are
 blocked and the result points the agent at `agent.request_handoff`.
+
+`browser.fill` checks every field before typing any of them, then reads each
+value back and reports which fields took the text. `browser.upload` attaches
+files through the DevTools protocol without a file dialog; an upload is always
+high risk, so it needs an exact confirmation, and each path must be absolute,
+a regular file, and pass the file policy. `browser.wait_for` polls for text or
+the URL instead of a fixed sleep.
 
 ### Agent control and tasks
 

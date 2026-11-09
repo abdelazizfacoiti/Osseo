@@ -76,7 +76,7 @@ desktop automation otherwise. Accessibility tools
 
 ## 3. Live surface
 
-The current server exposes **62 base MCP tools** and **3 resources**.
+The current server exposes **67 base MCP tools** and **3 resources**.
 
 Tool counts are generated from the loaded set at startup. The authoritative
 source is always:
@@ -445,18 +445,23 @@ Completed and cancelled tasks are terminal and clear active task approval.
 
 ### Anti-loop behavior
 
-The runner tracks identical calls for non-control tools. It adds guidance on the
-3rd and 6th identical call to force verification, a strategy change, or
-reporting the blocker.
+The runner tracks identical calls for non-control tools within a 60-second
+window, and only when the screen state did not change between them. It adds
+guidance on the 3rd and 6th identical call to check the result or change
+approach.
 
 Two guards actually pause the agent (a scoped pause the action card can
 Resume, reason prefix `agent_action_card_pause:`), because guidance alone does
 not stop a runaway loop:
 
-- The same state-changing call repeating 10 times without observable progress
-  (then again every 5).
-- `execution.maxActionsPerTask` successful state-changing actions in one task
-  (default 500; `0` disables). The count restarts at `task.create`.
+- The same state-changing call repeating 10 times in a minute with no visible
+  change (then again every 5). Modifier-plus-navigation chords such as
+  `ctrl+End` never count.
+- `execution.maxActionsPerTask` successful state-changing actions since the last
+  progress update (default 500; `0` disables). `task.create` takes its own
+  `maxActions`. A new `task.update` phase or a verified criterion resets the count.
+  A pause set by a guard keeps its card up and posts one persistent desktop
+  notification with the resume command.
 
 ### Human-aware execution
 
@@ -1149,7 +1154,7 @@ At the time of writing, the tree passes:
 - `npm run build`
 - `npm run lint`
 - `npm test` — 60 files, 371 tests
-- `npm run smoke:mcp` — 62 tools, 3 resources
+- `npm run smoke:mcp` — 67 tools, 3 resources
 - `npm run benchmark:agent` — isolated, non-destructive runner overhead benchmark
 - `npm run benchmark:tasks` — 20 isolated scenarios, 22 governed calls in the latest run; desktop-input/OCR scenarios use mocked backends
 - `git diff --check`

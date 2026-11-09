@@ -208,6 +208,17 @@ function signalOverlayUnavailable(): void {
   }
 }
 
+/** A guard paused the agent: one persistent desktop notification carrying the exact command that resumes it. */
+function signalSelfPause(reason: string): void {
+  try {
+    const child = spawn("notify-send", ["-a", "AgentHost", "-u", "critical", "-t", "0", "AgentHost paused itself", `${reason.slice(0, 180)} Resume: agenthost agent resume`], { stdio: "ignore", detached: true });
+    child.on("error", () => undefined);
+    child.unref();
+  } catch {
+    /* Desktop notifications are best effort. */
+  }
+}
+
 function blenderModuleSpecifier(): string {
   const currentDir = path.dirname(fileURLToPath(import.meta.url));
   const isSource = currentDir.includes(`${path.sep}src`);
@@ -274,16 +285,19 @@ export interface AgentHostServerOptions {
   sessionGrants?: import("@agenthost/core").CapabilityGrant[];
 }
 
+/** A tool may attach an image under data.inlineImage. It goes to the client as image content, never into the JSON text. */
 function toMcpToolResult(result: ToolResult): {
-  content: Array<{ type: "text"; text: string }>;
+  content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
   isError: boolean;
 } {
+  const inline = (result.data as { inlineImage?: { data: string; mimeType: string } } | null | undefined)?.inlineImage;
+  const shown: ToolResult = inline === undefined
+    ? result
+    : { ...result, data: { ...(result.data as object), inlineImage: { mimeType: inline.mimeType, bytes: inline.data.length } } as ToolResult["data"] };
   return {
     content: [
-      {
-        type: "text",
-        text: JSON.stringify(result, null, 2)
-      }
+      { type: "text", text: JSON.stringify(shown, null, 2) },
+      ...(inline === undefined ? [] : [{ type: "image" as const, data: inline.data, mimeType: inline.mimeType }])
     ],
     isError: !result.ok
   };
@@ -484,6 +498,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     overlay,
     actionOverlay,
     ...(actionTimeline === undefined ? {} : { actionTimeline }),
+    notifySelfPause: (reason: string) => signalSelfPause(reason),
     overlayScreenshotSuppression: async (capture) => {
       try {
         return await overlay.withScreenshotSuppressed(capture);

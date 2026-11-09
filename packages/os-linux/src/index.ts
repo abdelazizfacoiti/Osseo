@@ -16,3 +16,4 @@ export * from "./idle.js";
 export * from "./cdp.js";
 export * from "./browser-session.js";
 export * from "./background-display.js";
+export * from "./effect.js";

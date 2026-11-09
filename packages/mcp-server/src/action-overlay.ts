@@ -318,6 +318,13 @@ export class ToolActionOverlay {
     await this.#render();
   }
 
+  /** A pause was just set (for example by a guard): keep the card up with Resume until someone acts. */
+  async notePaused(): Promise<void> {
+    this.#paused = true;
+    this.#clearAutoHide();
+    await this.#render();
+  }
+
   async dismiss(): Promise<void> {
     this.#stopHeartbeat();
     this.#stopEventPoll();
@@ -389,7 +396,7 @@ export class ToolActionOverlay {
       { type: "text", text: this.#detailText(phase, current) }
     ];
     if (phase === "waiting_approval") components.push({ type: "warning", text: "Approval required. Press Approve on the approval card, or run: agenthost confirmations" });
-    if (phase === "paused") components.push({ type: "warning", text: "Paused. Resume here or run: agenthost agent resume --pause" });
+    if (phase === "paused") components.push({ type: "warning", text: "Paused. Press Resume here, or run: agenthost agent resume" });
     if (phase === "halted" && this.#stopRequested) components.push({ type: "warning", text: "Stop is active. Dismiss this card or run: agenthost agent resume --stop" });
     if (this.#controlError !== undefined) components.push({ type: "warning", text: this.#controlError });
     if (this.#active.size > 1) components.push({ type: "key_value", key: "Actions", value: `${this.#active.size} running` });
@@ -721,9 +728,15 @@ export class ToolActionOverlay {
   }
 
   #scheduleAutoHide(): void {
-    if (this.#persistent || this.#disposed) return;
+    if (this.#persistent || this.#disposed || this.#paused || this.#stopRequested) return;
     this.#clearAutoHide();
-    const timer = setTimeout(() => void this.dismiss(), Math.max(1_000, this.#autoHideMs));
+    const timer = setTimeout(() => {
+      void (async () => {
+        // Never hide a card the person still needs: a pause may have been set after the action finished.
+        try { if (this.#isPaused !== undefined && await this.#isPaused()) { await this.notePaused(); return; } } catch { /* Fall through to hide. */ }
+        await this.dismiss();
+      })();
+    }, Math.max(1_000, this.#autoHideMs));
     const unref = timer as unknown as { unref?: () => void };
     if (typeof unref.unref === "function") unref.unref();
     this.#autoHide = timer;

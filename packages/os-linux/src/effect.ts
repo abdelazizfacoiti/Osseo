@@ -1,0 +1,67 @@
+import { createHash } from "node:crypto";
+
+/*
+ * Did an action change what is on screen? xdotool reports "clicked" whenever the
+ * button press was sent, even when nothing happened, so success was being
+ * guessed. measureEffect hashes the window before and after the action, and
+ * waits until the picture stops moving, so the result says what actually
+ * happened.
+ *
+ * Limits: this is a pixel comparison. A blinking caret can read as a change, and
+ * an animation keeps the window unsettled until the cap. Callers should treat
+ * screenChanged: false as "no visible change", not as proof nothing happened.
+ */
+
+export interface EffectResult {
+  /** true: the window differs afterwards. false: identical. null: could not be captured. */
+  screenChanged: boolean | null;
+  settledMs: number;
+  reason?: string;
+}
+
+export interface MeasureEffectOptions {
+  /** Grabs the target window as PNG bytes, or undefined when that is not possible. */
+  capture: () => Promise<Buffer | undefined>;
+  /**
+   * Runs before the baseline capture, for example to hover the target so that hover
+   * styling is already part of the baseline and does not read as a change.
+   */
+  prepare?: () => Promise<unknown>;
+  prepareSettleMs?: number;
+  settleCapMs?: number;
+  pollMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const sleepFor = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function measureEffect<T>(options: MeasureEffectOptions, act: () => Promise<T>): Promise<{ value: T; effect: EffectResult }> {
+  const capCap = Math.max(0, options.settleCapMs ?? 1_500);
+  const poll = Math.max(10, options.pollMs ?? 80);
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? sleepFor;
+  const digest = async (): Promise<string | undefined> => {
+    const bytes = await options.capture();
+    return bytes === undefined ? undefined : createHash("sha256").update(bytes).digest("hex");
+  };
+  if (options.prepare !== undefined) {
+    await options.prepare();
+    await sleep(Math.max(0, options.prepareSettleMs ?? 250));
+  }
+  const before = await digest();
+  const value = await act();
+  const started = now();
+  if (before === undefined) return { value, effect: { screenChanged: null, settledMs: 0, reason: "window_not_captured" } };
+  let previous = await digest();
+  let current = previous;
+  while (previous !== undefined && now() - started < capCap) {
+    await sleep(poll);
+    current = await digest();
+    if (current === undefined || current === previous) break;
+    previous = current;
+  }
+  const settledMs = now() - started;
+  if (current === undefined) return { value, effect: { screenChanged: null, settledMs, reason: "window_not_captured" } };
+  return { value, effect: { screenChanged: current !== before, settledMs } };
+}

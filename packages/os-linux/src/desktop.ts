@@ -42,6 +42,8 @@ export interface LinuxDesktopScreenshotInput {
 
 export interface LinuxDesktopHotkeyInput {
   keys: string[];
+  /** Times to send the chord (1-50). Repeats are spaced 20 ms apart. */
+  repeat?: number;
   activeWindow: DesktopWindowContext;
 }
 
@@ -606,6 +608,14 @@ function validateScreenshotOptions(input: LinuxDesktopScreenshotInput, format: "
   return undefined;
 }
 
+/** Writes a JPEG no wider than maxWidth. False when ffmpeg is missing or fails, so the inline picture is simply skipped. */
+export async function downscaleToJpeg(inputPath: string, outputPath: string, maxWidth: number, context: LinuxDesktopContext = {}): Promise<boolean> {
+  const ffmpeg = await findCommandPath("ffmpeg", context);
+  if (ffmpeg === undefined) return false;
+  const result = await runDesktopCommand(ffmpeg, ["-y", "-loglevel", "error", "-i", inputPath, "-vf", `scale='min(${Math.max(64, Math.floor(maxWidth))},iw)':-2`, "-frames:v", "1", "-q:v", "6", outputPath], context);
+  return result.exitCode === 0 && (await statBytes(outputPath)) !== undefined;
+}
+
 export async function captureLinuxScreenshot(
   input: LinuxDesktopScreenshotInput,
   context: LinuxDesktopContext = {}
@@ -821,20 +831,20 @@ async function refocusExpectedWindow(
  * `ctrl+l`. Passing the keys as separate arguments (`CTRL`, `L`) releases the
  * modifier before sending the letter, which turns Ctrl+L into a literal L.
  */
-export function xdotoolHotkeyArguments(keys: string[]): string[] {
+export function xdotoolHotkeyArguments(keys: string[], repeat = 1): string[] {
+  if (repeat > 1) return ["key", "--repeat", String(repeat), "--repeat-delay", "20", keys.join("+")];
   return ["key", keys.join("+")];
 }
 
 export type TypingMethod = "direct" | "clipboard";
 
 /**
- * xdotool `type` maps keysyms through the active layout: letters, digits and
- * space are safe, but layout-dependent characters (`:/#` and other AltGr or
- * dead-key characters on AZERTY) mistype. Those go through clipboard paste,
- * which is layout-independent.
+ * Clipboard paste is the default for all text. Direct `xdotool type` maps each
+ * character through the active keyboard layout, and on AZERTY it silently swapped
+ * W and Z, so direct typing must be an explicit choice, never the default.
  */
 export function describeTypingStrategy(text: string): TypingMethod {
-  return /^[A-Za-z0-9 ]*$/.test(text) && text.length < 512 ? "direct" : "clipboard";
+  return text.length === 0 ? "direct" : "clipboard";
 }
 
 async function feedClipboard(command: string, args: string[], text: string, context: LinuxDesktopContext): Promise<boolean> {
@@ -876,6 +886,9 @@ async function readClipboard(command: string, args: string[], context: LinuxDesk
   return result.exitCode === 0 ? result.stdout : undefined;
 }
 
+/** Time the target gets to read the clipboard before the old contents are restored. */
+const PASTE_SETTLE_MS = 350;
+
 async function pasteViaClipboard(
   xdotoolPath: string,
   text: string,
@@ -893,6 +906,8 @@ async function pasteViaClipboard(
     : await feedClipboard(xsel!, ["--clipboard", "--input"], text, context);
   if (!fed) return { ok: false, reason: "The clipboard backend did not accept the text." };
   const paste = await runDesktopCommand(xdotoolPath, ["key", "ctrl+v"], context);
+  // Restoring at once let the old clipboard text win the race against the paste.
+  await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
   if (paste.exitCode !== 0) return { ok: false, reason: "The clipboard paste hotkey did not complete successfully." };
   const restored = previousClipboard === undefined
     ? false
@@ -951,6 +966,8 @@ async function pasteViaGtkClipboard(
     return { ok: false, reason: "Layout-unsafe characters require a clipboard backend; install xclip (sudo apt install xclip) or python3-gi for non-ASCII typing." };
   }
   const paste = await runDesktopCommand(xdotoolPath, ["key", "ctrl+v"], context);
+  // Restoring at once let the old clipboard text win the race against the paste.
+  await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
   // The target app requests the selection asynchronously after Ctrl+V; keep
   // ownership long enough for that round-trip before releasing it.
   await new Promise((resolve) => setTimeout(resolve, 250));
@@ -1057,7 +1074,7 @@ export async function sendLinuxHotkey(
     };
   }
 
-  const result = await runDesktopCommand(verification.xdotoolPath, xdotoolHotkeyArguments(input.keys), context);
+  const result = await runDesktopCommand(verification.xdotoolPath, xdotoolHotkeyArguments(input.keys, input.repeat), context);
 
   return {
     supported: result.exitCode === 0,

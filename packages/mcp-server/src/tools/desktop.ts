@@ -16,6 +16,10 @@ import {
   type ToolResult
 } from "@agenthost/core";
 import { z } from "zod";
+import { readFile as readEffectBytes, rm as removeEffectFile } from "node:fs/promises";
+import { randomUUID as effectId } from "node:crypto";
+import { join as joinEffectPath } from "node:path";
+import { downscaleToJpeg, measureEffect, type EffectResult } from "@agenthost/os-linux";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
 import { createSafetyEvaluationContext } from "../grants.js";
@@ -57,6 +61,7 @@ const guiContextRefine = <T extends z.ZodRawShape>(schema: z.ZodObject<T>) => sc
 const screenshotInputSchema = z
   .object({
     outputDir: nonEmptyString.optional(),
+    inline: z.boolean().optional(),
     filename: z.string().trim().min(1).max(200).regex(/^[A-Za-z0-9._-]+\.(?:png|jpg|jpeg)$/i).optional(),
     includeActiveWindowOnly: z.boolean().optional(),
     format: z.enum(["png", "jpeg"]).optional(),
@@ -91,6 +96,8 @@ const screenshotInputSchema = z
 const hotkeyInputSchema = guiContextRefine(z
   .object({
     keys: z.array(z.string().trim().min(1).max(100)).min(1).max(10),
+    repeat: z.number().int().min(1).max(50).optional(),
+    verify: z.boolean().optional(),
     activeWindow: activeWindowSchema.optional(),
     target: targetWindowSchema.optional(),
     dryRun: z.boolean().optional(),
@@ -100,6 +107,7 @@ const hotkeyInputSchema = guiContextRefine(z
 const typeTextInputSchema = guiContextRefine(z
   .object({
     text: z.string().min(1).max(10_000),
+    verify: z.boolean().optional(),
     activeWindow: activeWindowSchema.optional(),
     target: targetWindowSchema.optional(),
     dataSensitivity: z.enum(["none", "low", "sensitive", "secret"]).optional(),
@@ -112,6 +120,7 @@ const clickInputSchema = guiContextRefine(z
     x: z.number().int().min(0),
     y: z.number().int().min(0),
     button: z.enum(["left", "middle", "right"]).optional(),
+    verify: z.boolean().optional(),
     activeWindow: activeWindowSchema.optional(),
     target: targetWindowSchema.optional(),
     dryRun: z.boolean().optional(),
@@ -383,6 +392,40 @@ async function desktopPreview(
   };
 }
 
+/** The active window as PNG bytes, with AgentHost's own cards hidden so they never count as a change. */
+async function captureActiveWindow(context: AgentHostMcpContext): Promise<Buffer | undefined> {
+  const file = joinEffectPath(context.config.agentHostDir, "screenshots", `settle-${effectId()}.png`);
+  const run = async (): Promise<Buffer | undefined> => {
+    try {
+      const shot = await context.linux.screenshot({ path: file, includeActiveWindowOnly: true });
+      return shot.supported === true ? await readEffectBytes(file) : undefined;
+    } catch {
+      return undefined;
+    } finally {
+      await removeEffectFile(file, { force: true }).catch(() => undefined);
+    }
+  };
+  return context.overlayScreenshotSuppression === undefined ? run() : context.overlayScreenshotSuppression(run);
+}
+
+/** Runs an action and reports whether the window changed. Disabled callers get the action alone. */
+async function verifiedAction<T>(context: AgentHostMcpContext, enabled: boolean, act: () => Promise<T>, options: { prepare?: () => Promise<unknown> } = {}): Promise<{ value: T; effect?: EffectResult }> {
+  if (!enabled) return { value: await act() };
+  const { value, effect } = await measureEffect({
+    capture: () => captureActiveWindow(context),
+    ...(options.prepare === undefined ? {} : { prepare: options.prepare })
+  }, act);
+  return { value, effect };
+}
+
+/** The observation for an action, saying plainly what the window did. */
+function effectNote(base: string, effect: EffectResult | undefined): string {
+  if (effect === undefined) return base;
+  if (effect.screenChanged === true) return `${base} The window changed.`;
+  if (effect.screenChanged === false) return `${base} No visible change in the window: the click may have missed, the control may be disabled, or the input was not accepted. Check before repeating.`;
+  return `${base} The result could not be verified: the window was not captured.`;
+}
+
 export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
   const screenshot: AgentHostToolDefinition<ScreenshotInput, DesktopScreenshotResult, AgentHostMcpContext> = {
     name: "desktop.screenshot",
@@ -392,6 +435,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     mcpInputSchema: {
       type: "object",
       properties: {
+        inline: { type: "boolean", description: "Also return a downscaled JPEG in the reply, so no second call is needed to read the file. Default true when ffmpeg is installed." },
         outputDir: { type: "string" },
         filename: { type: "string", pattern: "^[A-Za-z0-9._-]+\\.(png|jpg|jpeg)$" },
         includeActiveWindowOnly: { type: "boolean" },
@@ -496,6 +540,24 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           })
         };
       }
+      // Inline JPEG: the picture comes back in the reply, so no second call is needed to read the file.
+      let inlineScale: number | undefined;
+      if (input.inline !== false && size !== undefined) {
+        const scratch = joinEffectPath(context.config.agentHostDir, "screenshots", `inline-${effectId()}.jpg`);
+        try {
+          if (await downscaleToJpeg(outputPath, scratch, 1280, { agentHostDir: context.config.agentHostDir })) {
+            const small = await imageSize(scratch);
+            if (small !== undefined) {
+              inlineScale = small.width / size.width;
+              const reply = data as DesktopScreenshotResult & { inlineImage?: { data: string; mimeType: string }; inline?: { width: number; height: number; scale: number } };
+              reply.inlineImage = { data: (await readEffectBytes(scratch)).toString("base64"), mimeType: "image/jpeg" };
+              reply.inline = { width: small.width, height: small.height, scale: inlineScale };
+            }
+          }
+        } finally {
+          await removeEffectFile(scratch, { force: true }).catch(() => undefined);
+        }
+      }
       const origin = data.screenshotMetadata?.screenOrigin;
       return toolSuccess({
         tool: "desktop.screenshot",
@@ -504,7 +566,8 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         data,
         observations: [
           "Saved a screenshot locally under an approved AgentHost folder.",
-          ...(origin === undefined ? [] : [`To click a pixel in this image use screen x = ${origin.x} + imageX / ${input.scale ?? 1}, y = ${origin.y} + imageY / ${input.scale ?? 1}.`])
+          ...(inlineScale === undefined ? [] : ["The picture is attached inline (JPEG). The coordinates below apply to that picture."]),
+          ...(origin === undefined ? [] : [`To click a pixel in this image use screen x = ${origin.x} + imageX / ${inlineScale ?? input.scale ?? 1}, y = ${origin.y} + imageY / ${inlineScale ?? input.scale ?? 1}.`])
         ]
       });
     }
@@ -518,6 +581,8 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     mcpInputSchema: {
       type: "object",
       properties: {
+        repeat: { type: "integer", minimum: 1, maximum: 50, description: "Times to send the chord, 20 ms apart." },
+        verify: { type: "boolean", description: "Compare the window before and after the action and report effect.screenChanged. Default true; set false only for speed-critical repeats." },
         keys: {
           type: "array",
           items: { type: "string", minLength: 1, maxLength: 100 },
@@ -575,7 +640,11 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         return safetyFailure("desktop.hotkey", postResolutionSafety);
       }
 
-      const data = await context.linux.hotkey({ keys: input.keys, activeWindow: validation.activeWindow! });
+      const { value: data, effect } = await verifiedAction(context, input.verify !== false, () => context.linux.hotkey({
+        keys: input.keys,
+        ...(input.repeat === undefined ? {} : { repeat: input.repeat }),
+        activeWindow: validation.activeWindow!
+      }));
 
       if (data.supported !== true || data.sent !== true) {
         return failedDesktopAction("desktop.hotkey", "hotkey_failed", data);
@@ -585,8 +654,8 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         tool: "desktop.hotkey",
         riskLevel: "medium",
         strategy: "gui_control",
-        data,
-        observations: ["Sent hotkey to active window."]
+        data: { ...data, ...(effect === undefined ? {} : { effect }) },
+        observations: [effectNote("Sent hotkey to active window.", effect)]
       });
     }
   };
@@ -599,6 +668,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     mcpInputSchema: {
       type: "object",
       properties: {
+        verify: { type: "boolean", description: "Compare the window before and after the action and report effect.screenChanged. Default true; set false only for speed-critical repeats." },
         text: { type: "string", minLength: 1, maxLength: 10000 },
         activeWindow: activeWindowMcpSchema,
         target: activeWindowMcpSchema,
@@ -653,7 +723,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         return safetyFailure("desktop.type_text", postResolutionSafety);
       }
 
-      const data = await context.linux.typeText({ text: input.text, activeWindow: validation.activeWindow! });
+      const { value: data, effect } = await verifiedAction(context, input.verify !== false, () => context.linux.typeText({ text: input.text, activeWindow: validation.activeWindow! }));
 
       if (data.supported !== true || data.typed !== true) {
         return failedDesktopAction("desktop.type_text", "type_failed", data);
@@ -663,8 +733,8 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         tool: "desktop.type_text",
         riskLevel: "medium",
         strategy: "gui_control",
-        data,
-        observations: ["Typed text into active window."]
+        data: { ...data, ...(effect === undefined ? {} : { effect }) },
+        observations: [effectNote("Typed text into active window.", effect)]
       });
     }
   };
@@ -677,6 +747,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     mcpInputSchema: {
       type: "object",
       properties: {
+        verify: { type: "boolean", description: "Compare the window before and after the action and report effect.screenChanged. Default true; set false only for speed-critical repeats." },
         x: { type: "integer", minimum: 0 },
         y: { type: "integer", minimum: 0 },
         button: { type: "string", enum: ["left", "middle", "right"] },
@@ -731,12 +802,14 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         return safetyFailure("desktop.click", postResolutionSafety);
       }
 
-      const data = await context.linux.click({
+      // Hover first, so hover styling is in the baseline and a button that does
+      // nothing reports no change instead of a false positive.
+      const { value: data, effect } = await verifiedAction(context, input.verify !== false, () => context.linux.click({
         x: input.x,
         y: input.y,
         button: input.button ?? "left",
         activeWindow: validation.activeWindow!
-      });
+      }), { prepare: async () => { await context.linux.pointer?.({ action: "move_mouse", x: input.x, y: input.y, activeWindow: validation.activeWindow! }); } });
 
       if (data.supported !== true || data.clicked !== true) {
         return failedDesktopAction("desktop.click", "click_failed", data);
@@ -746,8 +819,8 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         tool: "desktop.click",
         riskLevel: "medium",
         strategy: "gui_control",
-        data,
-        observations: ["Clicked at coordinates."]
+        data: { ...data, ...(effect === undefined ? {} : { effect }) },
+        observations: [effectNote("Clicked at coordinates.", effect)]
       });
     }
   };

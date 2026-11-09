@@ -91,7 +91,7 @@ export interface LinuxAutomation {
   /** Set when this OS has no desktop adapter; desktop-touching tools then fail with unsupported_platform. */
   unsupportedPlatform?: string;
   focusWindow(input: { windowId?: string; appName?: string; title?: string; pid?: number }): Promise<WindowFocusResult>;
-  hotkey(input: { keys: string[]; activeWindow: DesktopWindowContext }): Promise<DesktopHotkeyResult>;
+  hotkey(input: { keys: string[]; repeat?: number; activeWindow: DesktopWindowContext }): Promise<DesktopHotkeyResult>;
   typeText(input: { text: string; activeWindow: DesktopWindowContext }): Promise<DesktopTypeTextResult>;
   click(input: {
     x: number;
@@ -171,6 +171,8 @@ export interface AgentHostMcpContext {
   policy: RuntimePolicy;
   /** True only while the runner executes an exact confirmed effect. */
   confirmationSatisfied?: boolean;
+  /** Called when a guard pauses the agent, with the exact command that resumes it. */
+  notifySelfPause?: (reason: string) => void;
   registry: CapabilityRegistrySnapshot;
   adapters: AdapterRegistrySnapshot;
   logger: AuditLogger;

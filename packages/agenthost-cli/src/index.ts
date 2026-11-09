@@ -7,6 +7,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, describeDesktopPlatform, acceptConfirmation, createPhonePairing, readPhonePairing, removePhonePairing, isValidChannelUrl, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
 import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
+import { COMMAND_USAGE, TOP_USAGE, wantsHelp } from "./help.js";
 import { attentionClear, attentionRequest, attentionStatus } from "./attention.js";
 import { physicalConsent, pressCheck } from "./phone.js";
 import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
@@ -429,7 +430,17 @@ async function agentCommand(args: ReturnType<typeof parseFlags>): Promise<Output
     const clearStopFlag = args.flags.has("stop");
     const clearTakeoverFlag = args.flags.has("takeover");
     const clearPauseFlag = args.flags.has("pause");
-    if (!clearStopFlag && !clearTakeoverFlag && !clearPauseFlag) return fail("agent resume", "usage: agenthost agent resume --stop|--takeover|--pause [flags may be combined]");
+    if (!clearStopFlag && !clearTakeoverFlag && !clearPauseFlag) {
+      // The common case is a pause. Clear it, and name the exact command for anything else still active.
+      const before = await readRunState(agentHome);
+      if (before.pause.requested) await clearPause(agentHome);
+      const stillActive = [
+        ...(before.stop.requested ? ["Stop is active. To clear it: agenthost agent resume --stop"] : []),
+        ...(before.takeover.requested ? ["Takeover is active. To clear it: agenthost agent resume --takeover"] : [])
+      ];
+      const note = before.pause.requested ? "Pause cleared." : stillActive.length > 0 ? "No pause was active." : "Nothing to resume: no pause, stop, or takeover is active.";
+      return { ok: true, command: "agent resume", data: { note, stillActive, cleared: { stop: false, takeover: false, pause: before.pause.requested }, runState: await readRunState(agentHome) } };
+    }
     if (clearStopFlag) await clearStop(agentHome);
     if (clearTakeoverFlag) {
       await endHandoff(agentHome);
@@ -667,9 +678,15 @@ async function scheduleCommand(sub: string | undefined, args: ReturnType<typeof 
   return fail("schedule", "usage: agenthost schedule list|add <workflow> --daily HH:MM|--weekdays HH:MM|--every 30m [--param k=v] [--apply]|remove <workflow> [--apply]");
 }
 async function main(): Promise<number> {
-  const args = parseFlags(process.argv.slice(2)); const json = args.flags.has("json"); const [top, sub] = args.positional; let result: Output;
+  const argv = process.argv.slice(2);
+  if (wantsHelp(argv)) {
+    const command = argv.find((item) => !item.startsWith("-") && item !== "help");
+    process.stdout.write(`${command !== undefined && COMMAND_USAGE[command] !== undefined ? `usage: ${COMMAND_USAGE[command]}` : `usage: ${TOP_USAGE}`}\n`);
+    return 0;
+  }
+  const args = parseFlags(argv); const json = args.flags.has("json"); const [top, sub] = args.positional; let result: Output;
   try {
-    if (top === undefined || top === "help") result = { ok: true, command: "help", data: "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|phone|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall" };
+    if (top === undefined) result = { ok: true, command: "help", data: TOP_USAGE };
     else if (top === "version") result = { ok: true, command: "version", data: { version: AGENTHOST_VERSION, platform: process.platform, architecture: process.arch } };
     else if (top === "doctor") result = await doctor();
     else if (top === "setup") result = sub === "deps" ? await setupDeps(args) : await setup(args);

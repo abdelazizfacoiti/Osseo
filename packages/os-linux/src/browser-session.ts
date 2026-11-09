@@ -51,6 +51,10 @@ export interface BrowserElementInfo {
 export interface BrowserOpenResult { opened: boolean; url: string; title: string; headless: boolean; reason?: string }
 export interface BrowserActionResult { ok: boolean; reason?: string; url?: string; title?: string }
 
+export interface BrowserSelectResult extends BrowserActionResult { selected?: string; options?: string[] }
+export interface BrowserWaitResult { matched: boolean; elapsedMs: number; url: string; title: string }
+export interface BrowserImage { data: string; mimeType: "image/jpeg"; width?: number; height?: number }
+
 export interface BrowserAutomation {
   open(input: { url?: string; headless?: boolean }): Promise<BrowserOpenResult>;
   /** Current page URL and title, or undefined when no browser is running. */
@@ -60,6 +64,11 @@ export interface BrowserAutomation {
   click(input: { ref: string }): Promise<BrowserActionResult>;
   type(input: { ref: string; text: string; clear?: boolean; submit?: boolean }): Promise<BrowserActionResult>;
   navigate(input: { action: "goto" | "back" | "forward" | "reload"; url?: string }): Promise<BrowserActionResult>;
+  upload(input: { ref: string; files: string[] }): Promise<BrowserActionResult>;
+  select(input: { ref: string; value?: string; label?: string }): Promise<BrowserSelectResult>;
+  waitFor(input: { text?: string; urlContains?: string; timeoutMs: number }): Promise<BrowserWaitResult>;
+  readValue(input: { ref: string }): Promise<string | undefined>;
+  screenshot(input: { ref?: string }): Promise<{ ok: boolean; reason?: string; image?: BrowserImage }>;
   close(): Promise<void>;
 }
 
@@ -193,6 +202,7 @@ export class BrowserSession implements BrowserAutomation {
     this.#targetId = targetId;
     await connection.send("Page.enable", {}, this.#sessionId);
     await connection.send("Runtime.enable", {}, this.#sessionId);
+    await connection.send("DOM.enable", {}, this.#sessionId);
     await connection.send("Target.activateTarget", { targetId }).catch(() => undefined);
   }
 
@@ -374,6 +384,88 @@ export class BrowserSession implements BrowserAutomation {
       return { ok: true, ...(await this.#pageState()) };
     } catch (error) {
       return { ok: false, reason: error instanceof Error ? error.message.slice(0, 120) : "navigation_failed" };
+    }
+  }
+
+  async upload(input: { ref: string; files: string[] }): Promise<BrowserActionResult> {
+    if (this.#connection === undefined || this.#sessionId === undefined) return { ok: false, reason: "browser_not_open" };
+    try {
+      const found = await this.#connection.send("Runtime.evaluate", { expression: `(${RESOLVE})(${JSON.stringify(input.ref)})`, returnByValue: false }, this.#sessionId);
+      const objectId = (found.result as { objectId?: string } | undefined)?.objectId;
+      if (objectId === undefined) return { ok: false, reason: "stale_ref" };
+      const check = await this.#connection.send("Runtime.callFunctionOn", { objectId, functionDeclaration: "function () { return this.tagName === 'INPUT' && this.type === 'file'; }", returnByValue: true }, this.#sessionId);
+      if ((check.result as { value?: unknown } | undefined)?.value !== true) return { ok: false, reason: "not_a_file_input" };
+      await this.#connection.send("DOM.setFileInputFiles", { files: input.files, objectId }, this.#sessionId);
+      await this.#connection.send("Runtime.callFunctionOn", { objectId, functionDeclaration: "function () { this.dispatchEvent(new Event('input', { bubbles: true })); this.dispatchEvent(new Event('change', { bubbles: true })); }", returnByValue: true }, this.#sessionId);
+      return { ok: true, ...(await this.#pageState().catch(() => ({ url: "", title: "" }))) };
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message.slice(0, 160) : "upload_failed" };
+    }
+  }
+
+  async select(input: { ref: string; value?: string; label?: string }): Promise<BrowserSelectResult> {
+    if (this.#connection === undefined || this.#sessionId === undefined) return { ok: false, reason: "browser_not_open" };
+    const outcome = await this.#evaluate<{ selected?: string; error?: string; options?: string[] }>(`(() => {
+      const el = (${RESOLVE})(${JSON.stringify(input.ref)});
+      if (!el) return { error: 'stale_ref' };
+      if (el.tagName !== 'SELECT') return { error: 'not_a_select' };
+      const options = [...el.options];
+      const wanted = ${JSON.stringify(input.value ?? null)};
+      const label = ${JSON.stringify(input.label ?? null)};
+      const match = options.find((o) => wanted !== null && o.value === wanted) ?? options.find((o) => label !== null && o.text.trim() === label);
+      if (!match) return { error: 'option_not_found', options: options.slice(0, 30).map((o) => o.text.trim()) };
+      el.value = match.value;
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return { selected: match.text.trim() };
+    })()`);
+    if (outcome === undefined) return { ok: false, reason: "select_failed" };
+    if (outcome.error !== undefined) return { ok: false, reason: outcome.error, ...(outcome.options === undefined ? {} : { options: outcome.options }) };
+    return { ok: true, ...(outcome.selected === undefined ? {} : { selected: outcome.selected }), ...(await this.#pageState().catch(() => ({ url: "", title: "" }))) };
+  }
+
+  /** Polls the page until the text appears and/or the URL contains the string, or the timeout passes. */
+  async waitFor(input: { text?: string; urlContains?: string; timeoutMs: number }): Promise<BrowserWaitResult> {
+    const started = Date.now();
+    const deadline = started + Math.max(0, input.timeoutMs);
+    let state = { url: "", title: "", text: "" };
+    for (;;) {
+      try {
+        state = (await this.#evaluate<{ url: string; title: string; text: string }>("({ url: location.href, title: document.title, text: document.body ? document.body.innerText : '' })")) ?? state;
+        const textOk = input.text === undefined || state.text.includes(input.text);
+        const urlOk = input.urlContains === undefined || state.url.includes(input.urlContains);
+        if (textOk && urlOk) return { matched: true, elapsedMs: Date.now() - started, url: state.url, title: state.title };
+      } catch {
+        /* The page is navigating; keep polling until the deadline. */
+      }
+      if (Date.now() >= deadline) return { matched: false, elapsedMs: Date.now() - started, url: state.url, title: state.title };
+      await sleep(250);
+    }
+  }
+
+  /** The current value of an input, or undefined when the element has none. Sensitive fields are never read. */
+  async readValue(input: { ref: string }): Promise<string | undefined> {
+    if (this.#connection === undefined || this.#sessionId === undefined) return undefined;
+    const value = await this.#evaluate<string | null>(`(() => { const el = (${RESOLVE})(${JSON.stringify(input.ref)}); return el && 'value' in el ? String(el.value) : null; })()`);
+    return value ?? undefined;
+  }
+
+  async screenshot(input: { ref?: string }): Promise<{ ok: boolean; reason?: string; image?: BrowserImage }> {
+    if (this.#connection === undefined || this.#sessionId === undefined) return { ok: false, reason: "browser_not_open" };
+    try {
+      let clip: { x: number; y: number; width: number; height: number; scale: number } | undefined;
+      if (input.ref !== undefined) {
+        const rect = await this.#evaluate<{ x: number; y: number; width: number; height: number } | { error: string }>(`(() => { const el = (${RESOLVE})(${JSON.stringify(input.ref)}); if (!el) return { error: 'stale_ref' }; el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return { x: r.left, y: r.top, width: r.width, height: r.height }; })()`);
+        if (rect === undefined) return { ok: false, reason: "snapshot_failed" };
+        if ("error" in rect) return { ok: false, reason: rect.error };
+        clip = { ...rect, scale: 1 };
+      }
+      const shot = await this.#connection.send("Page.captureScreenshot", { format: "jpeg", quality: 70, ...(clip === undefined ? {} : { clip }) }, this.#sessionId);
+      const data = String(shot.data ?? "");
+      if (data.length === 0) return { ok: false, reason: "screenshot_empty" };
+      return { ok: true, image: { data, mimeType: "image/jpeg", ...(clip === undefined ? {} : { width: Math.round(clip.width), height: Math.round(clip.height) }) } };
+    } catch (error) {
+      return { ok: false, reason: error instanceof Error ? error.message.slice(0, 160) : "screenshot_failed" };
     }
   }
 
