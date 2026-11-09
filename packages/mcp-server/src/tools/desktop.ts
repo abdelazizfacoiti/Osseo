@@ -16,6 +16,7 @@ import {
   type ToolResult
 } from "@agenthost/core";
 import { z } from "zod";
+import { resolveLabelTarget, type LabelResolution, type LabelTarget } from "../label-target.js";
 import { readFile as readEffectBytes, rm as removeEffectFile } from "node:fs/promises";
 import { randomUUID as effectId } from "node:crypto";
 import { join as joinEffectPath } from "node:path";
@@ -117,15 +118,35 @@ const typeTextInputSchema = guiContextRefine(z
 
 const clickInputSchema = guiContextRefine(z
   .object({
-    x: z.number().int().min(0),
-    y: z.number().int().min(0),
+    x: z.number().int().min(0).optional(),
+    y: z.number().int().min(0).optional(),
+    label: z.string().trim().min(1).max(200).optional(),
+    role: z.string().trim().min(1).max(80).optional(),
     button: z.enum(["left", "middle", "right"]).optional(),
     verify: z.boolean().optional(),
     activeWindow: activeWindowSchema.optional(),
     target: targetWindowSchema.optional(),
     dryRun: z.boolean().optional(),
     confirmationToken: confirmationTokenSchema
-  }).strict());
+  }).strict()).superRefine((input, ctx) => {
+    const hasPoint = input.x !== undefined || input.y !== undefined;
+    if (hasPoint && (input.x === undefined || input.y === undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass both x and y." });
+    }
+    if (hasPoint === (input.label !== undefined)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass either x and y, or label." });
+    }
+    if (input.role !== undefined && input.label === undefined) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "role only narrows a label; pass label too." });
+    }
+  });
+
+type ClickPoint = { x: number; y: number };
+/** Where a label-addressed action will land, resolved after the active window is validated. */
+type PointLocator = (activeWindow: DesktopWindowContext) => Promise<
+  | { ok: true; point: ClickPoint; data: Record<string, unknown> }
+  | { ok: false; code: string; message: string; data: Record<string, unknown> }
+>;
 
 const POINTER_ACTIONS = ["move_mouse", "scroll", "double_click", "right_click", "drag"] as const;
 
@@ -357,10 +378,11 @@ async function desktopPreview(
   actionType: "gui_click" | "gui_type",
   input: GuiContextInput,
   context: AgentHostMcpContext,
-  summary: (window: string) => string,
-  target: (window: string) => string,
+  summary: (window: string, point?: ClickPoint) => string,
+  target: (window: string, point?: ClickPoint) => string,
   data: Record<string, unknown>,
-  dataSensitivity?: "none" | "low" | "sensitive" | "secret"
+  dataSensitivity?: "none" | "low" | "sensitive" | "secret",
+  locate?: PointLocator
 ) {
   const activeWindow = toActiveWindowContext(inputWindow(input));
   const validation = await resolveGuiWindow(context, input);
@@ -376,10 +398,23 @@ async function desktopPreview(
       data: { activeWindow: validation.activeWindow ?? null, requestedWindow: activeWindow, ...data }
     };
   }
+  const located = locate === undefined ? undefined : await locate(validation.activeWindow!);
+  if (located !== undefined && !located.ok) {
+    return {
+      summary: `Not clicked: ${located.message}`,
+      targetFingerprint: `unresolved:${tool}:${windowLabel}`,
+      riskLevel: "medium" as const,
+      approval: { required: false, status: "not_required" as const },
+      blocked: true,
+      reasons: [located.message],
+      blockedCode: located.code,
+      data: { activeWindow: validation.activeWindow, ...data, ...located.data }
+    };
+  }
   const safety = initialGuiSafety(tool, context, actionType, validation.activeWindow!, dataSensitivity);
   return {
-    summary: summary(windowLabel),
-    targetFingerprint: target(windowLabel),
+    summary: summary(windowLabel, located?.point),
+    targetFingerprint: target(windowLabel, located?.point),
     riskLevel: safety.riskLevel,
     approval: safety.approval,
     blocked: safety.blocked,
@@ -388,7 +423,7 @@ async function desktopPreview(
       || safety.riskLevel === "high"
       || safety.appSensitivity === "communication"
       || safety.appSensitivity === "financial",
-    data: { activeWindow: validation.activeWindow, ...data }
+    data: { activeWindow: validation.activeWindow, ...data, ...(located?.ok === true ? located.data : {}) }
   };
 }
 
@@ -424,6 +459,48 @@ function effectNote(base: string, effect: EffectResult | undefined): string {
   if (effect.screenChanged === true) return `${base} The window changed.`;
   if (effect.screenChanged === false) return `${base} No visible change in the window: the click may have missed, the control may be disabled, or the input was not accepted. Check before repeating.`;
   return `${base} The result could not be verified: the window was not captured.`;
+}
+
+/** Stops a label click before any input is sent; the carried result goes back to the caller. */
+class LabelRefusal extends Error {
+  readonly result: ToolResult<unknown>;
+  constructor(result: ToolResult<unknown>) {
+    super(String(result.error?.code ?? "label_refused"));
+    this.result = result;
+  }
+}
+
+function labelRefusal<T>(tool: string, resolution: Extract<LabelResolution, { ok: false }>): ToolResult<T> {
+  return toolFailure<T>({
+    tool,
+    riskLevel: "medium",
+    strategy: "gui_control",
+    error: { code: resolution.code, message: resolution.message, details: { candidates: resolution.candidates } },
+    observations: [resolution.message, "No click was performed."]
+  });
+}
+
+async function locateClick(
+  context: AgentHostMcpContext,
+  input: { x?: number | undefined; y?: number | undefined; label?: string | undefined; role?: string | undefined },
+  activeWindow: DesktopWindowContext
+): Promise<{ ok: true; point: ClickPoint; resolved?: LabelTarget } | { ok: false; result: ToolResult<DesktopClickResult> }> {
+  if (input.label !== undefined) {
+    const resolution = await resolveLabelTarget(context, activeWindow, { label: input.label, ...(input.role === undefined ? {} : { role: input.role }) });
+    if (!resolution.ok) return { ok: false, result: labelRefusal<DesktopClickResult>("desktop.click", resolution) };
+    return { ok: true, point: resolution.target.point, resolved: resolution.target };
+  }
+  if (input.x !== undefined && input.y !== undefined) return { ok: true, point: { x: input.x, y: input.y } };
+  return {
+    ok: false,
+    result: toolFailure<DesktopClickResult>({
+      tool: "desktop.click",
+      riskLevel: "medium",
+      strategy: "gui_control",
+      error: { code: "missing_target", message: "Pass x and y, or label." },
+      observations: ["No click was performed."]
+    })
+  };
 }
 
 export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
@@ -741,28 +818,51 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
 
   const click: AgentHostToolDefinition<ClickInput, DesktopClickResult, AgentHostMcpContext> = {
     name: "desktop.click",
-    description: "Clicks at absolute screen coordinates when policy and active-window context allow it.",
+    description: "Clicks at absolute screen coordinates (x, y), or on a visible control named by label inside the active window. A label is resolved through AT-SPI, then OCR, and the preview shows the resolved point; a confirmed click is refused if that point moved. Disabled and ambiguous controls are refused, never clicked.",
     riskLevel: "medium",
     inputSchema: clickInputSchema,
     mcpInputSchema: {
       type: "object",
       properties: {
         verify: { type: "boolean", description: "Compare the window before and after the action and report effect.screenChanged. Default true; set false only for speed-critical repeats." },
-        x: { type: "integer", minimum: 0 },
-        y: { type: "integer", minimum: 0 },
+        x: { type: "integer", minimum: 0, description: "Use with y, instead of label." },
+        y: { type: "integer", minimum: 0, description: "Use with x, instead of label." },
+        label: { type: "string", minLength: 1, maxLength: 200, description: "Exact visible name of the control, such as 'Send' or 'Change label'. Instead of x and y." },
+        role: { type: "string", minLength: 1, maxLength: 80, description: "Optional with label to pick one kind of control, such as 'push button', 'link' or 'entry'." },
         button: { type: "string", enum: ["left", "middle", "right"] },
         activeWindow: activeWindowMcpSchema,
         target: activeWindowMcpSchema,
         ...executionMcpProperties
       },
-      required: ["x", "y"],
       additionalProperties: false
     },
-    inputSummary: "Click at coordinates",
-    auditInputSummary: (i) => `Click ${i.button ?? "left"} at (${i.x}, ${i.y}) in ${activeWindowAppName(toActiveWindowContext(inputWindow(i))) ?? "active window"}.`,
+    inputSummary: "Click at coordinates or on a label",
+    auditInputSummary: (i) => `Click ${i.button ?? "left"} ${i.label === undefined ? `at (${i.x}, ${i.y})` : `on "${i.label}"`} in ${activeWindowAppName(toActiveWindowContext(inputWindow(i))) ?? "active window"}.`,
     preview: {
       isDryRun: (i) => i.dryRun === true,
-      resolveEffect: (i, context) => desktopPreview("desktop.click", "gui_click", i, context, (window) => `Click ${i.button ?? "left"} at (${i.x}, ${i.y}) in ${window}.`, (window) => `click:${window}:${i.x}:${i.y}:${i.button ?? "left"}`, { x: i.x, y: i.y, button: i.button ?? "left" })
+      resolveEffect: (i, context) => {
+        const button = i.button ?? "left";
+        const locate: PointLocator | undefined = i.label === undefined ? undefined : async (activeWindow) => {
+          const resolved = await resolveLabelTarget(context, activeWindow, { label: i.label!, ...(i.role === undefined ? {} : { role: i.role }) });
+          return resolved.ok
+            ? { ok: true, point: resolved.target.point, data: { resolved: { label: i.label, ...resolved.target } } }
+            : { ok: false, code: resolved.code, message: resolved.message, data: { resolved: { label: i.label, code: resolved.code, candidates: resolved.candidates } } };
+        };
+        return desktopPreview(
+          "desktop.click",
+          "gui_click",
+          i,
+          context,
+          (window, point) => {
+            const at = point ?? (i.x === undefined || i.y === undefined ? undefined : { x: i.x, y: i.y });
+            return at === undefined ? `Click ${button} on "${i.label}" in ${window}.` : `Click ${button} ${i.label === undefined ? "" : `on "${i.label}" `}at (${at.x}, ${at.y}) in ${window}.`;
+          },
+          (window, point) => `click:${window}:${point?.x ?? i.x}:${point?.y ?? i.y}:${button}`,
+          i.label === undefined ? { x: i.x, y: i.y, button } : { label: i.label, button },
+          undefined,
+          locate
+        );
+      }
     },
     safety: {
       actionType: "inspect",
@@ -802,14 +902,46 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         return safetyFailure("desktop.click", postResolutionSafety);
       }
 
+      const located = await locateClick(context, input, validation.activeWindow!);
+      if (!located.ok) return located.result;
+      const { point, resolved } = located;
+
       // Hover first, so hover styling is in the baseline and a button that does
       // nothing reports no change instead of a false positive.
-      const { value: data, effect } = await verifiedAction(context, input.verify !== false, () => context.linux.click({
-        x: input.x,
-        y: input.y,
-        button: input.button ?? "left",
-        activeWindow: validation.activeWindow!
-      }), { prepare: async () => { await context.linux.pointer?.({ action: "move_mouse", x: input.x, y: input.y, activeWindow: validation.activeWindow! }); } });
+      let measured: Awaited<ReturnType<typeof verifiedAction<DesktopClickResult>>>;
+      try {
+        measured = await verifiedAction(context, input.verify !== false, async () => {
+          let at = point;
+          if (resolved !== undefined && input.label !== undefined) {
+            // Re-resolve right before the click: the control may have moved while the baseline was taken.
+            const again = await resolveLabelTarget(context, validation.activeWindow!, { label: input.label, ...(input.role === undefined ? {} : { role: input.role }) });
+            if (!again.ok) throw new LabelRefusal(labelRefusal("desktop.click", again));
+            if (again.target.point.x !== point.x || again.target.point.y !== point.y) {
+              // An approved click must land where it was previewed; otherwise ask for a new preview.
+              if (context.confirmationSatisfied === true) {
+                throw new LabelRefusal(toolFailure({
+                  tool: "desktop.click",
+                  riskLevel: "medium",
+                  strategy: "gui_control",
+                  error: { code: "target_moved", message: `"${input.label}" moved after it was previewed, so the approved click was not performed. Preview again.` },
+                  observations: ["No click was performed. The approved point no longer matches the control."]
+                }));
+              }
+              at = again.target.point;
+            }
+          }
+          return context.linux.click({
+            x: at.x,
+            y: at.y,
+            button: input.button ?? "left",
+            activeWindow: validation.activeWindow!
+          });
+        }, { prepare: async () => { await context.linux.pointer?.({ action: "move_mouse", x: point.x, y: point.y, activeWindow: validation.activeWindow! }); } });
+      } catch (error) {
+        if (error instanceof LabelRefusal) return error.result as ToolResult<DesktopClickResult>;
+        throw error;
+      }
+      const { value: data, effect } = measured;
 
       if (data.supported !== true || data.clicked !== true) {
         return failedDesktopAction("desktop.click", "click_failed", data);
@@ -819,8 +951,8 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         tool: "desktop.click",
         riskLevel: "medium",
         strategy: "gui_control",
-        data: { ...data, ...(effect === undefined ? {} : { effect }) },
-        observations: [effectNote("Clicked at coordinates.", effect)]
+        data: { ...data, ...(resolved === undefined ? {} : { resolved: { label: input.label, ...resolved } }), ...(effect === undefined ? {} : { effect }) },
+        observations: [effectNote(resolved === undefined ? "Clicked at coordinates." : `Clicked "${resolved.name}" (${resolved.source === "accessibility" ? "accessibility name" : "OCR text"}).`, effect)]
       });
     }
   };

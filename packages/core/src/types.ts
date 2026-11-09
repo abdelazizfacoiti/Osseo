@@ -1322,6 +1322,8 @@ export interface AccessibilityElementCandidate {
   bounds?: DesktopWindowBounds;
   confidence: number;
   reason: string;
+  /** AT-SPI ENABLED/SENSITIVE state; undefined when the backend cannot tell. */
+  enabled?: boolean;
 }
 
 export interface AccessibilityElementTarget {

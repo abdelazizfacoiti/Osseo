@@ -90,6 +90,7 @@ interface RawAccessibilityCandidate {
   reason?: string | null;
   sensitive?: boolean;
   hidden?: boolean;
+  enabled?: boolean | null;
 }
 
 interface RawAccessibilityValueMetadata {
@@ -286,6 +287,16 @@ def safe_states(node):
             unique.append(state)
     return unique[:20]
 
+def safe_enabled(node):
+    try:
+        state_set = node.getState()
+        flag = getattr(pyatspi, "STATE_ENABLED", None) or getattr(pyatspi, "STATE_SENSITIVE", None)
+        if flag is None:
+            return None
+        return bool(state_set.contains(flag))
+    except Exception:
+        return None
+
 def safe_actions(node):
     actions = []
     try:
@@ -370,14 +381,13 @@ def matches_app(app_node, app_name, pid):
     if app_name is None and pid is None:
         return True
 
-    node_name = normalize(safe_name(app_node))
-    node_pid = safe_pid(app_node)
-
-    if pid is not None and node_pid == pid:
+    # Ask for the pid first and skip the name when it matches. A hung app answers its name
+    # slowly (seconds), which would stall every lookup on the desktop.
+    if pid is not None and safe_pid(app_node) == pid:
         return True
 
-    if app_name is not None and node_name == normalize(app_name):
-        return True
+    if app_name is not None:
+        return normalize(safe_name(app_node)) == normalize(app_name)
 
     return False
 
@@ -534,6 +544,7 @@ def visit(node, depth, root_index, path_parts, app_name_ctx, window_title_ctx):
                 "bounds": bounds,
                 "confidence": candidate_confidence(query_match, role_match, exact_match),
                 "reason": "Matched accessibility query." if query else "Matched accessibility role.",
+                "enabled": safe_enabled(node),
                 "sensitive": sensitive,
                 "hidden": hidden
             })
@@ -918,6 +929,10 @@ function redactCandidate(candidate: RawAccessibilityCandidate): AccessibilityEle
 
   if (candidate.bounds !== undefined) {
     result.bounds = candidate.bounds;
+  }
+
+  if (typeof candidate.enabled === "boolean") {
+    result.enabled = candidate.enabled;
   }
 
   return result;

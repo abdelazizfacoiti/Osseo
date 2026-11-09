@@ -90,6 +90,14 @@ fixed.put(change, 20, 40)
 nothing = Gtk.Button(label="Does nothing")
 nothing.set_size_request(200, 40)
 fixed.put(nothing, 20, 100)
+reset = Gtk.Button(label="Reset label")
+reset.set_size_request(110, 40)
+reset.connect("clicked", lambda b: label.set_text("idle"))
+fixed.put(reset, 230, 40)
+locked = Gtk.Button(label="Locked")
+locked.set_size_request(200, 30)
+locked.set_sensitive(False)
+fixed.put(locked, 20, 200)
 entry = Gtk.Entry()
 entry.set_size_request(320, 30)
 entry.connect("changed", lambda e: open(out, "w", encoding="utf-8").write(e.get_text()))
@@ -256,6 +264,8 @@ async function desktopChecks(mcp, entryFile) {
   check("a click on a control that does nothing reports no change", nothing.ok && nothing.body?.data?.effect?.screenChanged === false, JSON.stringify(nothing.body?.data?.effect ?? nothing.error ?? null));
   const changed = await clickAt(120, 60);
   check("a click that changes the window reports the change", changed.ok && changed.body?.data?.effect?.screenChanged === true, JSON.stringify(changed.body?.data?.effect ?? changed.error ?? null));
+  const byLabelNothing = await mcp.call("desktop.click", { label: "Does nothing", activeWindow });
+  check("a click by label on a control that does nothing reports no change", byLabelNothing.ok && byLabelNothing.body?.data?.effect?.screenChanged === false && byLabelNothing.body?.data?.resolved?.source === "accessibility", JSON.stringify(byLabelNothing.body?.data?.resolved ?? byLabelNothing.error ?? null));
 
   await clickAt(180, 175);
   const text = 'Plan: W-Z "quotes" & #tag 12/34 é€';
@@ -274,6 +284,15 @@ async function desktopChecks(mcp, entryFile) {
   const shot = await mcp.call("desktop.screenshot", { includeActiveWindowOnly: true });
   const image = shot.images[0];
   check("a desktop screenshot comes back as an inline JPEG", image?.mimeType === "image/jpeg" && image.data.startsWith("/9j/"), image ? `${Math.round((image.data.length * 3) / 4 / 1024)} KB` : "no image part");
+
+  const byLabelReset = await mcp.call("desktop.click", { label: "Reset label", activeWindow });
+  check("a click by label that changes the window reports the change", byLabelReset.ok && byLabelReset.body?.data?.effect?.screenChanged === true, JSON.stringify(byLabelReset.body?.data?.effect ?? byLabelReset.error ?? null));
+  const locked = await mcp.call("desktop.click", { label: "Locked", activeWindow });
+  check("a disabled control is refused by name and nothing is clicked", locked.error === "control_disabled", locked.error ?? "clicked");
+  const near = await mcp.call("desktop.click", { label: "Does not", activeWindow });
+  check("a near-miss name is refused and the real name is suggested", near.error === "label_not_found" && JSON.stringify(near.body?.error?.details ?? {}).includes("Does nothing"), near.error ?? "");
+  const mixed = await mcp.call("desktop.click", { x: 1, y: 1, label: "Reset label", activeWindow });
+  check("x/y together with a label is refused before any action", mixed.ok === false && mixed.error !== undefined, mixed.error ?? "accepted");
   return { mcp, win, activeWindow, clickAt };
 }
 

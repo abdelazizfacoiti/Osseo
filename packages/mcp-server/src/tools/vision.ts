@@ -1,7 +1,7 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
-import { classifyAppSensitivity, evaluateSafety, rankVisionTargets, toolFailure, toolSuccess, type DesktopWindowContext, type VisionGroundingResult } from "@agenthost/core";
+import { classifyAppSensitivity, evaluateSafety, rankVisionTargets, toolFailure, toolSuccess, type DesktopWindowContext, type ToolResult, type VisionGroundingResult } from "@agenthost/core";
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import { runTool, type AgentHostToolDefinition, type AnyAgentHostToolDefinition } from "../tool-runner.js";
@@ -107,6 +107,43 @@ async function analyze(input: Base, context: AgentHostMcpContext, mode: "ocr" | 
   return context.linux.analyzeImage({ imagePath: prepared.imagePath, source: prepared.source, basename: prepared.basename, mode, maxItems: input.maxItems ?? 500 });
 }
 
+/**
+ * Fresh full-screen OCR matched against a query, in absolute screen coordinates. Read-only:
+ * it never clicks or types. desktop.click uses it as the label fallback when AT-SPI has no match.
+ */
+export async function findScreenTextMatches(
+  context: AgentHostMcpContext,
+  input: { query: string; match?: "exact" | "contains"; limit?: number }
+): Promise<ToolResult<unknown>> {
+  const current = await context.linux.getActiveWindow();
+  if (!current.supported || current.activeWindow === undefined) return failure("vision.find_text_on_screen", failResult("active_window_unavailable"));
+  const filename = `screen-ocr-${context.sessionId.replace(/[^A-Za-z0-9._-]/g, "_")}-${randomUUID()}.png`;
+  const screenshotTool = context.tools?.get("desktop.screenshot");
+  let capturePath: string | undefined;
+  if (screenshotTool !== undefined) {
+    const captureResult = await runTool(screenshotTool, { outputDir: path.join(context.config.agentHostDir, "screenshots"), filename, format: "png" }, context);
+    const captureData = captureResult.data as { path?: unknown } | null;
+    if (!captureResult.ok || typeof captureData?.path !== "string") return toolFailure({ tool: "vision.find_text_on_screen", riskLevel: "low", error: { code: "screen_capture_failed", message: captureResult.error?.message ?? "Fresh screen capture failed." }, observations: [captureResult.error?.code ?? "screen_capture_failed"] });
+    capturePath = captureData.path;
+  } else {
+    const screenshotPath = path.join(context.config.agentHostDir, "screenshots", filename);
+    const captureFn = () => context.linux.screenshot({ path: screenshotPath, format: "png" });
+    const capture = context.overlayScreenshotSuppression === undefined
+      ? await captureFn()
+      : await context.overlayScreenshotSuppression(captureFn);
+    if (capture.supported !== true || capture.path === undefined) return toolFailure({ tool: "vision.find_text_on_screen", riskLevel: "low", error: { code: "screen_capture_failed", message: capture.reason }, observations: [capture.reason] });
+    capturePath = capture.path;
+  }
+  const data = await analyze({ imagePath: capturePath, activeWindow: current.activeWindow }, context);
+  if (!data.supported) return failure("vision.find_text_on_screen", data);
+  const query = input.query.toLowerCase();
+  const matches = data.textItems
+    .filter((item) => input.match === "exact" ? item.text.toLowerCase() === query : item.text.toLowerCase().includes(query))
+    .slice(0, input.limit ?? 20)
+    .map((item) => ({ ...item, screenBounds: item.bounds, screenCenter: item.center, coordinateSpace: "screen" as const }));
+  return toolSuccess({ tool: "vision.find_text_on_screen", riskLevel: "low", data: { activeWindow: current.activeWindow, matches, warnings: [...data.warnings, "Coordinates are absolute screen suggestions only; revalidate active-window context before any click."], truncated: data.truncated }, observations: ["Captured fresh local OCR suggestions; no click occurred."] });
+}
+
 export function createVisionTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
   const analyzeTool: AgentHostToolDefinition<z.infer<typeof analyzeInput>, VisionGroundingResult, AgentHostMcpContext> = {
     name: "vision.analyze_image",
@@ -195,33 +232,7 @@ export function createVisionTools(): AnyAgentHostToolDefinition<AgentHostMcpCont
     auditOutputSummary: (result) => result.ok ? "Fresh screen OCR suggestions returned without logging OCR text." : result.error?.code ?? "Screen OCR failed.",
     safety: { actionType: "file_read", getInput: (input) => ({ ...(input.activeWindow?.appName === undefined ? {} : { appName: input.activeWindow.appName }), ...(input.activeWindow?.appName !== undefined && classifyAppSensitivity({ appName: input.activeWindow.appName }) === "communication" ? { dataSensitivity: "sensitive" as const } : {}) }) },
     async handler(input, context) {
-      const current = await context.linux.getActiveWindow();
-      if (!current.supported || current.activeWindow === undefined) return failure("vision.find_text_on_screen", failResult("active_window_unavailable"));
-      const filename = `screen-ocr-${context.sessionId.replace(/[^A-Za-z0-9._-]/g, "_")}-${randomUUID()}.png`;
-      const screenshotTool = context.tools?.get("desktop.screenshot");
-      let capturePath: string | undefined;
-      if (screenshotTool !== undefined) {
-        const captureResult = await runTool(screenshotTool, { outputDir: path.join(context.config.agentHostDir, "screenshots"), filename, format: "png" }, context);
-        const captureData = captureResult.data as { path?: unknown } | null;
-        if (!captureResult.ok || typeof captureData?.path !== "string") return toolFailure({ tool: "vision.find_text_on_screen", riskLevel: "low", error: { code: "screen_capture_failed", message: captureResult.error?.message ?? "Fresh screen capture failed." }, observations: [captureResult.error?.code ?? "screen_capture_failed"] });
-        capturePath = captureData.path;
-      } else {
-        const screenshotPath = path.join(context.config.agentHostDir, "screenshots", filename);
-        const captureFn = () => context.linux.screenshot({ path: screenshotPath, format: "png" });
-        const capture = context.overlayScreenshotSuppression === undefined
-          ? await captureFn()
-          : await context.overlayScreenshotSuppression(captureFn);
-        if (capture.supported !== true || capture.path === undefined) return toolFailure({ tool: "vision.find_text_on_screen", riskLevel: "low", error: { code: "screen_capture_failed", message: capture.reason }, observations: [capture.reason] });
-        capturePath = capture.path;
-      }
-      const data = await analyze({ imagePath: capturePath, activeWindow: current.activeWindow }, context);
-      if (!data.supported) return failure("vision.find_text_on_screen", data);
-      const query = input.query.toLowerCase();
-      const matches = data.textItems
-        .filter((item) => input.match === "exact" ? item.text.toLowerCase() === query : item.text.toLowerCase().includes(query))
-        .slice(0, input.limit ?? 20)
-        .map((item) => ({ ...item, screenBounds: item.bounds, screenCenter: item.center, coordinateSpace: "screen" as const }));
-      return toolSuccess({ tool: "vision.find_text_on_screen", riskLevel: "low", data: { activeWindow: current.activeWindow, matches, warnings: [...data.warnings, "Coordinates are absolute screen suggestions only; revalidate active-window context before any click."], truncated: data.truncated }, observations: ["Captured fresh local OCR suggestions; no click occurred."] });
+      return findScreenTextMatches(context, { query: input.query, ...(input.match === undefined ? {} : { match: input.match }), ...(input.limit === undefined ? {} : { limit: input.limit }) });
     }
   };
 

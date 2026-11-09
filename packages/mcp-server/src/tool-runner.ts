@@ -34,6 +34,7 @@ import { withStateChangingLane } from "./execution-gate.js";
 import { injectsInput, markAgentInput } from "./input-guard.js";
 import { waitForHumanToPause } from "./human-presence.js";
 import { describeAction } from "./action-timeline.js";
+import { resolveLabelTarget } from "./label-target.js";
 
 export interface ToolPreviewEffect {
   summary?: string;
@@ -44,6 +45,8 @@ export interface ToolPreviewEffect {
   reasons?: string[];
   requiresConfirmation?: boolean;
   data?: unknown;
+  /** A specific refusal code (for example control_disabled) instead of the generic safety_blocked. */
+  blockedCode?: string;
 }
 
 /** Tools that read what is on screen or the clipboard; refused while a human handoff is active. */
@@ -147,6 +150,14 @@ function inputSummaryForAudit(tool: AnyAgentHostToolDefinition, input: unknown):
   }
 }
 
+/** Whether a requested window selector names the window that is active now (any shared identifier). */
+function sameWindow(requested: Record<string, unknown>, active: { windowId?: string; appName?: string; title?: string; pid?: number }): boolean {
+  if (typeof requested.windowId === "string" && active.windowId !== undefined) return requested.windowId === active.windowId;
+  if (typeof requested.pid === "number" && active.pid !== undefined) return requested.pid === active.pid;
+  if (typeof requested.appName === "string" && active.appName !== undefined) return requested.appName.toLowerCase() === active.appName.toLowerCase();
+  return false;
+}
+
 async function actionTargetFor(toolName: string, input: unknown, context: AgentHostMcpContext): Promise<ToolActionTarget | undefined> {
   if (input === null || typeof input !== "object") return undefined;
   const value = input as Record<string, unknown>;
@@ -155,7 +166,22 @@ async function actionTargetFor(toolName: string, input: unknown, context: AgentH
       ? { x, y }
       : undefined
   );
-  if (toolName === "desktop.click") return point(value.x, value.y);
+  if (toolName === "desktop.click") {
+    const direct = point(value.x, value.y);
+    if (direct !== undefined || typeof value.label !== "string") return direct;
+    // A label ring is only a hint: AT-SPI alone, and only when the request does not name another window.
+    const current = await context.linux.getActiveWindow().catch(() => undefined);
+    if (!current?.supported || current.activeWindow === undefined) return undefined;
+    const requested = value.activeWindow !== null && typeof value.activeWindow === "object" ? value.activeWindow as Record<string, unknown> : undefined;
+    if (requested !== undefined && !sameWindow(requested, current.activeWindow)) return undefined;
+    const resolved = await resolveLabelTarget(
+      context,
+      current.activeWindow,
+      { label: value.label, ...(typeof value.role === "string" ? { role: value.role } : {}) },
+      { ocr: false }
+    ).catch(() => undefined);
+    return resolved?.ok === true ? { x: resolved.target.point.x, y: resolved.target.point.y } : undefined;
+  }
   if (toolName === "desktop.pointer") {
     return point(value.startX, value.startY) ?? point(value.x, value.y);
   }
@@ -473,9 +499,9 @@ async function executeGoverned(
       riskLevel,
       approval,
       error: {
-        code: "safety_blocked",
-        message: "Blocked by the safety engine.",
-        details: { reasons: effect.reasons ?? [] }
+        code: effect.blockedCode ?? "safety_blocked",
+        message: effect.blockedCode === undefined ? "Blocked by the safety engine." : (effect.reasons?.[0] ?? "Refused before any action."),
+        details: { reasons: effect.reasons ?? [], ...(effect.blockedCode === undefined ? {} : { data: effect.data ?? null }) }
       },
       observations: effect.reasons ?? ["Blocked by the safety engine."]
     });
