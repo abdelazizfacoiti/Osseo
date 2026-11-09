@@ -665,60 +665,43 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   };
 }
 
+// Upper bound on cleanup after the client is gone. Past it the process exits anyway, so a wedged
+// overlay renderer cannot keep cards on screen after the session ended.
+const STDIO_EXIT_DEADLINE_MS = 6_000;
+
 export async function startStdioServer(): Promise<void> {
   const { server, closeResources } = await createAgentHostMcpServer();
   const transport = new StdioServerTransport();
-  const keepAlive = setInterval(() => {
-    // Keep the stdio server process alive during client startup.
-  }, 2_147_483_647);
   const exitOnStdinEnd = process.env.AGENTHOST_STDIO_EXIT_ON_STDIN_END === "1";
-  let stdinEnded = false;
-  let canStopOnStdinEnd = false;
-  let startupGrace: ReturnType<typeof setTimeout> | undefined;
   let stopping = false;
 
-  const shutdown = async (exitCode: number): Promise<void> => {
+  // The MCP stdio contract ends a session by closing the client's stdin, so exit then. An idle
+  // event loop is not enough: overlay renderers hold pipes to this process, so it would never
+  // drain and the cards would outlive the session.
+  const shutdown = (exitCode: number): void => {
     if (stopping) return;
     stopping = true;
-    clearInterval(keepAlive);
-    if (startupGrace !== undefined) clearTimeout(startupGrace);
-    await transport.close().catch(() => undefined);
-    await closeResources();
-    process.exitCode = exitCode;
+    const exit = (): void => { process.exit(exitCode); };
+    const deadline = setTimeout(exit, STDIO_EXIT_DEADLINE_MS);
+    void (async () => {
+      await transport.close().catch(() => undefined);
+      await closeResources().catch(() => undefined);
+    })().finally(() => {
+      clearTimeout(deadline);
+      exit();
+    });
   };
 
-  const allowStopOnStdinEnd = (): void => {
-    canStopOnStdinEnd = true;
-
-    if (startupGrace !== undefined) {
-      clearTimeout(startupGrace);
-    }
-
-    if (stdinEnded) {
-      clearInterval(keepAlive);
-    }
-  };
-
-  const stopKeepAlive = (): void => {
-    stdinEnded = true;
-
-    if (exitOnStdinEnd || canStopOnStdinEnd) {
-      clearInterval(keepAlive);
-    }
-  };
-
-  server.oninitialized = allowStopOnStdinEnd;
-  process.stdin.once("end", stopKeepAlive);
-  process.stdin.once("close", stopKeepAlive);
-  process.once("SIGINT", () => { void shutdown(130); });
-  process.once("SIGTERM", () => { void shutdown(143); });
+  process.stdin.once("end", () => { shutdown(0); });
+  process.stdin.once("close", () => { shutdown(0); });
+  process.once("SIGHUP", () => { shutdown(129); });
+  process.once("SIGINT", () => { shutdown(130); });
+  process.once("SIGTERM", () => { shutdown(143); });
 
   await server.connect(transport);
   process.stdin.resume();
 
-  startupGrace = setTimeout(allowStopOnStdinEnd, 5_000);
-
   if (exitOnStdinEnd) {
-    setTimeout(() => { void shutdown(0); }, 1_000);
+    setTimeout(() => { shutdown(0); }, 1_000);
   }
 }

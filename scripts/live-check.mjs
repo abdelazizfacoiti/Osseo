@@ -12,6 +12,9 @@
  *      inline screenshots, and the loop guard with its pause.
  *   3. Browser: headless Chrome, no window. fill, select, upload (confirmed through the
  *      CLI), a confirmed consequential click, wait_for, and an inline page screenshot.
+ *   4. Session end: a second nested display (a small window for a few seconds) shows a
+ *      task card. Closing the client's stdin must end the server and its card renderer;
+ *      a killed server must take its renderer down too.
  *
  * Needs: Xephyr, python3 with GTK 3 (PyGObject), Chrome or Chromium, and a host DISPLAY.
  * Set LIVE_CHECK_LAYOUT=fr to run the desktop checks on a French (AZERTY) keyboard layout.
@@ -357,6 +360,97 @@ async function browserChecks(mcp, work, env) {
   await mcp.call("browser.close", {});
 }
 
+const COMPOSITOR = path.join(REPO, "scripts/live-check-compositor.py");
+
+// The renderer child of one server process, or undefined when no card renderer is running.
+function rendererUnder(serverPid) {
+  let listing = "";
+  try {
+    listing = execFileSync("ps", ["-o", "pid=,args=", "--ppid", String(serverPid)], { encoding: "utf8" });
+  } catch {
+    return undefined;
+  }
+  const line = listing.split("\n").find((item) => item.includes("gtk3-renderer.py"));
+  return line === undefined ? undefined : Number(line.trim().split(/\s+/)[0]);
+}
+
+function processAlive(pid) {
+  try {
+    const state = readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1]?.charAt(0);
+    return state !== undefined && state !== "Z" && state !== "X";
+  } catch {
+    return false;
+  }
+}
+
+async function waitFor(probe, ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    const value = probe();
+    if (value) return value;
+    await sleep(200);
+  }
+  return undefined;
+}
+
+async function sessionExitChecks(root) {
+  console.log("== Session end (a nested display opens for a few seconds)");
+  const display = freeDisplay();
+  const home = path.join(root, "exit-home");
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  const config = path.join(home, "config.json");
+  writeFileSync(config, JSON.stringify({ schemaVersion: 1, autoInstallDependencies: false }));
+  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config, DISPLAY: display, XDG_SESSION_TYPE: "x11" };
+  const started = [];
+  try {
+    started.push(spawn("Xephyr", [display, "-screen", "640x480", "-no-host-grab"], { env: { ...process.env, DISPLAY: HOST_DISPLAY }, stdio: "ignore" }));
+    for (let attempt = 0; attempt < 60 && !existsSync(`/tmp/.X11-unix/X${display.slice(1)}`); attempt += 1) await sleep(100);
+    // A nested display has no compositor, so cards would refuse to draw. This claims the
+    // compositing selection on that display only.
+    started.push(spawn("python3", ["-W", "ignore", COMPOSITOR], { env: { ...process.env, DISPLAY: display }, stdio: "ignore" }));
+    await sleep(1000);
+
+    const first = spawn(process.execPath, [SERVER], { env, stdio: ["pipe", "pipe", "pipe"] });
+    started.push(first);
+    const firstMcp = mcpClient(first);
+    await firstMcp.initialize();
+    const card = await firstMcp.call("task.create", { goal: "Live session-end check" });
+    check("a task card is created for the session", card.ok, card.error ?? "");
+    const renderer = await waitFor(() => rendererUnder(first.pid), 15_000);
+    check("the card's overlay renderer starts on the nested display", renderer !== undefined, renderer === undefined ? "no gtk3-renderer child" : `pid ${renderer}`);
+    first.stdin.end();
+    const serverExited = await waitFor(() => first.exitCode !== null || first.signalCode !== null, 8_000);
+    check("the MCP server exits when its client closes stdin", Boolean(serverExited));
+    if (renderer !== undefined) {
+      const rendererGone = await waitFor(() => !processAlive(renderer), 8_000);
+      check("the card's renderer exits with the session", Boolean(rendererGone));
+    }
+
+    const second = spawn(process.execPath, [SERVER], { env, stdio: ["pipe", "pipe", "pipe"] });
+    started.push(second);
+    const secondMcp = mcpClient(second);
+    await secondMcp.initialize();
+    await secondMcp.call("task.create", { goal: "Live hard-kill check" });
+    const killedRenderer = await waitFor(() => rendererUnder(second.pid), 15_000);
+    check("a second card renderer starts", killedRenderer !== undefined);
+    second.kill("SIGKILL");
+    if (killedRenderer !== undefined) {
+      // The renderer polls its parent every 5 s, so allow a little more than one poll.
+      const orphanGone = await waitFor(() => !processAlive(killedRenderer), 12_000);
+      check("the renderer exits when its server is killed outright", Boolean(orphanGone));
+    }
+  } finally {
+    for (const child of started.reverse()) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* Already gone. */
+      }
+    }
+    await sleep(500);
+  }
+}
+
 async function main() {
   if (!existsSync(SERVER) || !existsSync(CLI)) {
     console.log("Build first: npm run build");
@@ -421,6 +515,8 @@ async function main() {
     } else {
       console.log("== Browser: SKIPPED (no Chrome or Chromium found)");
     }
+
+    await sessionExitChecks(root);
   } finally {
     for (const child of children.reverse()) {
       try {
