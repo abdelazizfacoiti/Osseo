@@ -20,6 +20,7 @@ import {
 } from "@agenthost/core";
 import { z } from "zod";
 import { resolveLabelTarget, type LabelResolution, type LabelTarget } from "../label-target.js";
+import { imagePointToScreen, recallScreen, rememberScreen, sameBounds } from "../screenshot-registry.js";
 import { readFile as readEffectBytes, rm as removeEffectFile } from "node:fs/promises";
 import { createHash, randomUUID as effectId } from "node:crypto";
 import { join as joinEffectPath } from "node:path";
@@ -102,6 +103,7 @@ const hotkeyInputSchema = guiContextRefine(z
     keys: z.array(z.string().trim().min(1).max(100)).min(1).max(10),
     repeat: z.number().int().min(1).max(50).optional(),
     verify: z.boolean().optional(),
+    returnScreenshot: z.enum(["none", "region", "window"]).optional(),
     activeWindow: activeWindowSchema.optional(),
     target: targetWindowSchema.optional(),
     dryRun: z.boolean().optional(),
@@ -112,6 +114,7 @@ const typeTextInputSchema = guiContextRefine(z
   .object({
     text: z.string().min(1).max(10_000),
     verify: z.boolean().optional(),
+    returnScreenshot: z.enum(["none", "region", "window"]).optional(),
     activeWindow: activeWindowSchema.optional(),
     target: targetWindowSchema.optional(),
     dataSensitivity: z.enum(["none", "low", "sensitive", "secret"]).optional(),
@@ -119,19 +122,45 @@ const typeTextInputSchema = guiContextRefine(z
     confirmationToken: confirmationTokenSchema
   }).strict());
 
+/** A click names exactly one target: x and y, a label (with an optional role), or a point in a screenshot. */
+function clickTargetRules(input: {
+  x?: number | undefined; y?: number | undefined; label?: string | undefined; role?: string | undefined;
+  screenshotId?: string | undefined; imageX?: number | undefined; imageY?: number | undefined;
+}, ctx: z.RefinementCtx): void {
+  const hasPoint = input.x !== undefined || input.y !== undefined;
+  const hasShot = input.screenshotId !== undefined || input.imageX !== undefined || input.imageY !== undefined;
+  if (hasPoint && (input.x === undefined || input.y === undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass both x and y." });
+  }
+  if (hasShot && (input.screenshotId === undefined || input.imageX === undefined || input.imageY === undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass screenshotId, imageX and imageY together." });
+  }
+  const modes = [hasPoint, input.label !== undefined, hasShot].filter(Boolean).length;
+  if (modes !== 1) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass exactly one target: x and y, or label, or screenshotId with imageX and imageY." });
+  }
+  if (input.role !== undefined && input.label === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "role only narrows a label; pass label too." });
+  }
+}
+
 const clickInputSchema = guiContextRefine(z
   .object({
     x: z.number().int().min(0).optional(),
     y: z.number().int().min(0).optional(),
     label: z.string().trim().min(1).max(200).optional(),
     role: z.string().trim().min(1).max(80).optional(),
+    screenshotId: z.string().trim().min(1).max(64).optional(),
+    imageX: z.number().int().min(0).optional(),
+    imageY: z.number().int().min(0).optional(),
     button: z.enum(["left", "middle", "right"]).optional(),
     verify: z.boolean().optional(),
+    returnScreenshot: z.enum(["none", "region", "window"]).optional(),
     activeWindow: activeWindowSchema.optional(),
     target: targetWindowSchema.optional(),
     dryRun: z.boolean().optional(),
     confirmationToken: confirmationTokenSchema
-  }).strict()).superRefine(pointOrLabelRules);
+  }).strict()).superRefine(clickTargetRules);
 
 type ClickPoint = { x: number; y: number };
 /** Where a label-addressed action will land, resolved after the active window is validated. */
@@ -162,6 +191,7 @@ const setFieldInputSchema = guiContextRefine(z
     role: z.string().trim().min(1).max(80).optional(),
     text: z.string().max(10_000),
     replace: z.boolean().optional(),
+    returnScreenshot: z.enum(["none", "region", "window"]).optional(),
     activeWindow: activeWindowSchema.optional(),
     target: targetWindowSchema.optional(),
     dataSensitivity: z.enum(["none", "low", "sensitive", "secret"]).optional(),
@@ -266,6 +296,61 @@ function dialogContext(window: DesktopWindowSummary): DesktopWindowContext {
     ...(window.title === undefined ? {} : { title: window.title }),
     ...(window.pid === undefined ? {} : { pid: window.pid })
   };
+}
+
+/**
+ * The picture after an action, inline, with an id a click can use directly. "window" is the active
+ * window; "region" is a 480x320 area around the point the action used. Never fails the action: when
+ * the picture cannot be made, the action's result still stands.
+ */
+async function settledPicture(
+  context: AgentHostMcpContext,
+  mode: "window" | "region",
+  point?: ClickPoint
+): Promise<{ inlineImage: { data: string; mimeType: "image/jpeg" }; inline: { width: number; height: number; scale: number; screenshotId: string } } | undefined> {
+  const region = mode === "region" && point !== undefined
+    ? { x: Math.max(0, point.x - 240), y: Math.max(0, point.y - 160), width: 480, height: 320 }
+    : undefined;
+  const png = joinEffectPath(context.config.agentHostDir, "screenshots", `settled-${effectId()}.png`);
+  const scratch = joinEffectPath(context.config.agentHostDir, "screenshots", `settled-${effectId()}.jpg`);
+  try {
+    // A window picture starts at the window's origin; a region is absolute on the screen.
+    const origin = region === undefined
+      ? (await context.linux.getActiveWindowBounds?.().catch(() => undefined))?.bounds
+      : { x: region.x, y: region.y };
+    const capture = () => context.linux.screenshot({
+      path: png,
+      format: "png",
+      ...(region === undefined ? { includeActiveWindowOnly: true } : { region })
+    });
+    const data = context.overlayScreenshotSuppression === undefined ? await capture() : await context.overlayScreenshotSuppression(capture);
+    if (data.supported !== true || data.path === undefined || origin === undefined) return undefined;
+    const size = await imageSize(png);
+    if (size === undefined) return undefined;
+    if (!(await downscaleToJpeg(png, scratch, 1280, { agentHostDir: context.config.agentHostDir }))) return undefined;
+    const small = await imageSize(scratch);
+    if (small === undefined) return undefined;
+    const active = await context.linux.getActiveWindow().catch(() => undefined);
+    const windowId = active?.activeWindow?.windowId;
+    const bounds = windowId === undefined ? undefined : (await context.linux.getActiveWindowBounds?.().catch(() => undefined))?.bounds;
+    const inlineScale = small.width / size.width;
+    const screenshotId = rememberScreen({
+      origin: { x: origin.x, y: origin.y },
+      pixelsPerPoint: inlineScale,
+      imageWidth: small.width,
+      imageHeight: small.height,
+      ...(windowId === undefined || bounds === undefined ? {} : { reference: { windowId, bounds } })
+    });
+    return {
+      inlineImage: { data: (await readEffectBytes(scratch)).toString("base64"), mimeType: "image/jpeg" },
+      inline: { width: small.width, height: small.height, scale: inlineScale, screenshotId }
+    };
+  } catch {
+    return undefined;
+  } finally {
+    await removeEffectFile(png, { force: true }).catch(() => undefined);
+    await removeEffectFile(scratch, { force: true }).catch(() => undefined);
+  }
 }
 
 const pauseFor = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -602,13 +687,62 @@ function labelRefusal<T>(tool: string, resolution: Extract<LabelResolution, { ok
   });
 }
 
+/** Maps a point in a desktop.screenshot picture to the screen. Refuses an unknown, expired, or stale picture. */
+async function resolveScreenshotPoint(
+  context: AgentHostMcpContext,
+  input: { screenshotId: string; imageX: number; imageY: number }
+): Promise<{ ok: true; point: ClickPoint } | { ok: false; code: string; message: string }> {
+  const screen = recallScreen(input.screenshotId);
+  if (screen === undefined) {
+    return { ok: false, code: "screenshot_unknown", message: "That screenshot id is unknown or has expired. Take a new desktop.screenshot and use its id." };
+  }
+  const mapped = imagePointToScreen(screen, input.imageX, input.imageY);
+  if ("error" in mapped) {
+    return { ok: false, code: "image_point_outside", message: `The point (${input.imageX}, ${input.imageY}) is outside the ${screen.imageWidth}x${screen.imageHeight} picture.` };
+  }
+  if (screen.reference !== undefined) {
+    // The picture is only valid while its reference window is still active and still where it was.
+    const current = await context.linux.getActiveWindow().catch(() => undefined);
+    const now = await context.linux.getActiveWindowBounds?.().catch(() => undefined);
+    const unchanged = current?.activeWindow?.windowId === screen.reference.windowId && sameBounds(now?.bounds, screen.reference.bounds);
+    if (!unchanged) {
+      return { ok: false, code: "screenshot_stale", message: "The window moved, resized, or closed after that screenshot, so its points no longer match the screen. Take a new desktop.screenshot." };
+    }
+  }
+  return { ok: true, point: mapped };
+}
+
+/** The preview's locator for a screenshot target: the same mapping and stale check the click uses. */
+function screenshotLocator(context: AgentHostMcpContext, input: { screenshotId: string; imageX?: number | undefined; imageY?: number | undefined }): PointLocator {
+  return async () => {
+    const { screenshotId, imageX, imageY } = input;
+    if (imageX === undefined || imageY === undefined) {
+      return { ok: false, code: "missing_target", message: "Pass screenshotId, imageX and imageY together.", data: {} };
+    }
+    const resolved = await resolveScreenshotPoint(context, { screenshotId, imageX, imageY });
+    return resolved.ok
+      ? { ok: true, point: resolved.point, data: { screenshot: { screenshotId, imageX, imageY, point: resolved.point } } }
+      : { ok: false, code: resolved.code, message: resolved.message, data: { screenshot: { screenshotId, imageX, imageY, code: resolved.code } } };
+  };
+}
+
 /** Turns a target (x and y, or a label) into a point. The failure result is typed for the calling tool. */
 async function locateClick<T = DesktopClickResult>(
   context: AgentHostMcpContext,
-  input: { x?: number | undefined; y?: number | undefined; label?: string | undefined; role?: string | undefined },
+  input: {
+    x?: number | undefined; y?: number | undefined; label?: string | undefined; role?: string | undefined;
+    screenshotId?: string | undefined; imageX?: number | undefined; imageY?: number | undefined;
+  },
   activeWindow: DesktopWindowContext,
   tool = "desktop.click"
-): Promise<{ ok: true; point: ClickPoint; resolved?: LabelTarget } | { ok: false; result: ToolResult<T> }> {
+): Promise<{ ok: true; point: ClickPoint; resolved?: LabelTarget; screenshot?: { screenshotId: string; imageX: number; imageY: number } } | { ok: false; result: ToolResult<T> }> {
+  if (input.screenshotId !== undefined && input.imageX !== undefined && input.imageY !== undefined) {
+    const mapped = await resolveScreenshotPoint(context, { screenshotId: input.screenshotId, imageX: input.imageX, imageY: input.imageY });
+    if (!mapped.ok) {
+      return { ok: false, result: toolFailure<T>({ tool, riskLevel: "medium", strategy: "gui_control", error: { code: mapped.code, message: mapped.message }, observations: [mapped.message, "No action was performed."] }) };
+    }
+    return { ok: true, point: mapped.point, screenshot: { screenshotId: input.screenshotId, imageX: input.imageX, imageY: input.imageY } };
+  }
   if (input.label !== undefined) {
     const resolution = await resolveLabelTarget(context, activeWindow, { label: input.label, ...(input.role === undefined ? {} : { role: input.role }) });
     if (!resolution.ok) return { ok: false, result: labelRefusal<T>(tool, resolution) };
@@ -759,7 +893,26 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           await removeEffectFile(scratch, { force: true }).catch(() => undefined);
         }
       }
+      // Remember the picture so a later click can name it by id and a point in it. The reference
+      // window is the active one: if it moves or resizes, the id stops mapping to the screen.
       const origin = data.screenshotMetadata?.screenOrigin;
+      if (size !== undefined && origin !== undefined && data.screenshotMetadata !== undefined) {
+        const shown = (data as DesktopScreenshotResult & { inline?: { width: number; height: number; screenshotId?: string } }).inline;
+        const captureScale = input.scale ?? 1;
+        const active = await context.linux.getActiveWindow().catch(() => undefined);
+        const windowId = active?.activeWindow?.windowId;
+        // Same source as the picture origin: the active window's bounds right now.
+        const bounds = windowId === undefined ? undefined : (await context.linux.getActiveWindowBounds?.().catch(() => undefined))?.bounds;
+        const screenshotId = rememberScreen({
+          origin,
+          pixelsPerPoint: (shown === undefined ? 1 : shown.width / size.width) * captureScale,
+          imageWidth: shown?.width ?? size.width,
+          imageHeight: shown?.height ?? size.height,
+          ...(windowId === undefined || bounds === undefined ? {} : { reference: { windowId, bounds } })
+        });
+        data.screenshotMetadata.screenshotId = screenshotId;
+        if (shown !== undefined) shown.screenshotId = screenshotId;
+      }
       return toolSuccess({
         tool: "desktop.screenshot",
         riskLevel: "medium",
@@ -784,6 +937,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       properties: {
         repeat: { type: "integer", minimum: 1, maximum: 50, description: "Times to send the chord, 20 ms apart." },
         verify: { type: "boolean", description: "Compare the window before and after the action and report effect.screenChanged. Default true; set false only for speed-critical repeats." },
+        returnScreenshot: { type: "string", enum: ["none", "region", "window"], description: "Picture after the action, inline: none (default), region (480x320 around the point) or window (the active window). Its screenshotId can be clicked directly." },
         keys: {
           type: "array",
           items: { type: "string", minLength: 1, maxLength: 100 },
@@ -851,11 +1005,12 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         return failedDesktopAction("desktop.hotkey", "hotkey_failed", data);
       }
 
+      const picture = input.returnScreenshot === undefined || input.returnScreenshot === "none" ? undefined : await settledPicture(context, input.returnScreenshot);
       return toolSuccess({
         tool: "desktop.hotkey",
         riskLevel: "medium",
         strategy: "gui_control",
-        data: { ...data, ...(effect === undefined ? {} : { effect }) },
+        data: { ...data, ...(picture ?? {}), ...(effect === undefined ? {} : { effect }) },
         observations: [effectNote("Sent hotkey to active window.", effect)]
       });
     }
@@ -870,6 +1025,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       type: "object",
       properties: {
         verify: { type: "boolean", description: "Compare the window before and after the action and report effect.screenChanged. Default true; set false only for speed-critical repeats." },
+        returnScreenshot: { type: "string", enum: ["none", "region", "window"], description: "Picture after the action, inline: none (default), region (480x320 around the point) or window (the active window). Its screenshotId can be clicked directly." },
         text: { type: "string", minLength: 1, maxLength: 10000 },
         activeWindow: activeWindowMcpSchema,
         target: activeWindowMcpSchema,
@@ -930,11 +1086,12 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         return failedDesktopAction("desktop.type_text", "type_failed", data);
       }
 
+      const picture = input.returnScreenshot === undefined || input.returnScreenshot === "none" ? undefined : await settledPicture(context, input.returnScreenshot);
       return toolSuccess({
         tool: "desktop.type_text",
         riskLevel: "medium",
         strategy: "gui_control",
-        data: { ...data, ...(effect === undefined ? {} : { effect }) },
+        data: { ...data, ...(picture ?? {}), ...(effect === undefined ? {} : { effect }) },
         observations: [effectNote("Typed text into active window.", effect)]
       });
     }
@@ -954,6 +1111,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         role: { type: "string", minLength: 1, maxLength: 80, description: "Optional with label, such as 'entry' or 'text'." },
         text: { type: "string", maxLength: 10000, description: "The text to put in the field. Empty clears it." },
         replace: { type: "boolean", description: "Default true: replace the field's text. false appends at the end." },
+        returnScreenshot: { type: "string", enum: ["none", "region", "window"], description: "Picture after the action, inline: none (default), region (480x320 around the point) or window (the active window). Its screenshotId can be clicked directly." },
         activeWindow: activeWindowMcpSchema,
         target: activeWindowMcpSchema,
         dataSensitivity: { type: "string", enum: ["none", "low", "sensitive", "secret"] },
@@ -1138,11 +1296,12 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         activeWindow: window,
         reason: verdict.confirmed === true ? "The field reads back as expected." : "AT-SPI could not read the field back."
       };
+      const picture = input.returnScreenshot === undefined || input.returnScreenshot === "none" ? undefined : await settledPicture(context, input.returnScreenshot, point);
       return toolSuccess({
         tool,
         riskLevel: "medium",
         strategy: "gui_control",
-        data: { ...data, ...target },
+        data: { ...data, ...(picture ?? {}), ...target },
         observations: [
           verdict.confirmed === true
             ? `Set ${input.text.length} characters and read them back.`
@@ -1265,17 +1424,21 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
 
   const click: AgentHostToolDefinition<ClickInput, DesktopClickResult, AgentHostMcpContext> = {
     name: "desktop.click",
-    description: "Clicks at absolute screen coordinates (x, y), or on a visible control named by label inside the active window. A label is resolved through AT-SPI, then OCR, and the preview shows the resolved point; a confirmed click is refused if that point moved. Disabled and ambiguous controls are refused, never clicked.",
+    description: "Clicks at absolute screen coordinates (x, y), at a point in a desktop.screenshot picture (screenshotId, imageX, imageY), or on a visible control named by label inside the active window. A label is resolved through AT-SPI, then OCR, and the preview shows the resolved point; a confirmed click is refused if that point moved. Disabled and ambiguous controls are refused, never clicked.",
     riskLevel: "medium",
     inputSchema: clickInputSchema,
     mcpInputSchema: {
       type: "object",
       properties: {
         verify: { type: "boolean", description: "Compare the window before and after the action and report effect.screenChanged. Default true; set false only for speed-critical repeats." },
+        returnScreenshot: { type: "string", enum: ["none", "region", "window"], description: "Picture after the action, inline: none (default), region (480x320 around the point) or window (the active window). Its screenshotId can be clicked directly." },
         x: { type: "integer", minimum: 0, description: "Use with y, instead of label." },
         y: { type: "integer", minimum: 0, description: "Use with x, instead of label." },
         label: { type: "string", minLength: 1, maxLength: 200, description: "Exact visible name of the control, such as 'Send' or 'Change label'. Instead of x and y." },
         role: { type: "string", minLength: 1, maxLength: 80, description: "Optional with label to pick one kind of control, such as 'push button', 'link' or 'entry'." },
+        screenshotId: { type: "string", minLength: 1, maxLength: 64, description: "Id from a desktop.screenshot. Use with imageX and imageY. Refused when the reference window moved or resized after that screenshot, or when the id expired (5 minutes)." },
+        imageX: { type: "integer", minimum: 0, description: "x in the screenshot picture, with screenshotId." },
+        imageY: { type: "integer", minimum: 0, description: "y in the screenshot picture, with screenshotId." },
         button: { type: "string", enum: ["left", "middle", "right"] },
         activeWindow: activeWindowMcpSchema,
         target: activeWindowMcpSchema,
@@ -1289,12 +1452,14 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       isDryRun: (i) => i.dryRun === true,
       resolveEffect: (i, context) => {
         const button = i.button ?? "left";
-        const locate: PointLocator | undefined = i.label === undefined ? undefined : async (activeWindow) => {
-          const resolved = await resolveLabelTarget(context, activeWindow, { label: i.label!, ...(i.role === undefined ? {} : { role: i.role }) });
-          return resolved.ok
-            ? { ok: true, point: resolved.target.point, data: { resolved: { label: i.label, ...resolved.target } } }
-            : { ok: false, code: resolved.code, message: resolved.message, data: { resolved: { label: i.label, code: resolved.code, candidates: resolved.candidates } } };
-        };
+        const locate: PointLocator | undefined = i.screenshotId !== undefined
+          ? screenshotLocator(context, { screenshotId: i.screenshotId, imageX: i.imageX, imageY: i.imageY })
+          : i.label === undefined ? undefined : async (activeWindow) => {
+            const resolved = await resolveLabelTarget(context, activeWindow, { label: i.label!, ...(i.role === undefined ? {} : { role: i.role }) });
+            return resolved.ok
+              ? { ok: true, point: resolved.target.point, data: { resolved: { label: i.label, ...resolved.target } } }
+              : { ok: false, code: resolved.code, message: resolved.message, data: { resolved: { label: i.label, code: resolved.code, candidates: resolved.candidates } } };
+          };
         return desktopPreview(
           "desktop.click",
           "gui_click",
@@ -1302,10 +1467,12 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           context,
           (window, point) => {
             const at = point ?? (i.x === undefined || i.y === undefined ? undefined : { x: i.x, y: i.y });
-            return at === undefined ? `Click ${button} on "${i.label}" in ${window}.` : `Click ${button} ${i.label === undefined ? "" : `on "${i.label}" `}at (${at.x}, ${at.y}) in ${window}.`;
+            const from = i.screenshotId === undefined ? "" : ` (screenshot ${i.screenshotId}, picture point ${i.imageX}, ${i.imageY})`;
+            if (at === undefined) return i.label === undefined ? `Click ${button} in ${window}${from}.` : `Click ${button} on "${i.label}" in ${window}.`;
+            return `Click ${button} ${i.label === undefined ? "" : `on "${i.label}" `}at (${at.x}, ${at.y})${from} in ${window}.`;
           },
           (window, point) => `click:${window}:${point?.x ?? i.x}:${point?.y ?? i.y}:${button}`,
-          i.label === undefined ? { x: i.x, y: i.y, button } : { label: i.label, button },
+          i.label !== undefined ? { label: i.label, button } : i.screenshotId !== undefined ? { screenshotId: i.screenshotId, imageX: i.imageX, imageY: i.imageY, button } : { x: i.x, y: i.y, button },
           undefined,
           locate
         );
@@ -1351,7 +1518,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
 
       const located = await locateClick(context, input, validation.activeWindow!);
       if (!located.ok) return located.result;
-      const { point, resolved } = located;
+      const { point, resolved, screenshot } = located;
 
       // Hover first, so hover styling is in the baseline and a button that does
       // nothing reports no change instead of a false positive.
@@ -1394,12 +1561,24 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         return failedDesktopAction("desktop.click", "click_failed", data);
       }
 
+      const picture = input.returnScreenshot === undefined || input.returnScreenshot === "none" ? undefined : await settledPicture(context, input.returnScreenshot, point);
       return toolSuccess({
         tool: "desktop.click",
         riskLevel: "medium",
         strategy: "gui_control",
-        data: { ...data, ...(resolved === undefined ? {} : { resolved: { label: input.label, ...resolved } }), ...(effect === undefined ? {} : { effect }) },
-        observations: [effectNote(resolved === undefined ? "Clicked at coordinates." : `Clicked "${resolved.name}" (${resolved.source === "accessibility" ? "accessibility name" : "OCR text"}).`, effect)]
+        data: {
+          ...data,
+          ...(picture ?? {}),
+          ...(resolved === undefined ? {} : { resolved: { label: input.label, ...resolved } }),
+          ...(screenshot === undefined ? {} : { screenshot: { ...screenshot, point } }),
+          ...(effect === undefined ? {} : { effect })
+        },
+        observations: [effectNote(
+          resolved !== undefined
+            ? `Clicked "${resolved.name}" (${resolved.source === "accessibility" ? "accessibility name" : "OCR text"}).`
+            : screenshot !== undefined ? "Clicked a point in the screenshot." : "Clicked at coordinates.",
+          effect
+        )]
       });
     }
   };

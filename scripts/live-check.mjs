@@ -266,7 +266,7 @@ function mcpClient(server) {
   };
 }
 
-async function desktopChecks(mcp, entryFile) {
+async function desktopChecks(mcp, entryFile, display) {
   const listed = await mcp.call("window.list", { includeTitles: true });
   const win = listed.body?.data?.windows?.find((item) => item.title === "Live probe");
   check("AgentHost lists the probe window", Boolean(win), win ? `bounds ${JSON.stringify(win.bounds)}` : JSON.stringify(listed.body?.error ?? "not listed"));
@@ -309,6 +309,34 @@ async function desktopChecks(mcp, entryFile) {
   check("a near-miss name is refused and the real name is suggested", near.error === "label_not_found" && JSON.stringify(near.body?.error?.details ?? {}).includes("Does nothing"), near.error ?? "");
   const mixed = await mcp.call("desktop.click", { x: 1, y: 1, label: "Reset label", activeWindow });
   check("x/y together with a label is refused before any action", mixed.ok === false && mixed.error !== undefined, mixed.error ?? "accepted");
+
+  const pictured = await mcp.call("desktop.screenshot", { includeActiveWindowOnly: true });
+  const shotId = pictured.body?.data?.screenshotMetadata?.screenshotId;
+  check("a screenshot names itself with an id", typeof shotId === "string" && shotId.startsWith("shot_"), String(shotId));
+  const byShot = await mcp.call("desktop.click", { screenshotId: shotId, imageX: 60, imageY: 60, activeWindow });
+  await sleep(300);
+  check("a click at a point in the picture lands on the control there", byShot.ok && byShot.body?.data?.effect?.screenChanged === true, JSON.stringify(byShot.body?.data?.effect ?? byShot.error ?? null));
+  const outside = await mcp.call("desktop.click", { screenshotId: shotId, imageX: 900, imageY: 60, activeWindow });
+  check("a point outside the picture is refused", outside.error === "image_point_outside", outside.error ?? "accepted");
+  const unknownShot = await mcp.call("desktop.click", { screenshotId: "shot_000000000000", imageX: 10, imageY: 10, activeWindow });
+  check("an unknown screenshot id is refused", unknownShot.error === "screenshot_unknown", unknownShot.error ?? "accepted");
+  // Move every X window with that title (the reference may be either of two ids for one probe).
+  const probeXids = () => execFileSync("xdotool", ["search", "--name", "^Live probe$"], { env: { ...process.env, DISPLAY: display }, encoding: "utf8" }).trim().split("\n").filter(Boolean);
+  for (const xid of probeXids()) execFileSync("xdotool", ["windowmove", xid, "40", "40"], { env: { ...process.env, DISPLAY: display } });
+  await sleep(400);
+  const stale = await mcp.call("desktop.click", { screenshotId: shotId, imageX: 60, imageY: 60, activeWindow });
+  check("a click on a picture whose window has moved is refused as stale", stale.error === "screenshot_stale", stale.error ?? "accepted");
+  for (const xid of probeXids()) execFileSync("xdotool", ["windowmove", xid, "0", "0"], { env: { ...process.env, DISPLAY: display } });
+  await sleep(400);
+
+  const withPicture = await mcp.call("desktop.click", { x: 120, y: 60, activeWindow, returnScreenshot: "region" });
+  const pictureId = withPicture.body?.data?.inline?.screenshotId;
+  check("a click can return the picture after it inline, with an id", withPicture.ok && withPicture.images.length === 1 && typeof pictureId === "string", withPicture.error ?? `${withPicture.images.length} image(s)`);
+  const fromPicture = await mcp.call("desktop.click", { screenshotId: pictureId, imageX: 285, imageY: 60, activeWindow });
+  await sleep(300);
+  check("the id from that picture clicks the control shown in it", fromPicture.ok && fromPicture.body?.data?.effect?.screenChanged === true, fromPicture.error ?? JSON.stringify(fromPicture.body?.data?.effect ?? null));
+  const keyed = await mcp.call("desktop.hotkey", { keys: ["Escape"], activeWindow, returnScreenshot: "window" });
+  check("a hotkey can return the active window inline", keyed.ok && keyed.images.length === 1, keyed.error ?? `${keyed.images.length} image(s)`);
 
   const fieldAt = (x, y, args) => mcp.call("desktop.set_field", { x: origin.x + x, y: origin.y + y, activeWindow, ...args });
   const entryNow = () => readFileSync(entryFile, "utf8");
@@ -642,7 +670,7 @@ async function main() {
     children.push(server);
     const mcp = mcpClient(server);
     await mcp.initialize();
-    const desktop = await desktopChecks(mcp, entryFile);
+    const desktop = await desktopChecks(mcp, entryFile, display);
     if (desktop) {
       await pauseChecks(mcp, env, desktop.activeWindow, desktop.clickAt);
       if (hasVte()) await terminalChecks(mcp, work, display);

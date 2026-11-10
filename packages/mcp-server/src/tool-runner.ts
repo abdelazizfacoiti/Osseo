@@ -35,6 +35,7 @@ import { injectsInput, markAgentInput } from "./input-guard.js";
 import { waitForHumanToPause } from "./human-presence.js";
 import { describeAction } from "./action-timeline.js";
 import { resolveLabelTarget } from "./label-target.js";
+import { imagePointToScreen, recallScreen } from "./screenshot-registry.js";
 
 export interface ToolPreviewEffect {
   summary?: string;
@@ -168,7 +169,14 @@ async function actionTargetFor(toolName: string, input: unknown, context: AgentH
   );
   if (toolName === "desktop.click") {
     const direct = point(value.x, value.y);
-    if (direct !== undefined || typeof value.label !== "string") return direct;
+    if (direct !== undefined) return direct;
+    if (typeof value.screenshotId === "string" && typeof value.imageX === "number" && typeof value.imageY === "number") {
+      // A point in a remembered screenshot; the stale-window check belongs to the preview, not the hint.
+      const screen = recallScreen(value.screenshotId);
+      const mapped = screen === undefined ? undefined : imagePointToScreen(screen, value.imageX, value.imageY);
+      return mapped === undefined || "error" in mapped ? undefined : { x: mapped.x, y: mapped.y };
+    }
+    if (typeof value.label !== "string") return undefined;
     // A label ring is only a hint: AT-SPI alone, and only when the request does not name another window.
     const current = await context.linux.getActiveWindow().catch(() => undefined);
     if (!current?.supported || current.activeWindow === undefined) return undefined;
