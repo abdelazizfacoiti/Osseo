@@ -47,9 +47,23 @@ function hasCommand(name) {
   }
 }
 
+// A display is busy when its X server is alive. A lock or socket left by a killed server is stale.
+function displayBusy(number) {
+  const lock = `/tmp/.X${number}-lock`;
+  if (!existsSync(lock)) return existsSync(`/tmp/.X11-unix/X${number}`);
+  try {
+    const pid = Number(readFileSync(lock, "utf8").trim());
+    if (!Number.isInteger(pid) || pid <= 0) return true;
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error.code === "EPERM";
+  }
+}
+
 function freeDisplay() {
   for (let number = 131; number < 160; number += 1) {
-    if (!existsSync(`/tmp/.X11-unix/X${number}`) && !existsSync(`/tmp/.X${number}-lock`)) return `:${number}`;
+    if (!displayBusy(number)) return `:${number}`;
   }
   throw new Error("no free display number between :131 and :159");
 }
@@ -341,6 +355,23 @@ async function desktopChecks(mcp, entryFile, display) {
   const outline = read.body?.data?.outline ?? "";
   check("screen.read names the controls, their state and bounds", read.ok && outline.includes('push button "Change label"') && outline.includes('push button "Locked" [disabled]') && /@\d+,\d+ \d+x\d+/.test(outline), outline.slice(0, 160));
   check("screen.read stays within its byte cap", read.ok && (read.body?.data?.bytes ?? Infinity) <= 2048, String(read.body?.data?.bytes));
+
+  const failingPlan = await mcp.call("computer.run_steps", {
+    steps: [
+      { tool: "desktop.click", input: { label: "Change label", activeWindow }, expect: { screenChanged: true } },
+      { tool: "desktop.click", input: { label: "Does nothing", activeWindow }, expect: { windowTitle: "Not this window" } },
+      { tool: "desktop.click", input: { label: "Reset label", activeWindow } }
+    ],
+    returnScreenshot: "window"
+  });
+  const outcomes = failingPlan.body?.data?.outcomes ?? [];
+  check("a missed expectation stops the plan at that step", failingPlan.error === "expectation_failed" && outcomes.length === 2 && !(failingPlan.body?.data?.steps ?? []).some((item) => item.index === 2), failingPlan.error ?? `${outcomes.length} outcome(s)`);
+  check("the plan reports one line per step, and says which expectation missed", /ok, but Expected the active window title/.test(outcomes[1] ?? "") && /ok, screen changed, expectation met/.test(outcomes[0] ?? ""), JSON.stringify(outcomes));
+  check("the plan returns one picture at its end", failingPlan.images.length === 1, `${failingPlan.images.length} image(s)`);
+  const textPlan = await mcp.call("computer.run_steps", {
+    steps: [{ tool: "desktop.click", input: { label: "Reset label", activeWindow }, expect: { textVisible: "idle" } }]
+  });
+  check("a textVisible expectation passes when the text is on screen", textPlan.ok && textPlan.body?.data?.steps?.[0]?.expectation === "met", textPlan.error ?? JSON.stringify(textPlan.body?.data?.outcomes ?? null));
 
   const fieldAt = (x, y, args) => mcp.call("desktop.set_field", { x: origin.x + x, y: origin.y + y, activeWindow, ...args });
   const entryNow = () => readFileSync(entryFile, "utf8");

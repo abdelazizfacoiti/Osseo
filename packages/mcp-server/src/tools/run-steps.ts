@@ -1,21 +1,32 @@
 import { createHash } from "node:crypto";
-import { toolFailure, toolSuccess, type RiskLevel, type ToolResult } from "@agenthost/core";
+import { toolFailure, toolSuccess, type RiskLevel, type StepExpectation, type ToolResult } from "@agenthost/core";
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
 import { runTool } from "../tool-runner.js";
+import { settledPicture } from "./desktop.js";
+import { findScreenTextMatches } from "./vision.js";
 
 const MAX_STEPS = 20;
 const MAX_INPUT_BYTES = 64 * 1024;
 
+const expectationInput = z.object({
+  screenChanged: z.boolean().optional(),
+  windowTitle: z.string().trim().min(1).max(200).optional(),
+  textVisible: z.string().trim().min(1).max(200).optional()
+}).strict().refine((value) => Object.keys(value).length > 0, { message: "expect needs at least one check." });
+
 const stepInput = z.object({
   tool: z.string().trim().min(3).max(100),
-  input: z.record(z.unknown()).optional()
+  input: z.record(z.unknown()).optional(),
+  expect: expectationInput.optional()
 }).strict();
 
 const runStepsInput = z.object({
   steps: z.array(stepInput).min(1).max(MAX_STEPS),
-  stopOnError: z.boolean().optional()
+  stopOnError: z.boolean().optional(),
+  /** One picture of the window after the whole plan, instead of one per step. */
+  returnScreenshot: z.enum(["none", "region", "window"]).optional()
 }).strict().superRefine((value, ctx) => {
   if (Buffer.byteLength(JSON.stringify(value.steps), "utf8") > MAX_INPUT_BYTES) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Plan input exceeds 64 KiB." });
@@ -60,6 +71,77 @@ function maxRisk(results: Array<{ riskLevel: RiskLevel }>, fallback: RiskLevel):
   return results.reduce<RiskLevel>((highest, entry) => RISK_ORDER[entry.riskLevel] > RISK_ORDER[highest] ? entry.riskLevel : highest, fallback);
 }
 
+/** Whether any text node under the outline contains the needle (names and text, case-insensitive). */
+function outlineContains(node: { name?: string | null; text?: string | null; description?: string | null; children?: unknown[] } | undefined, needle: string): boolean {
+  if (node === undefined) return false;
+  for (const value of [node.name, node.text, node.description]) {
+    if (typeof value === "string" && value.toLowerCase().includes(needle)) return true;
+  }
+  return (node.children ?? []).some((child) => outlineContains(child as typeof node, needle));
+}
+
+/** Whether text is visible in the active window: the accessibility outline first, OCR when there is none. */
+async function textVisibleIn(context: AgentHostMcpContext, text: string): Promise<boolean | undefined> {
+  const active = (await context.linux.getActiveWindow().catch(() => undefined))?.activeWindow;
+  if (active !== undefined && (active.pid !== undefined || active.appName !== undefined)) {
+    const tree = await context.linux.getAccessibilityTree({
+      ...(active.pid !== undefined ? { pid: active.pid } : { appName: active.appName! }),
+      maxDepth: 8,
+      maxNodes: 300,
+      includeText: true
+    }).catch(() => undefined);
+    if (tree?.supported === true && tree.root !== undefined) {
+      return outlineContains(tree.root as Parameters<typeof outlineContains>[0], text.toLowerCase());
+    }
+  }
+  const ocr = await findScreenTextMatches(context, { query: text, match: "contains", limit: 1 }).catch(() => undefined);
+  if (ocr === undefined || !ocr.ok) return undefined;
+  const matches = (ocr.data as { matches?: unknown[] } | null)?.matches ?? [];
+  return matches.length > 0;
+}
+
+/** Checks a step's expectations against what the step reported and the window now shows. */
+async function checkExpectation(
+  context: AgentHostMcpContext,
+  expect: StepExpectation,
+  result: ToolResult
+): Promise<{ ok: true } | { ok: false; code: "expectation_failed" | "expectation_unverified"; message: string }> {
+  if (expect.screenChanged !== undefined) {
+    const measured = (result.data as { effect?: { screenChanged?: boolean | null } } | null)?.effect?.screenChanged;
+    if (measured !== true && measured !== false) {
+      return { ok: false, code: "expectation_unverified", message: "The step did not measure the screen, so screenChanged cannot be checked. Leave verify on for that step." };
+    }
+    if (measured !== expect.screenChanged) {
+      return { ok: false, code: "expectation_failed", message: `Expected screenChanged ${expect.screenChanged}, but the screen ${measured ? "changed" : "did not change"}.` };
+    }
+  }
+  if (expect.windowTitle !== undefined) {
+    const title = (await context.linux.getActiveWindow().catch(() => undefined))?.activeWindow?.title ?? "";
+    if (!title.toLowerCase().includes(expect.windowTitle.toLowerCase())) {
+      return { ok: false, code: "expectation_failed", message: `Expected the active window title to contain "${expect.windowTitle}".` };
+    }
+  }
+  if (expect.textVisible !== undefined) {
+    const visible = await textVisibleIn(context, expect.textVisible);
+    if (visible === undefined) return { ok: false, code: "expectation_unverified", message: "Neither the accessibility outline nor OCR could check the text." };
+    if (!visible) return { ok: false, code: "expectation_failed", message: `Expected "${expect.textVisible}" to be visible.` };
+  }
+  return { ok: true };
+}
+
+/** One line per step, so a long plan reads as a short log. */
+function outcomeLine(index: number, tool: string, result: ToolResult, failure: ToolResult | undefined, expected: boolean): string {
+  const number = index + 1;
+  if (failure !== undefined) {
+    const code = failure.error?.code ?? "failed";
+    const expectationMissed = code === "expectation_failed" || code === "expectation_unverified";
+    return expectationMissed ? `${number}. ${tool} ok, but ${failure.error?.message ?? code}` : `${number}. ${tool} failed: ${code}`;
+  }
+  const measured = (result.data as { effect?: { screenChanged?: boolean | null } } | null)?.effect?.screenChanged;
+  const change = measured === true ? ", screen changed" : measured === false ? ", no visible change" : "";
+  return `${number}. ${tool} ok${change}${expected ? ", expectation met" : ""}`;
+}
+
 function previewContext(context: AgentHostMcpContext): AgentHostMcpContext {
   const {
     actionOverlay: _actionOverlay,
@@ -88,13 +170,24 @@ export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpCon
             type: "object",
             properties: {
               tool: { type: "string" },
-              input: { type: "object", additionalProperties: true }
+              input: { type: "object", additionalProperties: true },
+              expect: {
+                type: "object",
+                description: "Checked after the step; a failed check stops the plan. Give at least one: screenChanged, windowTitle, textVisible.",
+                properties: {
+                  screenChanged: { type: "boolean" },
+                  windowTitle: { type: "string", minLength: 1, maxLength: 200 },
+                  textVisible: { type: "string", minLength: 1, maxLength: 200 }
+                },
+                additionalProperties: false
+              }
             },
             required: ["tool"],
             additionalProperties: false
           }
         },
-        stopOnError: { type: "boolean" }
+        stopOnError: { type: "boolean" },
+        returnScreenshot: { type: "string", enum: ["none", "region", "window"], description: "One picture of the window after the whole plan, inline: region (around the last click point) or window. Default none." }
       },
       required: ["steps"],
       additionalProperties: false
@@ -162,36 +255,58 @@ export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpCon
         ? { ...baseContext, planApproval: { planFingerprint: fingerprint, maxRisk: "medium" } }
         : baseContext;
       const stopOnError = input.stopOnError !== false;
-      const results: Array<{ index: number; tool: string; ok: boolean; riskLevel: RiskLevel; data?: unknown; error?: unknown; observations?: string[] }> = [];
+      const results: Array<{ index: number; tool: string; ok: boolean; riskLevel: RiskLevel; expectation?: "met" | "failed" | "not_checked"; error?: string }> = [];
+      const outcomes: string[] = [];
       let failed: ToolResult | undefined;
       for (const [index, step] of input.steps.entries()) {
         const target = tools.get(step.tool);
         if (target === undefined) {
           failed = toolFailure({ tool: "computer.run_steps", riskLevel: "medium", error: { code: "unknown_tool", message: `Unknown tool: ${step.tool}` }, observations: [`Step ${index + 1} was not executed.`] });
+          outcomes.push(`${index + 1}. ${step.tool} not run: unknown tool`);
           break;
         }
         const result = await runTool(target as AnyAgentHostToolDefinition<AgentHostMcpContext>, step.input ?? {}, {
           ...childContext,
           planStep: { index, total: input.steps.length }
         });
+        let stepFailure: ToolResult | undefined = result.ok ? undefined : result;
+        let expectationMissed = false;
+        if (result.ok && step.expect !== undefined) {
+          const verdict = await checkExpectation(context, step.expect, result);
+          if (!verdict.ok) {
+            expectationMissed = true;
+            stepFailure = toolFailure({ tool: step.tool, riskLevel: result.riskLevel, error: { code: verdict.code, message: verdict.message }, observations: [verdict.message] });
+          }
+        }
         results.push({
           index,
           tool: step.tool,
-          ok: result.ok,
+          ok: stepFailure === undefined,
           riskLevel: result.riskLevel,
-          data: result.data,
-          error: result.error,
-          observations: result.observations
+          ...(step.expect === undefined ? {} : { expectation: stepFailure === undefined ? "met" : expectationMissed ? "failed" : "not_checked" }),
+          ...(stepFailure === undefined ? {} : { error: stepFailure.error?.code ?? "failed" })
         });
-        if (!result.ok) {
-          failed = result;
-          if (stopOnError) break;
+        outcomes.push(outcomeLine(index, step.tool, result, stepFailure, step.expect !== undefined));
+        if (stepFailure !== undefined) {
+          failed = stepFailure;
+          // A missed expectation means the plan is not doing what it should: always stop there.
+          if (stopOnError || expectationMissed) break;
         }
       }
       const failedCode = failed?.error?.code;
-      const data = { planFingerprint: fingerprint, steps: results, ...(failedCode === undefined ? {} : { failedCode }) };
+      // One picture at the end (not one per step), whatever the outcome.
+      const picture = input.returnScreenshot === undefined || input.returnScreenshot === "none"
+        ? undefined
+        : await settledPicture(context, input.returnScreenshot);
+      const data = {
+        planFingerprint: fingerprint,
+        outcomes,
+        steps: results,
+        ...(failedCode === undefined ? {} : { failedCode }),
+        ...(picture ?? {})
+      };
       if (failed !== undefined) {
-        const code = failed.error?.code === "confirmation_required" || blockedCode(failed)
+        const code = failed.error?.code === "confirmation_required" || blockedCode(failed) || failed.error?.code === "expectation_failed" || failed.error?.code === "expectation_unverified"
           ? failed.error?.code ?? "step_failed"
           : "step_failed";
         const result: ToolResult<unknown> = toolFailure({

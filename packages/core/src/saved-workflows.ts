@@ -19,7 +19,31 @@ const PLACEHOLDER = /\{\{\s*([a-zA-Z][a-zA-Z0-9_]{0,39})\s*\}\}/g;
 const BANNED_TOOL_PREFIXES = ["agent.", "task.", "workflow.", "computer.run_steps"];
 
 export interface WorkflowParameter { name: string; description?: string }
-export interface WorkflowStep { tool: string; input?: Record<string, unknown> }
+/** What must be true after a step for the plan to go on. A failed expectation stops the plan. */
+export interface StepExpectation {
+  screenChanged?: boolean | undefined;
+  /** Text the active window's title must contain (case-insensitive). */
+  windowTitle?: string | undefined;
+  /** Text the active window must show: accessibility names and text first, OCR when there is no outline. */
+  textVisible?: string | undefined;
+}
+
+export interface WorkflowStep { tool: string; input?: Record<string, unknown>; expect?: StepExpectation | undefined }
+
+export function validateExpectation(expect: StepExpectation | undefined, index: number): void {
+  if (expect === undefined) return;
+  const keys = Object.keys(expect);
+  if (keys.length === 0 || keys.some((key) => !["screenChanged", "windowTitle", "textVisible"].includes(key))) {
+    throw new WorkflowError("workflow_invalid", `Step ${index + 1}: expect takes screenChanged, windowTitle or textVisible.`);
+  }
+  if (expect.screenChanged !== undefined && typeof expect.screenChanged !== "boolean") throw new WorkflowError("workflow_invalid", `Step ${index + 1}: screenChanged is true or false.`);
+  for (const key of ["windowTitle", "textVisible"] as const) {
+    const value = expect[key];
+    if (value !== undefined && (typeof value !== "string" || value.trim().length === 0 || value.length > 200)) {
+      throw new WorkflowError("workflow_invalid", `Step ${index + 1}: ${key} is 1-200 characters.`);
+    }
+  }
+}
 export interface SavedWorkflow {
   version: 1;
   name: string;
@@ -86,6 +110,7 @@ export function validateWorkflowDefinition(input: { name: string; parameters: Wo
   for (const [index, step] of input.steps.entries()) {
     if (BANNED_TOOL_PREFIXES.some((prefix) => step.tool.startsWith(prefix))) throw new WorkflowError("workflow_invalid", `Step ${index + 1}: ${step.tool} cannot be part of a saved workflow.`);
     if (input.knownTools !== undefined && !input.knownTools.has(step.tool)) throw new WorkflowError("workflow_invalid", `Step ${index + 1}: unknown tool ${step.tool.slice(0, 60)}.`);
+    validateExpectation(step.expect, index);
     const serialized = JSON.stringify(step.input ?? {});
     // Secrets belong in parameters supplied at run time, never in a stored plan.
     if (redactSensitiveText(serialized) !== serialized) throw new WorkflowError("workflow_invalid", `Step ${index + 1} contains what looks like a secret. Use a parameter instead.`);
@@ -140,7 +165,7 @@ export async function saveWorkflow(agentHostDir: string, input: { name: string; 
     name: input.name,
     description: input.description.slice(0, 300),
     parameters: input.parameters.map((parameter) => ({ name: parameter.name, ...(parameter.description === undefined ? {} : { description: parameter.description.slice(0, 200) }) })),
-    steps: input.steps.map((step) => ({ tool: step.tool, ...(step.input === undefined ? {} : { input: step.input }) })),
+    steps: input.steps.map((step) => ({ tool: step.tool, ...(step.input === undefined ? {} : { input: step.input }), ...(step.expect === undefined ? {} : { expect: step.expect }) })),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
     uses: existing?.uses ?? 0,
@@ -165,7 +190,7 @@ export function expandWorkflow(workflow: SavedWorkflow, values: Record<string, s
   if (missing.length > 0 || unknown.length > 0) {
     throw new WorkflowError("workflow_parameters", `Parameters do not match. ${missing.length > 0 ? `Missing: ${missing.join(", ")}. ` : ""}${unknown.length > 0 ? `Unknown: ${unknown.join(", ")}.` : ""}`.trim(), { missing, unknown });
   }
-  return workflow.steps.map((step) => ({ tool: step.tool, ...(step.input === undefined ? {} : { input: substitute(step.input, values) as Record<string, unknown> }) }));
+  return workflow.steps.map((step) => ({ tool: step.tool, ...(step.input === undefined ? {} : { input: substitute(step.input, values) as Record<string, unknown> }), ...(step.expect === undefined ? {} : { expect: step.expect }) }));
 }
 
 export async function noteWorkflowUsed(agentHostDir: string, name: string): Promise<void> {

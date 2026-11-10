@@ -303,7 +303,7 @@ function dialogContext(window: DesktopWindowSummary): DesktopWindowContext {
  * window; "region" is a 480x320 area around the point the action used. Never fails the action: when
  * the picture cannot be made, the action's result still stands.
  */
-async function settledPicture(
+export async function settledPicture(
   context: AgentHostMcpContext,
   mode: "window" | "region",
   point?: ClickPoint
