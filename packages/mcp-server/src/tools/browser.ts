@@ -246,7 +246,7 @@ export function createBrowserTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       }
       const data = await browser.click({ ref: input.ref });
       if (!data.ok) return toolFailure({ tool: "browser.click", riskLevel: "medium", error: { code: data.reason ?? "click_failed", message: `Click failed: ${data.reason ?? "unknown"}.` }, observations: ["No action was executed."] });
-      return toolSuccess({ tool: "browser.click", riskLevel: assessed.consequential ? "high" : "medium", strategy: "browser_automation", data: { ...data, ...(data.url === undefined ? {} : { url: redactedUrl(data.url) }) }, observations: [data.navigated ? "Clicked, and the page navigated. Take a new browser.snapshot before using more refs." : data.domChanged ? "Clicked, and the page changed. Take a new browser.snapshot before using more refs." : "Clicked, but the page did not change. Check the result before repeating the click.", ...loginWallNote(data.url)] });
+      return toolSuccess({ tool: "browser.click", riskLevel: assessed.consequential ? "high" : "medium", strategy: "browser_automation", data: { ...data, ...(data.url === undefined ? {} : { url: redactedUrl(data.url) }) }, observations: [data.navigated === true ? "Clicked, and the page navigated. Take a new browser.snapshot before using more refs." : data.domChanged === true ? "Clicked, and the page changed. Take a new browser.snapshot before using more refs." : data.navigated === undefined && data.domChanged === undefined ? "Clicked; the page could not be read afterwards, so check it with browser.snapshot." : "Clicked, but the page did not change. Check the result before repeating the click.", ...loginWallNote(data.url)] });
     }
   };
 

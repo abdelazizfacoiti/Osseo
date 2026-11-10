@@ -282,6 +282,15 @@ export class BrowserSession implements BrowserAutomation {
     };
   }
 
+  /** The page's URL and title, or undefined when the page cannot be read right now. */
+  async #pageStateIfKnown(): Promise<{ url: string; title: string } | undefined> {
+    return await this.#pageState().catch(() => undefined);
+  }
+
+  async #fingerprintIfKnown(): Promise<string | undefined> {
+    return await this.#evaluate<string>(PAGE_FINGERPRINT).catch(() => undefined);
+  }
+
   async #pageState(): Promise<{ url: string; title: string }> {
     return (await this.#evaluate<{ url: string; title: string }>("({ url: location.href, title: document.title })")) ?? { url: "", title: "" };
   }
@@ -290,7 +299,12 @@ export class BrowserSession implements BrowserAutomation {
   async #followNewTab(knownTargets: Set<string>): Promise<void> {
     await sleep(350);
     const targets = (await this.#connection!.send("Target.getTargets")).targetInfos as Array<{ targetId: string; type: string; url: string }>;
-    const fresh = targets.find((target) => target.type === "page" && !knownTargets.has(target.targetId));
+    // Only a tab this page opened (window.open, target=_blank) is the one the click produced. Chrome
+    // can create blank pages of its own; following those put the session on the wrong page.
+    const opener = this.#targetId;
+    const fresh = opener === undefined
+      ? undefined
+      : targets.find((target) => target.type === "page" && !knownTargets.has(target.targetId) && (target as { openerId?: string }).openerId === opener);
     if (fresh === undefined) return;
     await this.#attach(fresh.targetId);
     // A new tab starts as about:blank before its real navigation commits.
@@ -352,8 +366,8 @@ export class BrowserSession implements BrowserAutomation {
       return { x: fr.left + frame.clientLeft + cx, y: fr.top + frame.clientTop + cy };
     })()`);
     if (point === undefined || "error" in point) return { ok: false, reason: point === undefined ? "click_failed" : point.error };
-    const before = await this.#pageState().catch(() => ({ url: "", title: "" }));
-    const beforeFingerprint = await this.#evaluate<string>(PAGE_FINGERPRINT).catch(() => "");
+    const before = await this.#pageStateIfKnown();
+    const beforeFingerprint = await this.#fingerprintIfKnown();
     const known = await this.#pageTargets();
     const navigation = this.#watchNavigation();
     const send = (type: string, extra: Record<string, unknown> = {}) => this.#connection!.send("Input.dispatchMouseEvent", { type, x: point.x, y: point.y, button: "left", clickCount: 1, ...extra }, this.#sessionId);
@@ -362,14 +376,15 @@ export class BrowserSession implements BrowserAutomation {
     await send("mouseReleased");
     await this.#followNewTab(known).catch(() => undefined);
     await navigation.settle(250, 8_000);
-    const after = await this.#pageState().catch(() => ({ url: "", title: "" }));
-    const afterFingerprint = await this.#evaluate<string>(PAGE_FINGERPRINT).catch(() => "");
+    const after = await this.#pageStateIfKnown();
+    const afterFingerprint = await this.#fingerprintIfKnown();
     return {
       ok: true,
-      ...after,
-      // Reported so an agent can tell a click that did something from one that did nothing.
-      navigated: after.url !== before.url,
-      domChanged: afterFingerprint !== beforeFingerprint
+      url: after?.url ?? "",
+      title: after?.title ?? "",
+      // Reported only when both readings worked: an unreadable page is "unknown", not "changed".
+      ...(before === undefined || after === undefined ? {} : { navigated: after.url !== before.url }),
+      ...(beforeFingerprint === undefined || afterFingerprint === undefined ? {} : { domChanged: afterFingerprint !== beforeFingerprint })
     };
   }
 
