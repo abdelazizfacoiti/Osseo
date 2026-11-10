@@ -55,15 +55,21 @@ export async function measureEffect<T>(options: MeasureEffectOptions, act: () =>
   if (before === undefined) return { value, effect: { screenChanged: null, settledMs: 0, reason: "window_not_captured" } };
   let previous = await digest();
   let current = previous;
+  let settled = false;
   while (previous !== undefined && now() - started < capCap) {
     await sleep(poll);
     current = await digest();
-    if (current === undefined || current === previous) break;
+    if (current === undefined) break;
+    if (current === previous) { settled = true; break; }
     previous = current;
   }
   const settledMs = now() - started;
   if (current === undefined) return { value, effect: { screenChanged: null, settledMs, reason: "window_not_captured" } };
-  return { value, effect: { screenChanged: current !== before, settledMs } };
+  const changed = current !== before;
+  // Never settled: an animation, video, clock or blinking caret keeps changing pixels, so a
+  // difference does not show that the action did anything.
+  if (!settled && changed) return { value, effect: { screenChanged: null, settledMs, reason: "window_still_changing" } };
+  return { value, effect: { screenChanged: changed, settledMs } };
 }
 
 export interface SettleOptions {

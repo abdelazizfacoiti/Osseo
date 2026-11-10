@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Approve in chat: when the client supports MCP elicitation (Claude Code does), a pending confirmation asks the person in the chat (`approvals.chat`, default on). Only the person can answer, never the agent. Yes lets the agent repeat the exact call with its token; No rejects it. The prompt shows the redacted preview, never the token. Cards and `agenthost confirm` keep working; clients without elicitation are unchanged.
+- `browser.open` joins a Chrome that already owns the agent profile (an orphan from a killed server, or another session) in a new tab instead of failing after 15 s. Closing leaves that browser running.
+- `screenChanged` is `null` (reason `window_still_changing`) when the window never settles (animation, video, blinking caret), instead of reporting a change that may be noise.
+- `benchmark:form` closes its servers through stdin so Chrome does not outlive the run.
 - Windows desktop adapter (`packages/os-windows`, W2 part 1): windows, screenshots, mouse, keyboard, clipboard and idle time through a PowerShell helper; focus drift re-activation; administrator windows refused as `elevated_window`. Accessibility tools are not available on Windows yet. Not yet run on a Windows machine: `scripts\windows-desktop-check.ps1`.
 - `package-lock.json` lists the current packages again (it still named removed ones, so `npm ci` would have failed), and the release archive includes `os-windows`.
 - Clipboard paste (`desktop.type_text`, `desktop.set_field`, `desktop.file_dialog_select`) restores the old clipboard only after the window stops changing, after a 350 ms minimum and capped at 1.5 s. The old fixed wait could restore too early in a slow app.

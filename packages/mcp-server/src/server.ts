@@ -114,6 +114,7 @@ import { bootstrapRequirements } from "./requirements-bootstrap.js";
 import { ActionTimeline } from "./action-timeline.js";
 import { HandoffOverlay } from "./handoff-overlay.js";
 import { ApprovalOverlay } from "./approval-overlay.js";
+import { askInChat, type ElicitFn } from "./chat-approval.js";
 import { TaskActivityOverlay } from "./task-overlay.js";
 import { shouldShowActionCard, shouldShowActivityCard } from "./activity.js";
 
@@ -637,6 +638,21 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       signalApprovalRequired();
       void pushNotify("approval");
       void hostAttention?.requestConfirmation();
+      const tokenId = result.confirmation?.tokenId;
+      if (tokenId !== undefined && config.approvals?.chat !== false && server.getClientCapabilities()?.elicitation !== undefined) {
+        const outcome = await askInChat({
+          agentHostDir: config.agentHostDir,
+          sessionId: context.sessionId,
+          tokenId,
+          elicit: (params) => server.elicitInput(params as Parameters<typeof server.elicitInput>[0], { timeout: 120_000 }) as ReturnType<ElicitFn>
+        });
+        if (outcome === "approved") {
+          await hostAttention?.resolveConfirmation();
+          result.observations.push(`The person approved this in chat. Repeat the same call with confirmationToken ${tokenId}.`);
+        } else if (outcome === "denied") {
+          result.observations.push("The person denied this action in chat. Do not retry it.");
+        }
+      }
     }
     else if (result.overlay?.startsWith("unavailable:") === true) signalOverlayUnavailable();
     if (showActionCard || (result.error?.code === "confirmation_required" && activityMode !== "off")) {

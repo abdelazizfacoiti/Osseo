@@ -673,6 +673,7 @@ function effectNote(base: string, effect: EffectResult | undefined): string {
   if (effect === undefined) return base;
   if (effect.screenChanged === true) return `${base} The window changed.`;
   if (effect.screenChanged === false) return `${base} No visible change in the window: the click may have missed, the control may be disabled, or the input was not accepted. Check before repeating.`;
+  if (effect.reason === "window_still_changing") return `${base} The window kept changing (animation, video or a blinking caret), so the effect could not be verified. Take a screenshot to check.`;
   return `${base} The result could not be verified: the window was not captured.`;
 }
 

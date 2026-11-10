@@ -697,6 +697,8 @@ export interface AgentHostConfig {
   notifications?: { pushUrl?: string };
   /** lean (default): compact results without provenance or repeated state; full: everything, pretty-printed. */
   output?: { verbosity?: "lean" | "full" };
+  /** chat: ask the person in their agent client (MCP elicitation) when a confirmation is pending. Default true. */
+  approvals?: { chat?: boolean };
   autoInstallDependencies?: boolean;
   speech?: SpeechConfig;
   optionalAdapters?: Record<string, { enabled: boolean }>;

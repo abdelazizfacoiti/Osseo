@@ -219,6 +219,7 @@ export class BrowserSession implements BrowserAutomation {
   #sessionId: string | undefined;
   #targetId: string | undefined;
   #headless = false;
+  #sharedBrowser = false;
 
   constructor(options: { agentHostDir: string; executable?: string; env?: NodeJS.ProcessEnv }) {
     this.#agentHostDir = options.agentHostDir;
@@ -232,6 +233,8 @@ export class BrowserSession implements BrowserAutomation {
     if (this.#executable === undefined) return { ok: false, reason: "No Chrome or Chromium executable was found on PATH." };
     const profile = browserProfileDir(this.#agentHostDir);
     await mkdir(profile, { recursive: true, mode: 0o700 });
+    const attached = await this.#attachToRunning(profile);
+    if (attached) return { ok: true };
     await rm(path.join(profile, "DevToolsActivePort"), { force: true });
     const child = spawn(this.#executable, [
       "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1", `--user-data-dir=${profile}`,
@@ -242,6 +245,7 @@ export class BrowserSession implements BrowserAutomation {
     child.on("error", () => { if (this.#child === child) this.#reset(); });
     this.#child = child;
     this.#headless = headless;
+    this.#sharedBrowser = false;
     let wsUrl: string | undefined;
     for (let attempt = 0; attempt < 60 && wsUrl === undefined; attempt += 1) {
       await sleep(250);
@@ -264,6 +268,33 @@ export class BrowserSession implements BrowserAutomation {
     } catch (error) {
       await this.#killChild();
       return { ok: false, reason: error instanceof Error ? error.message : "Could not connect to the browser." };
+    }
+  }
+
+  /**
+   * Another Chrome may already own the agent profile: an orphan from a server that was killed, or
+   * a second session. Starting a second Chrome on the same profile would hand off to it and never
+   * write an endpoint, so open our own tab in the running one. Its tab is closed with ours.
+   */
+  async #attachToRunning(profile: string): Promise<boolean> {
+    let wsUrl: string | undefined;
+    try {
+      const [port, pathname] = (await readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n");
+      if (port !== undefined && pathname !== undefined && /^\d+$/.test(port)) wsUrl = `ws://127.0.0.1:${port}${pathname}`;
+    } catch { return false; }
+    if (wsUrl === undefined) return false;
+    try {
+      const connection = await CdpConnection.connect(wsUrl);
+      connection.onClose(() => { if (this.#connection === connection) { this.#connection = undefined; this.#sessionId = undefined; } });
+      this.#connection = connection;
+      const created = await connection.send("Target.createTarget", { url: "about:blank" });
+      await this.#attach(String(created.targetId));
+      this.#sharedBrowser = true;
+      return true;
+    } catch {
+      this.#connection?.close();
+      this.#connection = undefined;
+      return false; // Stale port file: fall through and start our own.
     }
   }
 
@@ -573,6 +604,14 @@ export class BrowserSession implements BrowserAutomation {
   }
 
   async close(): Promise<void> {
+    if (this.#sharedBrowser) {
+      // The browser belongs to someone else: close only our tab.
+      const targetId = this.#targetId;
+      if (targetId !== undefined) await this.#connection?.send("Target.closeTarget", { targetId }, undefined, 3_000).catch(() => undefined);
+      this.#sharedBrowser = false;
+      this.#reset();
+      return;
+    }
     try { await this.#connection?.send("Browser.close", {}, undefined, 3_000); } catch { /* Already closing. */ }
     await this.#killChild();
   }

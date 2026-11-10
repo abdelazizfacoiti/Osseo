@@ -278,7 +278,7 @@ async function runPixelRoute(name, display, run, root) {
     const outcome = await run(mcp);
     return summarize(name, mcp.stats, outcome, (Date.now() - started) / 1000);
   } finally {
-    server.kill("SIGKILL");
+    await stopServer(server);
     for (const child of [chrome, xephyr]) {
       try {
         process.kill(-child.pid, "SIGKILL");
@@ -303,8 +303,17 @@ async function runBrowserRoute(root) {
     const outcome = await browserRoute(mcp);
     return summarize("browser", mcp.stats, outcome, (Date.now() - started) / 1000);
   } finally {
-    server.kill("SIGKILL");
+    await stopServer(server);
   }
+}
+
+/** Close stdin so the server closes its own Chrome; SIGKILL alone leaves the browser running. */
+async function stopServer(server) {
+  const exited = new Promise((resolve) => server.once("exit", resolve));
+  try { server.stdin.end(); } catch { /* Already closed. */ }
+  const timer = setTimeout(() => server.kill("SIGKILL"), 8000);
+  await exited;
+  clearTimeout(timer);
 }
 
 function summarize(route, stats, outcome, seconds) {
