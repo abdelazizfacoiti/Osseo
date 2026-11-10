@@ -23,7 +23,7 @@ GUI clicking/typing is fallback only. Use guide mode for unsupported or sensitiv
 
 ## Current milestone
 
-**P0 Trust & Truth**. Make advertised safety guarantees real (schema validation, previews/dry-run, single-use confirmation tokens, stop/takeover, audit/provenance), keep tool manifests/resources truthful, and verify source, tests, build, and smoke before claiming completion.
+**Accuracy, cost, and Windows** (plan: AgentHost accuracy, cost, and Windows). Milestones 1–3 are done: verified actions, label and screenshot-id targeting, set_field with read-back, file dialogs, lean results, `screen.read`, plan expectations, and the form benchmark gate. Milestone 4 (Windows) is in progress: headless first (W1), then the desktop adapter (W2), overlay and approvals (W3), and packaging (W4). Keep the P0 rules: previews and confirmation tokens for consequential actions, stop/takeover, audit, and truthful manifests. Verify source, tests, build, and smoke before claiming completion.
 
 ## Architecture rules
 
@@ -52,7 +52,8 @@ packages/
 | `npm run test` | `vitest run` — all packages |
 | `npm start:mcp` | Run MCP server |
 | `npm run smoke:mcp` | Smoke test |
-| `npm run check:live` | End-to-end check of this build: CLI help and resume, verified clicks and typing on a nested display, self-pause, and headless-Chrome forms. Opens a small window on your screen for about a minute. |
+| `npm run check:live` | End-to-end check of this build (79 checks): CLI help and resume, verified clicks, typing, labels, set_field and screenshot ids on a nested display, self-pause, headless-Chrome forms with an iframe, session end (cards close when the client disconnects), file dialogs, and plan expectations. Opens a small window on your screen for about a minute. |
+| `npm run benchmark:form` | One form task three ways (pixel before, pixel after, browser) with the gate: 50% fewer calls, 40% fewer bytes, no unverified successes. The pixel routes need headed Chrome, Xephyr, and GTK. |
 | `npm run benchmark:agent` | Non-destructive runner/plan overhead benchmark in an isolated home |
 | `npm run benchmark:desktop` | Non-destructive Linux desktop-backend latency benchmark |
 | `agenthost integrations <client> add\|status\|remove [--apply]` | Register/preview/remove the MCP server for opencode, Claude, Codex, Copilot (VS Code + CLI), or Cursor |
@@ -140,6 +141,19 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
 - **Overlay click-through**: the automatic action card is click-through; small interactive card windows are reserved for Pause/Resume/Stop controls. Fullscreen surfaces are created only for pointer/arrow/highlight/spotlight primitives and must stay click-through. Do not reintroduce a fullscreen surface for ordinary cards.
 - **Overlay updates**: use `manager.updateWidget()` for in-place changes. Do not `dismiss` + `show` on every tick; that causes flicker and resets controls.
 
+- **AT-SPI lookups**: `matches_app` asks for the pid before the app name, because
+  one hung app took 14.7 s to answer its name and every lookup then timed out.
+  `find` walks 14 levels (web content sits deep below the browser chrome).
+  Chrome exposes page controls to AT-SPI only with `--force-renderer-accessibility`.
+- **Card renderers hold pipes to their server**: closing the client's stdin must
+  exit the server (`startStdioServer`), which closes cards first. A server from
+  an older build keeps its renderer alive; `agenthost overlay status` lists them.
+- **Screenshot ids live in the server process** (`screenshot-registry.ts`). A
+  restarted server forgets them, and a click on an unknown id fails with
+  `screenshot_unknown`.
+- **Stale X displays**: a killed nested X server leaves `/tmp/.X<n>-lock` behind.
+  `check:live` ignores locks whose process is gone; do the same in new scripts.
+
 ## Testing quirks
 
 - Tests live in `__tests__/` dirs inside each package's `src/`
@@ -147,6 +161,13 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
 - `packages/mcp-server/src/__tests__/action-overlay.test.ts` — automatic action card lifecycle, controls, persistence, auto-hide, and redaction
 - `packages/app-overlay/src/__tests__/overlay-geometry.test.ts` — pure card/ring clamp, collision avoidance, and monitor selection
 - `packages/mcp-server/src/__tests__/computer-tools.test.ts` — bounded condition waits and state snapshots
+- `packages/mcp-server/src/__tests__/label-target.test.ts` — label resolution: exact names, ambiguity, disabled controls, window scoping, OCR fallback
+- `packages/mcp-server/src/__tests__/set-field.test.ts` — read-back verdicts and set_field input rules
+- `packages/mcp-server/src/__tests__/screenshot-registry.test.ts` — screenshot ids: expiry, bounds, point mapping
+- `packages/mcp-server/src/__tests__/lean-output.test.ts` — lean and full result rendering, state sent once
+- `packages/mcp-server/src/__tests__/screen-read.test.ts` — the text-free outline and its byte cap
+- `packages/mcp-server/src/__tests__/stdio-exit.test.ts` — the built server exits when stdin closes or on SIGHUP
+- `packages/core/src/__tests__/workflow-expect.test.ts` — step expectation validation in saved workflows
 - `packages/mcp-server/src/__tests__/task-overlay.test.ts` — automatic current-task card, checklist updates, pause/stop, and dismissal
 - `packages/app-overlay/src/__tests__/task-progress.test.ts` — progress card states, controls, event routing, persistence and hide-marker handling
 - `packages/app-overlay/src/__tests__/linux-renderer.test.ts` — GTK IPC, fallback, restart, event drain

@@ -157,9 +157,12 @@ immediately before execution.
 
 | Tool | Capability |
 |---|---|
-| `desktop.click` | Left/middle/right click at absolute coordinates |
+| `desktop.click` | Left/middle/right click at absolute coordinates, on a visible label (AT-SPI, then OCR), or at a point in a returned screenshot (`screenshotId`) |
 | `desktop.hotkey` | One or more key combinations |
 | `desktop.type_text` | Up to 10,000 characters into the active window |
+| `desktop.set_field` | Sets a text field by label or coordinates: focuses it, replaces or appends, and reads it back (`confirmed`); refuses password fields and clicks that focus no editable field |
+| `desktop.file_dialog_select` | Picks a file in an open Open dialog (by window id or title); refuses Save dialogs; the path must pass the file read policy |
+| `screen.read` (observation) | Text-free outline of the active window from the accessibility tree, capped in bytes |
 | `desktop.pointer` | Pointer movement, scrolling, and drag primitives |
 | `desktop.screenshot` | Full-screen, active-window-only, or region PNG/JPEG capture with scale/quality |
 
@@ -186,6 +189,21 @@ Screenshot behavior:
 
 Desktop backends report unsupported or failed actions explicitly. A tool does
 not report success unless the backend confirms that the action was performed.
+
+Targets and pictures:
+
+- A click names one target: `x` and `y`, a visible `label` (exact match, AT-SPI
+  first, OCR second), or `screenshotId` with `imageX` and `imageY`. Disabled and
+  ambiguous labels are refused; a near miss is listed, not clicked.
+- A screenshot id maps picture points to the screen. It is refused when the
+  reference window moved, resized, or lost focus (`screenshot_stale`), when it
+  expired after five minutes (`screenshot_unknown`), or when the point is outside
+  the picture (`image_point_outside`). Twenty pictures are kept.
+- Click, type, hotkey, and set_field accept `returnScreenshot` (`none`, `region`,
+  or `window`). The picture comes back inline with its own id.
+- An approved click is refused (`target_moved`) when its control moved between
+  the preview and the click. The preview shows the resolved point.
+- A failure to make a picture never fails the action it follows.
 
 ### Vision and OCR
 
@@ -398,6 +416,12 @@ low/medium effects inside that exact plan:
 - Nested `computer.run_steps` calls are rejected.
 - Stop/pause/takeover is rechecked after the state-changing execution lane is
   acquired.
+- A step may carry `expect` (`screenChanged`, `windowTitle`, `textVisible`),
+  checked from the step's own result and the window afterwards. A missed
+  expectation stops the plan, even with `stopOnError` off; a check that cannot be
+  made is reported as `expectation_unverified`, never as a pass.
+- `returnScreenshot` on the plan returns one picture after the whole plan. The
+  result lists one line per step.
 
 ### Grants
 
@@ -821,6 +845,7 @@ Main fields:
 | `overlay` | Renderer mode, activity mode, theme, density, persistence, placement, width, monitor policy |
 | `execution` | `placement` (`foreground` default, `background` nested display), `yieldToUser` (default true), `maxActionsPerTask` (default 500; 0 = off) |
 | `notifications` | `pushUrl`: optional generic phone alert (https); never approves |
+| `output` | `verbosity`: `lean` (default: compact results without server provenance, an empty approval block, or null fields; the state is sent once and then `stateUnchanged`) or `full` (every field, pretty-printed) |
 | `blockedApps` | Apps the operator never wants automated (substring match) |
 | `grants` | Capability-scoped allow/deny/guide-only rules |
 | `optionalAdapters` | Explicit enablement map for optional adapters |
@@ -1127,6 +1152,9 @@ Enabling them does not add `blender.run_python` or `ssh.run_command` to
 3. Follow the fidelity ladder: shell/file or an app adapter first, then
    accessibility/GUI only when needed
 4. For GUI input, pass `target: {windowId|appName|title|pid}` when possible;
+   click by visible `label` or set fields with `desktop.set_field`, or click a point in a
+   returned screenshot by `screenshotId`; read the window with `screen.read` before
+   taking a picture;
    use the returned bounded `state` snapshot instead of observe-then-act
 5. Use `computer.run_steps` for known bounded sequences
 6. Act with the safest applicable tool and verify the returned state/result
@@ -1153,8 +1181,10 @@ At the time of writing, the tree passes:
 
 - `npm run build`
 - `npm run lint`
-- `npm test` — 60 files, 371 tests
-- `npm run smoke:mcp` — 67 tools, 3 resources
+- `npm test` — 91 files, 552 tests
+- `npm run smoke:mcp` — 70 tools, 3 resources
+- `npm run check:live` — 79 checks on a nested display and headless Chrome (CLI, desktop, browser, session end, file dialogs, plans, screenshot ids); opens a small window on your screen for about a minute
+- `npm run benchmark:form` — one form task three ways; the gate for the pixel path is 50% fewer calls, 40% fewer bytes, no unverified successes. Latest run: pixel-after -53% calls and -48% bytes against pixel-before; the browser route -68% calls and -98% bytes
 - `npm run benchmark:agent` — isolated, non-destructive runner overhead benchmark
 - `npm run benchmark:tasks` — 20 isolated scenarios, 22 governed calls in the latest run; desktop-input/OCR scenarios use mocked backends
 - `git diff --check`

@@ -32,6 +32,7 @@ present before the call. Missing backend data is omitted rather than guessed.
 | `computer.wait` | observe | read_only (fixed 50-10000 ms settle delay) |
 | `ui.tree` | low | read_only (AT-SPI tree of an app or the active window) |
 | `ui.find` | low | read_only (elements by name/role with screen bounds) |
+| `screen.read` | low | read_only (text-free outline of the active window: roles, names, enabled state, bounds; capped in bytes, default 2048) |
 | `clipboard.get` | medium | read_only + exact confirmation (clipboard may hold secrets) |
 | `window.list` | low | read_only |
 | `file.read` | low | read_only |
@@ -50,10 +51,12 @@ present before the call. Missing backend data is omitted rather than guessed.
 |---|---|---|
 | `computer.run_steps` | medium | state_changing (governed plan) |
 | `desktop.screenshot` | medium | state_changing (routine; optional JPEG/region/scale) |
-| `desktop.click` | medium | state_changing (routine) |
+| `desktop.click` | medium | state_changing (routine; x and y, a visible `label`, or a point in a screenshot by `screenshotId`) |
 | `desktop.pointer` | medium | state_changing (routine) |
 | `desktop.hotkey` | medium | state_changing (routine) |
 | `desktop.type_text` | medium | state_changing (routine) |
+| `desktop.set_field` | medium | state_changing (routine; focuses a field by label or x and y, replaces or appends, reads it back; refuses password and unexposed fields) |
+| `desktop.file_dialog_select` | medium | state_changing (routine; picks a file in an open Open dialog by window id or title; refuses Save dialogs; the path must pass the file read policy) |
 | `window.focus` | medium | state_changing (routine) |
 | `app.open` | low | state_changing (routine; desktop entry or executable) |
 | `app.open_url` | low | state_changing (routine; http/https/file, optional browser new tab) |
@@ -72,8 +75,8 @@ present before the call. Missing backend data is omitted rather than guessed.
 | Tool | Risk | Execution |
 |---|---|---|
 | `browser.open` | medium | state_changing (routine) |
-| `browser.snapshot` | low | read_only |
-| `browser.click` | medium | state_changing (routine; pay/send/delete/submit controls need confirmation) |
+| `browser.snapshot` | low | read_only (refs for controls in same-origin iframes, one level deep; `disabled`, `inFrame`, and redacted `value`) |
+| `browser.click` | medium | state_changing (routine; pay/send/delete/submit controls need confirmation; disabled controls refused; reports `navigated` and `domChanged`) |
 | `browser.type` | medium | state_changing (routine; password/OTP/card fields refused) |
 | `browser.navigate` | medium | state_changing (routine) |
 | `browser.close` | low | state_changing (routine) |
@@ -243,6 +246,36 @@ through `xdotool type` and other text through clipboard paste; install
 prior clipboard contents when the backend permits it. `window.focus` returns
 `previousWindow` so focus can be restored and accepts the same `target`
 selector.
+
+`desktop.click` names its target one of three ways: `x` and `y`; a visible
+`label` (with an optional `role`), resolved through AT-SPI inside the active
+window with OCR as the fallback; or `screenshotId` with `imageX` and `imageY`, a
+point in a picture that `desktop.screenshot` returned. A label must match
+exactly: a disabled or ambiguous name is refused with its candidates listed, and
+a near miss is listed as a suggestion, never clicked. A confirmed click lands
+where it was previewed; if the control moved in between it is refused
+(`target_moved`). A screenshot id is refused with `screenshot_stale` when its
+reference window moved, resized, or lost focus, with `screenshot_unknown` when it
+expired (five minutes), and with `image_point_outside` for a point outside the
+picture.
+
+`desktop.click`, `desktop.type_text`, `desktop.hotkey`, and `desktop.set_field`
+accept `returnScreenshot`: `none` (the default), `region` (480x320 around the
+point), or `window` (the active window). The settled picture comes back inline
+with its own `screenshotId`, so the next click needs no separate screenshot.
+
+`desktop.set_field` focuses a text field, selects its text (or moves to the end
+with `replace: false`), pastes the new text, and reads the field back. It checks
+the editable field at the clicked point before typing anything and refuses with
+`field_not_exposed`, `field_not_focused`, `sensitive_field` (password fields, by
+state or by role), or `accessibility_unavailable`. `confirmed` is `true` when
+the field reads back exactly, `false` is an error (`readback_mismatch`), and
+`"unknown"` means AT-SPI cannot read the field here. Empty text clears it.
+
+`screen.read` outlines the active window from the accessibility tree: roles,
+names, enabled state, and bounds, with no text content, capped in bytes. It is
+the cheap answer to "what is on screen"; a window with no outline returns a hint
+to take a screenshot.
 
 ASCII text shorter than 512 characters uses a zero-delay `xdotool type`; longer
 or layout-unsafe text uses clipboard paste and fails explicitly when neither
