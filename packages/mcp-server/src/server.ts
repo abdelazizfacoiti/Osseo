@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { renderResultText, type OutputVerbosity, type StateHolder } from "./lean-output.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
@@ -287,7 +288,7 @@ export interface AgentHostServerOptions {
 }
 
 /** A tool may attach an image under data.inlineImage. It goes to the client as image content, never into the JSON text. */
-function toMcpToolResult(result: ToolResult): {
+function toMcpToolResult(result: ToolResult, verbosity: OutputVerbosity, stateHolder: StateHolder): {
   content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>;
   isError: boolean;
 } {
@@ -297,7 +298,7 @@ function toMcpToolResult(result: ToolResult): {
     : { ...result, data: { ...(result.data as object), inlineImage: { mimeType: inline.mimeType, bytes: inline.data.length } } as ToolResult["data"] };
   return {
     content: [
-      { type: "text", text: JSON.stringify(shown, null, 2) },
+      { type: "text", text: renderResultText(shown, verbosity, stateHolder) },
       ...(inline === undefined ? [] : [{ type: "image" as const, data: inline.data, mimeType: inline.mimeType }])
     ],
     isError: !result.ok
@@ -310,6 +311,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   closeResources: () => Promise<void>;
 }> {
   const config = options.config ?? (await loadAgentHostConfig());
+  // The last state fingerprint this session reported, so an unchanged state is not repeated.
+  const resultState: StateHolder = {};
   setUserBlockedApps(config.blockedApps ?? []);
   // Desktop commands run with this as their working directory; on a fresh install it may not exist yet.
   await mkdir(config.agentHostDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
@@ -610,7 +613,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
         errorCode: error.code
       });
 
-      return toMcpToolResult(result);
+      return toMcpToolResult(result, config.output?.verbosity ?? "lean", resultState);
     }
 
     const rawInput = request.params.arguments ?? {};
@@ -639,7 +642,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       });
     }
     try { await taskActivity?.observe(tool.name, result); } catch { /* Task card updates are advisory. */ }
-    return toMcpToolResult(result);
+    return toMcpToolResult(result, config.output?.verbosity ?? "lean", resultState);
   });
 
   let resourceClosePromise: Promise<void> | undefined;

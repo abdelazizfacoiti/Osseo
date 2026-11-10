@@ -695,6 +695,8 @@ export interface AgentHostConfig {
   blockedApps?: string[];
   /** Optional phone notification; generic text only, it cannot approve anything. */
   notifications?: { pushUrl?: string };
+  /** lean (default): compact results without provenance or repeated state; full: everything, pretty-printed. */
+  output?: { verbosity?: "lean" | "full" };
   autoInstallDependencies?: boolean;
   speech?: SpeechConfig;
   optionalAdapters?: Record<string, { enabled: boolean }>;
