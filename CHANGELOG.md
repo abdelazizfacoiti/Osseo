@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Stop: an MCP server exits when its client closes stdin (or on SIGHUP), after closing its overlay cards. Before, a card renderer held the process open, so cards stayed on screen after the session ended.
+- `desktop.click` takes a visible `label` (AT-SPI first, OCR fallback). Only exact names are clicked; disabled and ambiguous names are refused. The preview shows the resolved point, and an approved click is refused if that point moved.
+- `desktop.set_field` sets a text field: it checks the field at the clicked point (refusing password fields, unexposed fields, and clicks that focus nothing editable), replaces or appends the text, and reads it back (`confirmed`). Empty text clears it.
+- `desktop.file_dialog_select` picks a file in an open Open dialog by window id or title. It refuses Save dialogs. The path must pass the file read policy.
+- Screenshot ids: `desktop.screenshot` names each capture. A click can name it with a point in the picture (`screenshotId`, `imageX`, `imageY`). The mapping is refused when the window moved or resized since the capture (`screenshot_stale`), or when the id expired.
+- `returnScreenshot` (none, region, window) on click, type, hotkey, and set_field returns the settled picture inline with its own id.
+- `screen.read` outlines the active window from the accessibility tree: names, enabled state, bounds, no text, capped in bytes.
+- `output.verbosity` (default `lean`): compact results without server provenance, empty approval blocks, null fields, or a repeated state. `full` restores the previous output.
+- `computer.run_steps` and saved workflows take `expect` per step (`screenChanged`, `windowTitle`, `textVisible`). A missed expectation stops the plan. The plan returns one line per step and an optional final picture (`returnScreenshot`).
+- Browser: snapshots reach one level of same-origin iframes; clicks refuse disabled controls, and report `navigated` and `domChanged` (unknown when the page cannot be read). A click follows only a tab it opened.
+- `npm run benchmark:form` runs one form task three ways (pixel before, pixel after, browser) and checks the gate: 50% fewer calls, 40% fewer bytes, no unverified successes. On this run: pixel-after is 53% fewer calls and 48% fewer bytes than pixel-before; the browser route is 68% fewer calls and 98% fewer bytes.
+
 - Added `npm run check:live` (`scripts/live-check.mjs`): an end-to-end check of the build in a throwaway home, on a nested display and headless Chrome.
 - Fixed: typing into a terminal did nothing after the paste-by-default change,
   because terminals ignore Ctrl+V. Paste now uses Ctrl+Shift+V in terminal apps

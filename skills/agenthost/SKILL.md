@@ -191,8 +191,18 @@ There is one autonomous policy. Do the task; do not ask for routine clicks.
   `effect.screenChanged`. `true` means the window changed; `false` means nothing
   visible happened, so check the target before repeating (the control may be
   disabled). `verify: false` skips the check for fast repeats.
-- `desktop.screenshot` returns the picture inline (JPEG) with `inline.scale`. Map
-  a point in it with `screen = screenOrigin + image / inline.scale`.
+- `desktop.screenshot` returns the picture inline (JPEG) with an id. Click a point
+  in it with `desktop.click { screenshotId, imageX, imageY }`; AgentHost maps it
+  to the screen and refuses it (`screenshot_stale`) when the window moved since
+  the picture. Ids last 5 minutes. Action tools take `returnScreenshot`
+  (`region` or `window`) to return the picture after the action, so the next
+  click needs no separate screenshot.
+- `screen.read` outlines the active window (names, enabled state, bounds, no
+  text) in a few hundred bytes: use it before a screenshot to answer "what is
+  on screen".
+- `computer.run_steps` steps may carry `expect` (`screenChanged`, `windowTitle`,
+  `textVisible`); a missed expectation stops the plan and returns one line per
+  step. `returnScreenshot` on the plan returns one picture at the end.
 - Web forms: `browser.snapshot`, then `browser.fill` (several fields, read back),
   `browser.select`, `browser.upload` (needs confirmation), `browser.wait_for`
   instead of sleeps, and `browser.screenshot` when layout matters. A snapshot
