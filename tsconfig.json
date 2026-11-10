@@ -17,6 +17,9 @@
       "path": "./packages/os-linux"
     },
     {
+      "path": "./packages/os-windows"
+    },
+    {
       "path": "./packages/mcp-server"
     },
     {

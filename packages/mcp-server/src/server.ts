@@ -82,6 +82,7 @@ import {
   getBrowserSession,
   startBackgroundDisplay
 } from "@agenthost/os-linux";
+import { WindowsHelperProcess, createWindowsDesktop } from "@agenthost/os-windows";
 import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator } from "@agenthost/app-overlay";
 import type { AgentHostMcpContext, LinuxAutomation } from "./context.js";
 import { GrantStore } from "./grants.js";
@@ -438,9 +439,9 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     await taskActivity.initialize();
   }
   const platformReport = describeDesktopPlatform();
-  const linux: LinuxAutomation =
+  const baseLinux: LinuxAutomation =
     options.linux ?? {
-      ...(platformReport.os !== "linux" ? { unsupportedPlatform: platformReport.guidance[0] ?? "This operating system has no desktop adapter." } : {}),
+      ...(platformReport.os !== "linux" && platformReport.os !== "windows" ? { unsupportedPlatform: platformReport.guidance[0] ?? "This operating system has no desktop adapter." } : {}),
       ...(backgroundDisplay === undefined ? {} : { backgroundDisplay: backgroundDisplay.display }),
       getSystemInfo: () => getLinuxSystemInfo(config, registry),
       checkDependency: (input) => checkLinuxDependency(input),
@@ -488,6 +489,9 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       focusAccessibilityElement: (input) =>
         focusLinuxAccessibilityElement(input, desktopContext)
     };
+  // On Windows the desktop methods come from the PowerShell helper; files, shell and the browser stay as they are.
+  const windowsHelper = options.linux === undefined && platformReport.os === "windows" ? new WindowsHelperProcess({ agentHostDir: config.agentHostDir }) : undefined;
+  const linux: LinuxAutomation = windowsHelper === undefined ? baseLinux : { ...baseLinux, ...createWindowsDesktop(windowsHelper) };
   const serverModulePath = fileURLToPath(import.meta.url);
   const runtime = {
     version: SERVER_VERSION,

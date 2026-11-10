@@ -22,7 +22,13 @@ export function describeDesktopPlatform(input: { platform?: NodeJS.Platform; env
   const platform = input.platform ?? process.platform;
   const env = input.env ?? process.env;
   if (platform === "win32") {
-    return { os: "windows", session: "native-windows", control: "none", guidance: ["Windows desktop control is not implemented yet. File, shell, workflow, memory, and handoff tools that do not touch the desktop still work.", "A Windows adapter must implement the platform contract in docs/13_PLATFORMS.md."] };
+    return {
+      os: "windows", session: "native-windows", control: "full",
+      guidance: [
+        "Windows desktop control (windows, mouse, keyboard, screenshots, clipboard) runs through a PowerShell helper. It has not been verified on a real Windows machine yet: run scripts\\windows-desktop-check.ps1.",
+        "Accessibility tools (ui.*) are not available on Windows yet; windows that run as administrator reject input and are refused; UAC prompts and the lock screen cannot be automated."
+      ]
+    };
   }
   if (platform === "darwin") {
     return { os: "macos", session: "native-macos", control: "none", guidance: ["macOS desktop control is not implemented yet. File, shell, workflow, memory, and handoff tools that do not touch the desktop still work.", "A macOS adapter must implement the platform contract in docs/13_PLATFORMS.md."] };

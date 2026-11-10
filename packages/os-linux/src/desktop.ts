@@ -941,7 +941,7 @@ async function pasteViaClipboard(
 
 export interface LinuxClipboardResult {
   supported: boolean;
-  backend: "xclip" | "xsel" | "gtk" | "unavailable";
+  backend: "xclip" | "xsel" | "gtk" | "windows" | "unavailable";
   text?: string;
   reason: string;
 }

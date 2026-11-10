@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Windows desktop adapter (`packages/os-windows`, W2 part 1): windows, screenshots, mouse, keyboard, clipboard and idle time through a PowerShell helper; focus drift re-activation; administrator windows refused as `elevated_window`. Accessibility tools are not available on Windows yet. Not yet run on a Windows machine: `scripts\windows-desktop-check.ps1`.
+- `package-lock.json` lists the current packages again (it still named removed ones, so `npm ci` would have failed), and the release archive includes `os-windows`.
 - Clipboard paste (`desktop.type_text`, `desktop.set_field`, `desktop.file_dialog_select`) restores the old clipboard only after the window stops changing, after a 350 ms minimum and capped at 1.5 s. The old fixed wait could restore too early in a slow app.
 - Stop: an MCP server exits when its client closes stdin (or on SIGHUP), after closing its overlay cards. Before, a card renderer held the process open, so cards stayed on screen after the session ended.
 - `desktop.click` takes a visible `label` (AT-SPI first, OCR fallback). Only exact names are clicked; disabled and ambiguous names are refused. The preview shows the resolved point, and an approved click is refused if that point moved.

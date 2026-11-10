@@ -14,7 +14,7 @@ describe("desktop platform report", () => {
   it("is honest about native Wayland, headless, Windows, and macOS", () => {
     expect(linux({ XDG_SESSION_TYPE: "wayland", WAYLAND_DISPLAY: "wayland-0" })).toMatchObject({ session: "wayland", control: "none" });
     expect(linux({})).toMatchObject({ session: "headless", control: "none" });
-    expect(describeDesktopPlatform({ platform: "win32" })).toMatchObject({ os: "windows", control: "none" });
+    expect(describeDesktopPlatform({ platform: "win32" })).toMatchObject({ os: "windows", control: "full" });
     expect(describeDesktopPlatform({ platform: "darwin" })).toMatchObject({ os: "macos", control: "none" });
     expect(describeDesktopPlatform({ platform: "freebsd" })).toMatchObject({ os: "other", control: "none" });
   });

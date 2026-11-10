@@ -23,7 +23,7 @@ GUI clicking/typing is fallback only. Use guide mode for unsupported or sensitiv
 
 ## Current milestone
 
-**Accuracy, cost, and Windows** (plan: AgentHost accuracy, cost, and Windows). Milestones 1–3 are done: verified actions, label and screenshot-id targeting, set_field with read-back, file dialogs, lean results, `screen.read`, plan expectations, and the form benchmark gate. Milestone 4 (Windows) is in progress: W1 (headless: paths, shell rules, process trees, browser discovery, access lists, start-up guards) is implemented and waits for a run on Windows (`scripts\windows-check.ps1`); then the desktop adapter (W2), overlay and approvals (W3), and packaging (W4). Keep the P0 rules: previews and confirmation tokens for consequential actions, stop/takeover, audit, and truthful manifests. Verify source, tests, build, and smoke before claiming completion.
+**Accuracy, cost, and Windows** (plan: AgentHost accuracy, cost, and Windows). Milestones 1–3 are done: verified actions, label and screenshot-id targeting, set_field with read-back, file dialogs, lean results, `screen.read`, plan expectations, and the form benchmark gate. Milestone 4 (Windows) is in progress: W1 (headless: paths, shell rules, process trees, browser discovery, access lists, start-up guards) and the first part of W2 (desktop adapter: PowerShell helper, windows, screenshots, SendInput, clipboard; no UI Automation yet) are implemented and wait for runs on Windows (`scripts\windows-check.ps1`, `scripts\windows-desktop-check.ps1`); then UI Automation, overlay and approvals (W3), and packaging (W4). Keep the P0 rules: previews and confirmation tokens for consequential actions, stop/takeover, audit, and truthful manifests. Verify source, tests, build, and smoke before claiming completion.
 
 ## Architecture rules
 
@@ -40,6 +40,7 @@ packages/
   agenthost-cli/     CLI tool (bin: agenthost)
   app-overlay/       GTK3 renderer + overlay manager + task progress card
   os-linux/          OS adapters (filesystem, desktop, dependencies, window mgmt)
+  os-windows/        Windows desktop adapter (PowerShell helper, SendInput, GDI); selected in server.ts on win32
   app-blender/       optional Blender adapter
 ```
 

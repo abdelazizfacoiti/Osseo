@@ -9,12 +9,36 @@ What AgentHost can control, by operating system and session. Run
 | Linux | Wayland + XWayland | X11 (XWayland) windows only: list, focus, type, click, screenshot, cards | Headless GNOME compositor with `Xwayland` |
 | Linux | Native Wayland, no XWayland | None directly. Use `execution.placement: "background"` (Xephyr) | Headless GNOME compositor |
 | Linux | Headless | Only tools that need no display | Yes |
-| Windows | Native, headless | Headless only (W1): server, files, shell, tasks, workflows, memory, approvals, `browser.*` (Chrome or Edge). Desktop tools fail with `unsupported_platform` until W2 | Not yet verified on a Windows machine: run `scripts\windows-check.ps1` |
+| Windows | Native desktop (W2) | Windows, mouse, keyboard, screenshots, clipboard through a PowerShell helper (`packages/os-windows`); headless tools as in W1. No accessibility tools (`ui.*`, label clicks, `set_field` read-back) yet; windows running as administrator are refused (`elevated_window`) | Not yet verified on a Windows machine: run `scripts\windows-desktop-check.ps1` |
 | macOS | Native | Not implemented: desktop tools fail with `unsupported_platform` | No |
 
 Tools that do not touch the desktop (files, shell, tasks, workflows, memory,
 handoff, scheduling, `browser.*` where Chrome is installed) are not gated by the
 desktop adapter.
+
+## Windows desktop (W2)
+
+`packages/os-windows` fills the same contract as the Linux adapter. TypeScript holds the logic; one
+long-lived `powershell.exe -STA` process (`helper-script.ts`) compiles a small C# class and answers
+JSON lines on stdin and stdout, like the GTK renderer on Linux. Nothing is installed.
+
+- **Windows:** `EnumWindows` (visible, titled, not cloaked), frame bounds from DWM, `SetForegroundWindow`
+  with a thread-attach. Window ids are decimal handles; `0x` hex is accepted.
+- **Screenshots:** GDI `CopyFromScreen` of the virtual screen, the active window, or a region, with
+  scale, PNG or JPEG. The process is DPI-aware, so coordinates are physical pixels.
+- **Input:** `SendInput` for mouse (click, double, right, scroll, drag) and keys (virtual-key chords
+  with repeat). Text is pasted through the clipboard; the old clipboard text returns after a 350 ms
+  minimum wait and the same settle check as Linux. If the clipboard held no text (an image), it is
+  cleared afterwards rather than left holding the pasted text.
+- **Focus drift:** a pinned window id that is not in front is re-activated once, then refused.
+- **Elevated windows:** Windows drops input from a normal process to an administrator window (UIPI).
+  The helper checks the target's token first and refuses with `elevated_window`. UAC prompts and the
+  lock screen cannot be automated; hand those to the person.
+- **Not yet:** UI Automation (`ui.*`, label clicks, `set_field` read-back report that accessibility is
+  unavailable), OCR, an overlay and approval cards (W3), the `ffmpeg`-free inline JPEG (screenshots
+  work, but inline images need `ffmpeg` on PATH for now), and packaging (W4).
+- **Check it:** `powershell -ExecutionPolicy Bypass -File scripts\windows-desktop-check.ps1`. It drives
+  a test window it creates, never your own apps. `-ElevatedProbe` checks the administrator refusal.
 
 ## Windows (headless, W1)
 
