@@ -8,11 +8,22 @@ import type {
   SafetyEvaluationContext
 } from "../types.js";
 
-const SYSTEM_ROOTS = ["/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var"];
+type PathApi = typeof path.posix;
 
-const CREDENTIAL_ROOT_TEMPLATES = ["~/.ssh", "~/.gnupg", "~/.local/share/keyrings"];
+/**
+ * Windows paths use path.win32: drive letters, backslashes, and case-insensitive comparison.
+ * Everything else uses POSIX paths. Passing `platform` in the context lets tests evaluate Windows
+ * rules on any host.
+ */
+function pathApi(platform: NodeJS.Platform): PathApi {
+  return platform === "win32" ? path.win32 : path.posix;
+}
 
-const BROWSER_PROFILE_ROOT_TEMPLATES = [
+const POSIX_SYSTEM_ROOTS = ["/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/root", "/run", "/sbin", "/sys", "/usr", "/var"];
+
+const POSIX_CREDENTIAL_ROOT_TEMPLATES = ["~/.ssh", "~/.gnupg", "~/.local/share/keyrings"];
+
+const POSIX_BROWSER_PROFILE_ROOT_TEMPLATES = [
   "~/.mozilla",
   "~/.config/google-chrome",
   "~/.config/chromium",
@@ -25,28 +36,76 @@ const BROWSER_PROFILE_ROOT_TEMPLATES = [
   "~/Library/Application Support/Google/Chrome"
 ];
 
-function expandHome(input: string, homeDir: string): string {
+// Windows templates: "~" is the user's home folder, and %NAME% is read from the environment.
+const WINDOWS_SYSTEM_ROOT_TEMPLATES = ["%SystemRoot%", "%ProgramFiles%", "%ProgramFiles(x86)%", "%ProgramData%"];
+
+const WINDOWS_CREDENTIAL_ROOT_TEMPLATES = [
+  "~\\.ssh",
+  "~\\.gnupg",
+  "~\\.aws",
+  "~\\.docker",
+  "%APPDATA%\\Microsoft\\Credentials",
+  "%LOCALAPPDATA%\\Microsoft\\Credentials",
+  "%APPDATA%\\Microsoft\\Protect",
+  "%LOCALAPPDATA%\\Microsoft\\Protect",
+  "%LOCALAPPDATA%\\Microsoft\\Vault"
+];
+
+const WINDOWS_BROWSER_PROFILE_ROOT_TEMPLATES = [
+  "%LOCALAPPDATA%\\Google\\Chrome\\User Data",
+  "%LOCALAPPDATA%\\Microsoft\\Edge\\User Data",
+  "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data",
+  "%APPDATA%\\Mozilla\\Firefox",
+  "%APPDATA%\\Opera Software"
+];
+
+/** Used when the environment has no value for a Windows system folder. */
+const WINDOWS_FOLDER_DEFAULTS: Record<string, string> = {
+  SYSTEMROOT: "C:\\Windows",
+  PROGRAMFILES: "C:\\Program Files",
+  "PROGRAMFILES(X86)": "C:\\Program Files (x86)",
+  PROGRAMDATA: "C:\\ProgramData"
+};
+
+function environmentValue(env: Record<string, string | undefined>, name: string): string | undefined {
+  const wanted = name.toUpperCase();
+  for (const [key, value] of Object.entries(env)) {
+    if (key.toUpperCase() === wanted && value !== undefined && value !== "") return value;
+  }
+  return undefined;
+}
+
+function expandEnvironment(input: string, platform: NodeJS.Platform, env: Record<string, string | undefined>): string {
+  if (platform !== "win32") return input;
+  return input.replace(/%([A-Za-z_][A-Za-z0-9_()]*)%/g, (whole: string, name: string) => {
+    return environmentValue(env, name) ?? WINDOWS_FOLDER_DEFAULTS[name.toUpperCase()] ?? whole;
+  });
+}
+
+function expandHome(input: string, homeDir: string, platform: NodeJS.Platform): string {
   if (input === "~") {
     return homeDir;
   }
-
-  if (input.startsWith("~/")) {
-    return path.join(homeDir, input.slice(2));
+  const prefixes = platform === "win32" ? ["~/", "~\\"] : ["~/"];
+  for (const prefix of prefixes) {
+    if (input.startsWith(prefix)) {
+      return pathApi(platform).join(homeDir, input.slice(prefix.length));
+    }
   }
-
   return input;
 }
 
 export function normalizePathForPolicy(inputPath: string, context: SafetyEvaluationContext = {}): string {
+  const platform = context.platform ?? process.platform;
   const homeDir = context.homeDir ?? os.homedir();
   const cwd = context.cwd ?? process.cwd();
-  const expanded = expandHome(inputPath, homeDir);
-  return path.resolve(cwd, expanded);
+  const expanded = expandHome(expandEnvironment(inputPath, platform, context.env ?? process.env), homeDir, platform);
+  return pathApi(platform).resolve(cwd, expanded);
 }
 
-function isInsideOrEqual(candidate: string, root: string): boolean {
-  const relative = path.relative(root, candidate);
-  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+function isInsideOrEqual(candidate: string, root: string, api: PathApi): boolean {
+  const relative = api.relative(root, candidate);
+  return relative === "" || (!relative.startsWith("..") && !api.isAbsolute(relative));
 }
 
 function unique(values: string[]): string[] {
@@ -66,58 +125,63 @@ export function resolveAllowedWriteRoots(
   return unique(roots);
 }
 
-function controlPlaneRoots(agentHostDir: string | undefined, protectedPaths: string[] | undefined): string[] {
+function controlPlaneRoots(agentHostDir: string | undefined, protectedPaths: string[] | undefined, api: PathApi): string[] {
   const roots = [
     ...(agentHostDir === undefined
       ? []
       : [
-          path.join(agentHostDir, "run"),
-          path.join(agentHostDir, "tasks", "approvals"),
-          path.join(agentHostDir, "logs"),
-          path.join(agentHostDir, "setup"),
-          path.join(agentHostDir, "config.json")
+          api.join(agentHostDir, "run"),
+          api.join(agentHostDir, "tasks", "approvals"),
+          api.join(agentHostDir, "logs"),
+          api.join(agentHostDir, "setup"),
+          api.join(agentHostDir, "config.json")
         ]),
     ...(protectedPaths ?? [])
   ];
-  return unique(roots.map((root) => path.resolve(root)));
+  return unique(roots.map((root) => api.resolve(root)));
 }
 
 export function isAgentHostControlPath(inputPath: string, context: SafetyEvaluationContext = {}): boolean {
+  const api = pathApi(context.platform ?? process.platform);
   const normalized = normalizePathForPolicy(inputPath, context);
-  return controlPlaneRoots(context.agentHostDir, context.protectedPaths).some((root) => isInsideOrEqual(normalized, root));
+  return controlPlaneRoots(context.agentHostDir, context.protectedPaths, api).some((root) => isInsideOrEqual(normalized, root, api));
 }
 
 function protectionForPath(
   normalizedPath: string,
-  homeDir: string,
-  agentHostDir: string | undefined,
+  context: SafetyEvaluationContext & { homeDir: string },
   protectedPaths: string[] | undefined
 ): PathSafetyResult["protectionKind"] {
-  if (normalizedPath === path.parse(normalizedPath).root) {
+  const platform = context.platform ?? process.platform;
+  const api = pathApi(platform);
+  const homeDir = context.homeDir;
+
+  if (normalizedPath === api.parse(normalizedPath).root) {
     return "root";
   }
 
-  if (controlPlaneRoots(agentHostDir, protectedPaths).some((root) => isInsideOrEqual(normalizedPath, root))) {
+  if (controlPlaneRoots(context.agentHostDir, protectedPaths, api).some((root) => isInsideOrEqual(normalizedPath, root, api))) {
     return "agenthost_control";
   }
 
-  const credentialRoots = CREDENTIAL_ROOT_TEMPLATES.map((root) => normalizePathForPolicy(root, { homeDir }));
+  const rootsFrom = (templates: string[]): string[] => templates.map((template) => normalizePathForPolicy(template, { ...context, platform, homeDir }));
 
-  if (credentialRoots.some((root) => isInsideOrEqual(normalizedPath, root))) {
+  const credentialTemplates = platform === "win32" ? WINDOWS_CREDENTIAL_ROOT_TEMPLATES : POSIX_CREDENTIAL_ROOT_TEMPLATES;
+  if (rootsFrom(credentialTemplates).some((root) => isInsideOrEqual(normalizedPath, root, api))) {
     return "credential";
   }
 
-  const browserRoots = BROWSER_PROFILE_ROOT_TEMPLATES.map((root) => normalizePathForPolicy(root, { homeDir }));
-
-  if (browserRoots.some((root) => isInsideOrEqual(normalizedPath, root))) {
+  const browserTemplates = platform === "win32" ? WINDOWS_BROWSER_PROFILE_ROOT_TEMPLATES : POSIX_BROWSER_PROFILE_ROOT_TEMPLATES;
+  if (rootsFrom(browserTemplates).some((root) => isInsideOrEqual(normalizedPath, root, api))) {
     return "browser_profile";
   }
 
-  if (SYSTEM_ROOTS.some((root) => isInsideOrEqual(normalizedPath, root))) {
+  const systemRoots = platform === "win32" ? rootsFrom(WINDOWS_SYSTEM_ROOT_TEMPLATES) : POSIX_SYSTEM_ROOTS;
+  if (systemRoots.some((root) => isInsideOrEqual(normalizedPath, root, api))) {
     return "system";
   }
 
-  if (isInsideOrEqual(normalizedPath, homeDir)) {
+  if (isInsideOrEqual(normalizedPath, api.resolve(homeDir), api)) {
     return "home";
   }
 
@@ -161,12 +225,15 @@ export function classifyPath(
   policy: RuntimePolicy,
   context: SafetyEvaluationContext & { access?: PathAccessMode } = {}
 ): PathSafetyResult {
+  const platform = context.platform ?? process.platform;
+  const api = pathApi(platform);
   const homeDir = context.homeDir ?? os.homedir();
   const access = context.access ?? "read";
-  const normalizedPath = normalizePathForPolicy(inputPath, { ...context, homeDir });
-  const allowedWriteRoots = resolveAllowedWriteRoots(policy, { ...context, homeDir });
-  const isAllowedWriteRoot = allowedWriteRoots.some((root) => isInsideOrEqual(normalizedPath, root));
-  const protectionKind = protectionForPath(normalizedPath, homeDir, context.agentHostDir, context.protectedPaths);
+  const scoped = { ...context, platform, homeDir };
+  const normalizedPath = normalizePathForPolicy(inputPath, scoped);
+  const allowedWriteRoots = resolveAllowedWriteRoots(policy, scoped);
+  const isAllowedWriteRoot = allowedWriteRoots.some((root) => isInsideOrEqual(normalizedPath, root, api));
+  const protectionKind = protectionForPath(normalizedPath, scoped, context.protectedPaths);
   const riskLevel = pathRisk(access, protectionKind, isAllowedWriteRoot);
   const reasons: string[] = [];
   const matchedRules: string[] = [];
@@ -174,6 +241,11 @@ export function classifyPath(
   if (protectionKind !== "none") {
     reasons.push(`Path is protected as ${protectionKind}.`);
     matchedRules.push(`path.protected.${protectionKind}`);
+  }
+
+  if (platform === "win32" && (inputPath.startsWith("\\\\") || inputPath.startsWith("//"))) {
+    reasons.push("Network (UNC) path: its contents are not covered by local protections.");
+    matchedRules.push("path.network");
   }
 
   if (access === "write" && isAllowedWriteRoot) {

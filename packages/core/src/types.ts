@@ -1013,6 +1013,10 @@ export interface SafetyEvaluationContext {
   ownerSessionId?: string;
   homeDir?: string;
   cwd?: string;
+  /** Path rules follow this platform (defaults to the host). Tests pass "win32" to check Windows rules anywhere. */
+  platform?: NodeJS.Platform;
+  /** Environment for %NAME% expansion in Windows paths (defaults to process.env). */
+  env?: Record<string, string | undefined>;
   agentHostDir?: string;
   protectedPaths?: string[];
   grants?: CapabilityGrant[];

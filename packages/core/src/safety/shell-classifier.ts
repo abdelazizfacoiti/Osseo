@@ -91,7 +91,7 @@ const SHELL_RULES: ShellRule[] = [
   },
   {
     id: "shell.inline_code",
-    pattern: /\b(?:python[0-9.]*|node|perl|ruby|php)\s+(?:-c|-e|--eval|-r)\b/i,
+    pattern: /\b(?:python[0-9.]*|node|perl|ruby|php)(?:\.exe)?\s+(?:-c|-e|--eval|-r)\b/i,
     riskLevel: "high",
     reason: "Inline interpreter code can perform arbitrary local actions and requires explicit approval."
   },
@@ -103,13 +103,107 @@ const SHELL_RULES: ShellRule[] = [
   },
   {
     id: "shell.agenthost_control_path",
-    pattern: /\.agenthost\/(?:run|logs|setup|tasks\/approvals)(?:\/|\b)|\.agenthost\/config\.json\b/i,
+    pattern: /\.agenthost[\\/](?:run|logs|setup|tasks[\\/]approvals)(?:[\\/]|\b)|\.agenthost[\\/]config\.json\b/i,
     riskLevel: "blocked",
     reason: "AgentHost control-plane files are operator-only."
   }
 ];
 
+/**
+ * Windows command rules (PowerShell, cmd, and the programs they run). They apply only when the
+ * platform is Windows, so the POSIX patterns above stay exact on Linux and macOS.
+ */
+const WINDOWS_SHELL_RULES: ShellRule[] = [
+  {
+    id: "shell.win_delete",
+    pattern: /(?:^|[\s;&|])(?:del|erase|rd|rmdir|remove-item|ri)(?=\s|$)/i,
+    riskLevel: "high",
+    reason: "Windows delete commands require explicit approval and an exact target."
+  },
+  {
+    id: "shell.win_disk_boot_or_recovery",
+    pattern: /(?:^|[\s;&|])(?:format(?:\.com)?\s+[a-z]:|diskpart|bcdedit|vssadmin|cipher(?:\.exe)?\s+\/w|sfc(?:\.exe)?|dism(?:\.exe)?)(?=\s|$)/i,
+    riskLevel: "blocked",
+    reason: "Disk, boot, and recovery tools are destructive."
+  },
+  {
+    id: "shell.win_machine_registry_write",
+    pattern: /\breg(?:\.exe)?\s+(?:add|delete|import)\b[\s\S]*\bHK(?:LM|EY_LOCAL_MACHINE)\b|\b(?:New|Set|Remove|Clear)-ItemProperty\b[\s\S]*\bHKLM:?/i,
+    riskLevel: "blocked",
+    reason: "Machine-wide registry writes are operator-only."
+  },
+  {
+    id: "shell.win_registry_change",
+    pattern: /\breg(?:\.exe)?\s+(?:add|delete|import|restore|copy|load|unload)\b|\b(?:New|Set|Remove|Clear)-ItemProperty\b/i,
+    riskLevel: "high",
+    reason: "Registry changes require explicit approval."
+  },
+  {
+    id: "shell.win_account_change",
+    pattern: /\bnet(?:\.exe)?\s+(?:user|localgroup|group|accounts)\b|\b(?:New|Set|Remove|Add|Disable|Enable)-Local(?:User|Group|GroupMember)\b/i,
+    riskLevel: "blocked",
+    reason: "Account changes are operator-only."
+  },
+  {
+    id: "shell.win_service_change",
+    pattern: /(?:^|[\s;&|])sc(?:\.exe)?\s+(?:create|delete|config|stop|start|failure)\b|\b(?:Start|Stop|Restart|Set|Remove|New)-Service\b/i,
+    riskLevel: "high",
+    reason: "Service changes require explicit approval."
+  },
+  {
+    id: "shell.win_scheduled_task",
+    pattern: /\bschtasks(?:\.exe)?\s+\/(?:create|change|delete|run)\b|\b(?:Register|Unregister|Enable|Disable|Set)-ScheduledTask\b/i,
+    riskLevel: "high",
+    reason: "Scheduled task changes require explicit approval."
+  },
+  {
+    id: "shell.win_elevation",
+    pattern: /\bStart-Process\b[\s\S]*\bRunAs\b|(?:^|[\s;&|])runas(?:\.exe)?\s/i,
+    riskLevel: "blocked",
+    reason: "Elevation is not allowed."
+  },
+  {
+    id: "shell.win_execution_policy",
+    pattern: /\bSet-ExecutionPolicy\b/i,
+    riskLevel: "high",
+    reason: "Changing the PowerShell execution policy requires explicit approval."
+  },
+  {
+    id: "shell.win_encoded_command",
+    pattern: /(?:^|\s)-(?:e|ec|enc|encodedcommand)\s+[A-Za-z0-9+/=]{16,}/i,
+    riskLevel: "high",
+    reason: "Encoded PowerShell cannot be reviewed before it runs."
+  },
+  {
+    id: "shell.win_shell_wrapper",
+    pattern: /(?:^|[\s\\/])(?:powershell|pwsh|cmd)(?:\.exe)?\s+(?:[^\s]+\s+)*?(?:-command|-c|\/c|\/k|-file|-f)(?=\s|$)/i,
+    riskLevel: "high",
+    reason: "Shell wrapper execution requires approval and output limits."
+  },
+  {
+    id: "shell.win_download_and_run",
+    pattern: /\b(?:Invoke-WebRequest|Invoke-RestMethod|iwr|irm|curl(?:\.exe)?|wget|bitsadmin|certutil(?:\.exe)?)\b[\s\S]*(?:\||;|&&)\s*(?:iex|Invoke-Expression|powershell|pwsh|cmd)\b|\b(?:iex|Invoke-Expression)\b[\s\S]*\b(?:DownloadString|DownloadFile|Invoke-WebRequest|iwr|irm)\b/i,
+    riskLevel: "blocked",
+    reason: "Downloading and running code is blocked."
+  },
+  {
+    id: "shell.win_certutil_download",
+    pattern: /\bcertutil(?:\.exe)?\b[\s\S]*-urlcache\b/i,
+    riskLevel: "high",
+    reason: "certutil downloads require explicit approval."
+  },
+  {
+    id: "shell.win_remote_execution",
+    pattern: /\b(?:psexec(?:\.exe)?|wmic(?:\.exe)?|winrm|Enter-PSSession|Invoke-Command|New-PSSession)\b/i,
+    riskLevel: "high",
+    reason: "Remote execution requires explicit approval."
+  }
+];
+
 const PATH_FRAGMENT_PATTERN = /(?:~\/[^\s'"|;&]+|\/[A-Za-z0-9._~+/@:-]+)/g;
+
+/** Drive paths (C:\x, C:/x), UNC paths (\\server\share), and %VAR%\x paths in Windows commands. */
+const WINDOWS_PATH_FRAGMENT_PATTERN = /(?:[A-Za-z]:[\\/][^\s'"|;&<>]*|\\\\[^\s'"|;&<>]+|%[A-Za-z_][A-Za-z0-9_()]*%[\\/][^\s'"|;&<>]*)/g;
 
 const RISK_ORDER: RiskLevel[] = ["observe", "low", "medium", "high", "blocked"];
 
@@ -122,6 +216,7 @@ export function classifyShellCommand(
   policy: RuntimePolicy,
   context: SafetyEvaluationContext = {}
 ): SafetyDecision {
+  const platform = context.platform ?? process.platform;
   let riskLevel: RiskLevel = "medium";
   const reasons = ["Shell commands can change local state and must be classified before execution."];
   const matchedRules = ["shell.command"];
@@ -132,7 +227,8 @@ export function classifyShellCommand(
     matchedRules.push("policy.shell.disabled");
   }
 
-  for (const rule of SHELL_RULES) {
+  const rules = platform === "win32" ? [...SHELL_RULES, ...WINDOWS_SHELL_RULES] : SHELL_RULES;
+  for (const rule of rules) {
     if (rule.pattern.test(command)) {
       riskLevel = maxRiskLevel(riskLevel, rule.riskLevel);
       reasons.push(rule.reason);
@@ -140,13 +236,13 @@ export function classifyShellCommand(
     }
   }
 
-  for (const match of command.matchAll(PATH_FRAGMENT_PATTERN)) {
-    const candidate = match[0];
+  // Each path-looking word is checked against the same policy as a file tool call.
+  const considerPath = (candidate: string): void => {
     if (isAgentHostControlPath(candidate, context)) {
       riskLevel = "blocked";
       reasons.push(`Command touches AgentHost control-plane path: ${candidate}.`);
       matchedRules.push("shell.agenthost_control_path");
-      continue;
+      return;
     }
     const pathDecision = classifyPath(candidate, policy, { ...context, access: "read" });
 
@@ -161,6 +257,15 @@ export function classifyShellCommand(
     } else {
       riskLevel = maxRiskLevel(riskLevel, pathDecision.riskLevel);
       matchedRules.push(...pathDecision.matchedRules);
+    }
+  };
+
+  for (const match of command.matchAll(PATH_FRAGMENT_PATTERN)) {
+    considerPath(match[0]);
+  }
+  if (platform === "win32") {
+    for (const match of command.matchAll(WINDOWS_PATH_FRAGMENT_PATTERN)) {
+      considerPath(match[0]);
     }
   }
 
