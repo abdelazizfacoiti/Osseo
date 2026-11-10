@@ -472,7 +472,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       browser: getBrowserSession(config.agentHostDir, backgroundDisplay?.env),
       focusWindow: (input) => focusLinuxWindow(input, desktopContext),
       hotkey: (input) => sendLinuxHotkey(input, desktopContext),
-      typeText: (input) => typeLinuxText(input, desktopContext),
+      typeText: (input, options) => typeLinuxText(input, desktopContext, options),
       click: (input) => clickLinuxDesktop(input, desktopContext),
       pointer: (input) => performLinuxPointerAction(input, desktopContext),
       checkSandboxSupport: () => probeLinuxSandboxSupport({ env: process.env }),

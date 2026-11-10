@@ -93,7 +93,7 @@ export interface LinuxAutomation {
   unsupportedPlatform?: string;
   focusWindow(input: { windowId?: string; appName?: string; title?: string; pid?: number }): Promise<WindowFocusResult>;
   hotkey(input: { keys: string[]; repeat?: number; activeWindow: DesktopWindowContext }): Promise<DesktopHotkeyResult>;
-  typeText(input: { text: string; activeWindow: DesktopWindowContext }): Promise<DesktopTypeTextResult>;
+  typeText(input: { text: string; activeWindow: DesktopWindowContext }, options?: { settle?: () => Promise<unknown> }): Promise<DesktopTypeTextResult>;
   click(input: {
     x: number;
     y: number;

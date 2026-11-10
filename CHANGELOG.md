@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Clipboard paste (`desktop.type_text`, `desktop.set_field`, `desktop.file_dialog_select`) restores the old clipboard only after the window stops changing, after a 350 ms minimum and capped at 1.5 s. The old fixed wait could restore too early in a slow app.
 - Stop: an MCP server exits when its client closes stdin (or on SIGHUP), after closing its overlay cards. Before, a card renderer held the process open, so cards stayed on screen after the session ended.
 - `desktop.click` takes a visible `label` (AT-SPI first, OCR fallback). Only exact names are clicked; disabled and ambiguous names are refused. The preview shows the resolved point, and an approved click is refused if that point moved.
 - `desktop.set_field` sets a text field: it checks the field at the clicked point (refusing password fields, unexposed fields, and clicks that focus nothing editable), replaces or appends the text, and reads it back (`confirmed`). Empty text clears it.

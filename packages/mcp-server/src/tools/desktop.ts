@@ -24,7 +24,7 @@ import { imagePointToScreen, recallScreen, rememberScreen, sameBounds } from "..
 import { readFile as readEffectBytes, rm as removeEffectFile } from "node:fs/promises";
 import { createHash, randomUUID as effectId } from "node:crypto";
 import { join as joinEffectPath } from "node:path";
-import { downscaleToJpeg, measureEffect, type EffectResult } from "@agenthost/os-linux";
+import { downscaleToJpeg, measureEffect, waitForSettled, type EffectResult } from "@agenthost/os-linux";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition, ToolPreviewEffect } from "../tool-runner.js";
 import { createSafetyEvaluationContext } from "../grants.js";
@@ -660,6 +660,14 @@ async function verifiedAction<T>(context: AgentHostMcpContext, enabled: boolean,
   return { value, effect };
 }
 
+/**
+ * After a clipboard paste the target may still be reading the clipboard. This waits until the
+ * window stops changing, so the old clipboard comes back only after the paste has landed.
+ */
+function pasteSettle(context: AgentHostMcpContext): () => Promise<unknown> {
+  return () => waitForSettled({ capture: () => captureActiveWindow(context) });
+}
+
 /** The observation for an action, saying plainly what the window did. */
 function effectNote(base: string, effect: EffectResult | undefined): string {
   if (effect === undefined) return base;
@@ -896,6 +904,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       // Remember the picture so a later click can name it by id and a point in it. The reference
       // window is the active one: if it moves or resizes, the id stops mapping to the screen.
       const origin = data.screenshotMetadata?.screenOrigin;
+      let hintScale: number | undefined;
       if (size !== undefined && origin !== undefined && data.screenshotMetadata !== undefined) {
         const shown = (data as DesktopScreenshotResult & { inline?: { width: number; height: number; screenshotId?: string } }).inline;
         const captureScale = input.scale ?? 1;
@@ -903,9 +912,10 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         const windowId = active?.activeWindow?.windowId;
         // Same source as the picture origin: the active window's bounds right now.
         const bounds = windowId === undefined ? undefined : (await context.linux.getActiveWindowBounds?.().catch(() => undefined))?.bounds;
+        hintScale = (shown === undefined ? 1 : shown.width / size.width) * captureScale;
         const screenshotId = rememberScreen({
           origin,
-          pixelsPerPoint: (shown === undefined ? 1 : shown.width / size.width) * captureScale,
+          pixelsPerPoint: hintScale,
           imageWidth: shown?.width ?? size.width,
           imageHeight: shown?.height ?? size.height,
           ...(windowId === undefined || bounds === undefined ? {} : { reference: { windowId, bounds } })
@@ -921,7 +931,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         observations: [
           "Saved a screenshot locally under an approved AgentHost folder.",
           ...(inlineScale === undefined ? [] : ["The picture is attached inline (JPEG). The coordinates below apply to that picture."]),
-          ...(origin === undefined ? [] : [`To click a pixel in this image use screen x = ${origin.x} + imageX / ${inlineScale ?? input.scale ?? 1}, y = ${origin.y} + imageY / ${inlineScale ?? input.scale ?? 1}.`])
+          ...(origin === undefined ? [] : [`To click a pixel in this image use screen x = ${origin.x} + imageX / ${hintScale ?? inlineScale ?? input.scale ?? 1}, y = ${origin.y} + imageY / ${hintScale ?? inlineScale ?? input.scale ?? 1}. Easier: pass screenshotId, imageX, imageY to desktop.click.`])
         ]
       });
     }
@@ -1080,7 +1090,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         return safetyFailure("desktop.type_text", postResolutionSafety);
       }
 
-      const { value: data, effect } = await verifiedAction(context, input.verify !== false, () => context.linux.typeText({ text: input.text, activeWindow: validation.activeWindow! }));
+      const { value: data, effect } = await verifiedAction(context, input.verify !== false, () => context.linux.typeText({ text: input.text, activeWindow: validation.activeWindow! }, { settle: pasteSettle(context) }));
 
       if (data.supported !== true || data.typed !== true) {
         return failedDesktopAction("desktop.type_text", "type_failed", data);
@@ -1246,7 +1256,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
 
       let backend = focus.backend;
       if (input.text.length > 0) {
-        const typed = await context.linux.typeText({ text: input.text, activeWindow: window });
+        const typed = await context.linux.typeText({ text: input.text, activeWindow: window }, { settle: pasteSettle(context) });
         if (typed.supported !== true || typed.typed !== true) return failedDesktopAction(tool, "type_failed", typed);
         backend = typed.backend;
       } else if (replace) {
@@ -1387,7 +1397,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       }
       const location = await context.linux.hotkey({ keys: ["ctrl", "l"], activeWindow });
       if (location.supported !== true || location.sent !== true) return failedDesktopAction(tool, "hotkey_failed", location);
-      const typed = await context.linux.typeText({ text: input.path, activeWindow });
+      const typed = await context.linux.typeText({ text: input.path, activeWindow }, { settle: pasteSettle(context) });
       if (typed.supported !== true || typed.typed !== true) return failedDesktopAction(tool, "type_failed", typed);
       const submitted = await context.linux.hotkey({ keys: ["Return"], activeWindow });
       if (submitted.supported !== true || submitted.sent !== true) return failedDesktopAction(tool, "submit_failed", submitted);

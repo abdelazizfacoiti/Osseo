@@ -903,13 +903,23 @@ export function pasteKeyFor(appName: string | undefined): string {
 /** Time the target gets to read the clipboard before the old contents are restored. */
 const PASTE_SETTLE_MS = 350;
 
+/**
+ * The minimum wait comes first: a target can take a moment before it reads the clipboard, and a
+ * settle check alone could pass during that pause. Then the caller's settle check (when given)
+ * waits until the window stops changing.
+ */
+async function waitForPasteToLand(settle?: () => Promise<unknown>): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
+  if (settle !== undefined) await settle().catch(() => undefined);
+}
+
 async function pasteViaClipboard(
   xdotoolPath: string,
   text: string,
-  context: LinuxDesktopContext, pasteKey = "ctrl+v"): Promise<{ ok: boolean; reason: string }> {
+  context: LinuxDesktopContext, pasteKey = "ctrl+v", settle?: () => Promise<unknown>): Promise<{ ok: boolean; reason: string }> {
   const xclip = await findCommandPath("xclip", context);
   const xsel = xclip === undefined ? await findCommandPath("xsel", context) : undefined;
-  if (xclip === undefined && xsel === undefined) return await pasteViaGtkClipboard(xdotoolPath, text, context, pasteKey);
+  if (xclip === undefined && xsel === undefined) return await pasteViaGtkClipboard(xdotoolPath, text, context, pasteKey, settle);
   const clipboardCommand = xclip ?? xsel!;
   const readArgs = xclip !== undefined ? ["-selection", "clipboard", "-o"] : ["--clipboard", "--output"];
   const writeArgs = xclip !== undefined ? ["-selection", "clipboard", "-i"] : ["--clipboard", "--input"];
@@ -919,8 +929,7 @@ async function pasteViaClipboard(
     : await feedClipboard(xsel!, ["--clipboard", "--input"], text, context);
   if (!fed) return { ok: false, reason: "The clipboard backend did not accept the text." };
   const paste = await runDesktopCommand(xdotoolPath, ["key", pasteKey], context);
-  // Restoring at once let the old clipboard text win the race against the paste.
-  await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
+  await waitForPasteToLand(settle);
   if (paste.exitCode !== 0) return { ok: false, reason: "The clipboard paste hotkey did not complete successfully." };
   const restored = previousClipboard === undefined
     ? false
@@ -971,15 +980,14 @@ export async function getLinuxClipboard(context: LinuxDesktopContext = {}): Prom
 async function pasteViaGtkClipboard(
   xdotoolPath: string,
   text: string,
-  context: LinuxDesktopContext, pasteKey = "ctrl+v"): Promise<{ ok: boolean; reason: string }> {
+  context: LinuxDesktopContext, pasteKey = "ctrl+v", settle?: () => Promise<unknown>): Promise<{ ok: boolean; reason: string }> {
   const previousClipboard = await readGtkClipboard(context);
   const lease = await leaseGtkClipboard(text, context);
   if (lease === undefined) {
     return { ok: false, reason: "Layout-unsafe characters require a clipboard backend; install xclip (sudo apt install xclip) or python3-gi for non-ASCII typing." };
   }
   const paste = await runDesktopCommand(xdotoolPath, ["key", pasteKey], context);
-  // Restoring at once let the old clipboard text win the race against the paste.
-  await new Promise((resolve) => setTimeout(resolve, PASTE_SETTLE_MS));
+  await waitForPasteToLand(settle);
   // The target app requests the selection asynchronously after Ctrl+V; keep
   // ownership long enough for that round-trip before releasing it.
   await new Promise((resolve) => setTimeout(resolve, 250));
@@ -1098,9 +1106,15 @@ export async function sendLinuxHotkey(
   };
 }
 
+export interface TypeLinuxTextOptions {
+  /** Called after a clipboard paste, before the old clipboard is restored: lets the caller wait until the target has read the paste. */
+  settle?: () => Promise<unknown>;
+}
+
 export async function typeLinuxText(
   input: LinuxDesktopTypeTextInput,
-  context: LinuxDesktopContext = {}
+  context: LinuxDesktopContext = {},
+  options: TypeLinuxTextOptions = {}
 ): Promise<DesktopTypeTextResult> {
   const method = describeTypingStrategy(input.text);
   const verification = await verifyX11ActionContext(input.activeWindow, context);
@@ -1118,7 +1132,7 @@ export async function typeLinuxText(
   }
 
   if (method === "clipboard") {
-    const paste = await pasteViaClipboard(verification.xdotoolPath, input.text, context, pasteKeyFor(verification.activeWindow?.appName));
+    const paste = await pasteViaClipboard(verification.xdotoolPath, input.text, context, pasteKeyFor(verification.activeWindow?.appName), options.settle);
     return {
       supported: paste.ok,
       backend: verification.backend,

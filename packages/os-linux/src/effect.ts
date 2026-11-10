@@ -65,3 +65,44 @@ export async function measureEffect<T>(options: MeasureEffectOptions, act: () =>
   if (current === undefined) return { value, effect: { screenChanged: null, settledMs, reason: "window_not_captured" } };
   return { value, effect: { screenChanged: current !== before, settledMs } };
 }
+
+export interface SettleOptions {
+  /** Grabs the window as PNG bytes, or undefined when that is not possible. */
+  capture: () => Promise<Buffer | undefined>;
+  /** Longest total wait. A window that never settles (a blinking caret, an animation) costs at most this. */
+  capCapMs?: number;
+  pollMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export interface SettleResult {
+  /** true: two captures in a row matched. false: still changing at the cap, or not capturable. */
+  stable: boolean;
+  settledMs: number;
+}
+
+/**
+ * Waits until the window stops changing: two captures in a row must match. A clipboard paste uses
+ * it, so the old clipboard is restored only after the target has read the paste.
+ */
+export async function waitForSettled(options: SettleOptions): Promise<SettleResult> {
+  const cap = Math.max(0, options.capCapMs ?? 1_500);
+  const poll = Math.max(10, options.pollMs ?? 80);
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? sleepFor;
+  const started = now();
+  const digest = async (): Promise<string | undefined> => {
+    const bytes = await options.capture();
+    return bytes === undefined ? undefined : createHash("sha256").update(bytes).digest("hex");
+  };
+  let previous = await digest();
+  while (previous !== undefined && now() - started < cap) {
+    await sleep(poll);
+    const current = await digest();
+    if (current === undefined) break;
+    if (current === previous) return { stable: true, settledMs: now() - started };
+    previous = current;
+  }
+  return { stable: false, settledMs: now() - started };
+}
