@@ -1365,8 +1365,9 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           targetFingerprint: `filedialog:${found.window.windowId}:${fingerprintText(i.path)}`,
           riskLevel: policy.riskLevel,
           approval: policy.approval,
-          requiresConfirmation: policy.approval.required === true || policy.riskLevel === "high",
-          reasons: policy.reasons,
+          // Picking a file in an Open dialog hands it to the app (usually an upload), like browser.upload.
+          requiresConfirmation: true,
+          reasons: [...policy.reasons, "A file picked in a dialog is handed to the app, so it needs confirmation like browser.upload."],
           data: { windowId: found.window.windowId, title: found.window.title ?? null, appName: found.window.appName ?? null }
         };
       }

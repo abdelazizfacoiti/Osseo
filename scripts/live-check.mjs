@@ -632,7 +632,12 @@ async function fileDialogChecks(root) {
     const dialog = listed.body?.data?.windows?.find((item) => item.title === "Open File");
     check("AgentHost lists the open file dialog with its window id", Boolean(dialog), dialog ? `window ${dialog.windowId}` : JSON.stringify(listed.body?.error ?? "not listed"));
     if (dialog) {
-      const selected = await mcp.call("desktop.file_dialog_select", { path: picked, windowId: dialog.windowId });
+      const bare = await mcp.call("desktop.file_dialog_select", { path: picked, windowId: dialog.windowId });
+      check("file_dialog_select asks for confirmation before typing a path", !bare.ok && !existsSync(openOut), bare.error ?? "ran without a token");
+      const preview = await mcp.call("desktop.file_dialog_select", { path: picked, windowId: dialog.windowId, dryRun: true });
+      const dialogToken = preview.body?.confirmation?.tokenId;
+      if (dialogToken) cli(env, ["confirm", dialogToken]);
+      const selected = await mcp.call("desktop.file_dialog_select", { path: picked, windowId: dialog.windowId, confirmationToken: dialogToken });
       await sleep(300);
       check("file_dialog_select types the path, submits it, and the dialog closes", selected.ok && selected.body?.data?.closed === true, selected.error ?? JSON.stringify(selected.body?.observations ?? []));
       check("the dialog accepted exactly the requested file", existsSync(openOut) && readFileSync(openOut, "utf8") === picked, existsSync(openOut) ? `got ${JSON.stringify(readFileSync(openOut, "utf8"))}` : "no result written");
