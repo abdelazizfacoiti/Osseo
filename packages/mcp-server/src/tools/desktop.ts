@@ -323,7 +323,8 @@ export async function settledPicture(
       format: "png",
       ...(region === undefined ? { includeActiveWindowOnly: true } : { region })
     });
-    const data = context.overlayScreenshotSuppression === undefined ? await capture() : await context.overlayScreenshotSuppression(capture);
+    const cleanWindow = region === undefined && context.workWindowCaptureClean === true;
+    const data = context.overlayScreenshotSuppression === undefined || cleanWindow ? await capture() : await context.overlayScreenshotSuppression(capture);
     if (data.supported !== true || data.path === undefined || origin === undefined) return undefined;
     const size = await imageSize(png);
     if (size === undefined) return undefined;
@@ -647,7 +648,7 @@ async function captureActiveWindow(context: AgentHostMcpContext): Promise<Buffer
       await removeEffectFile(file, { force: true }).catch(() => undefined);
     }
   };
-  return context.overlayScreenshotSuppression === undefined ? run() : context.overlayScreenshotSuppression(run);
+  return context.overlayScreenshotSuppression === undefined || context.workWindowCaptureClean === true ? run() : context.overlayScreenshotSuppression(run);
 }
 
 /** Runs an action and reports whether the window changed. Disabled callers get the action alone. */
@@ -859,7 +860,8 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         ...(input.scale === undefined ? {} : { scale: input.scale }),
         ...(input.region === undefined ? {} : { region: input.region })
       });
-      const data = context.overlayScreenshotSuppression === undefined
+      const cleanWindow = input.includeActiveWindowOnly === true && context.workWindowCaptureClean === true;
+      const data = context.overlayScreenshotSuppression === undefined || cleanWindow
         ? await capture()
         : await context.overlayScreenshotSuppression(capture);
 

@@ -14,13 +14,23 @@ type HookEntry = { matcher?: string; hooks: Array<{ type: "command"; command: st
 
 const MARKER = "agenthost attention";
 const REQUEST = "agenthost attention request --source claude-code --reason permission";
+// Claude finished its turn (done), or is asking you something / waiting for your reply (idle).
+const REQUEST_DONE = "agenthost attention request --source claude-code --reason done";
+const REQUEST_IDLE = "agenthost attention request --source claude-code --reason idle";
 // PostToolUse runs after every tool call; the shell guard keeps it to a stat()
 // unless an attention record is actually pending.
 const CLEAR = "[ -f \"${AGENTHOST_HOME:-$HOME/.agenthost}/run/attention.json\" ] && agenthost attention clear --restore || true";
 
 export const CLAUDE_ATTENTION_HOOKS: Record<string, HookEntry[]> = {
   PermissionRequest: [{ matcher: "*", hooks: [{ type: "command", command: REQUEST, timeout: 5 }] }],
-  Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command: REQUEST, timeout: 5 }] }],
+  // The question tool: Claude asks you to choose or type something.
+  PreToolUse: [{ matcher: "AskUserQuestion", hooks: [{ type: "command", command: REQUEST_IDLE, timeout: 5 }] }],
+  // The turn ended: the operation is done and Claude waits for your next message.
+  Stop: [{ hooks: [{ type: "command", command: REQUEST_DONE, timeout: 5 }] }],
+  Notification: [
+    { matcher: "permission_prompt", hooks: [{ type: "command", command: REQUEST, timeout: 5 }] },
+    { matcher: "idle_prompt", hooks: [{ type: "command", command: REQUEST_IDLE, timeout: 5 }] }
+  ],
   PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: CLEAR, timeout: 5 }] }]
 };
 

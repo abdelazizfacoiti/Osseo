@@ -191,6 +191,11 @@ export interface AgentHostMcpContext {
   actionTimeline?: ActionTimeline;
   /** Captures a screenshot with all visual surfaces temporarily removed. */
   overlayScreenshotSuppression?: <T>(capture: () => Promise<T>) => Promise<T>;
+  /**
+   * True when no AgentHost window can overlap the work area (dock layout with reserved space, no floating
+   * pill, frame or ring). Window-only captures then need no hide-and-restore, so cards never blink.
+   */
+  workWindowCaptureClean?: boolean;
   /** Live tool definitions for governed nested execution (plan executor). */
   tools?: Map<string, AnyAgentHostToolDefinition<any>>;
   linux: LinuxAutomation;

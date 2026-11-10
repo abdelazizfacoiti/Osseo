@@ -296,6 +296,8 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
   const overlayRendererMode = overlayRendererModeSchema.parse(
     (env.AGENTHOST_OVERLAY_MODE ?? fileConfig.overlay?.rendererMode ?? fileConfig.overlayRendererMode ?? "auto") as OverlayRendererMode
   );
+  // In dock layout nothing floats over the work area by default (see workWindowCaptureClean in server.ts).
+  const dockLayout = (fileConfig.overlay?.layout ?? "dock") === "dock";
   const overlay: OverlayPublicConfig = {
     rendererMode: overlayRendererMode,
     mode: fileConfig.overlay?.mode ?? "always",
@@ -313,9 +315,9 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     dockReserveSpace: fileConfig.overlay?.dockReserveSpace ?? true,
     ...(fileConfig.overlay?.allowSyntheticControl === undefined ? {} : { allowSyntheticControl: fileConfig.overlay.allowSyntheticControl }),
     timeline: fileConfig.overlay?.timeline ?? true,
-    frame: fileConfig.overlay?.frame ?? true,
-    actionPill: fileConfig.overlay?.actionPill ?? true,
-    targetRing: fileConfig.overlay?.targetRing ?? true,
+    frame: fileConfig.overlay?.frame ?? !dockLayout,
+    actionPill: fileConfig.overlay?.actionPill ?? !dockLayout,
+    targetRing: fileConfig.overlay?.targetRing ?? !dockLayout,
     targetRingLeadMs: fileConfig.overlay?.targetRingLeadMs ?? 150,
     targetRingDurationMs: fileConfig.overlay?.targetRingDurationMs ?? 600,
     pillAutoHideMs: fileConfig.overlay?.pillAutoHideMs ?? 30_000

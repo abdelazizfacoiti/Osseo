@@ -351,7 +351,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     ...(options.sessionGrants === undefined ? {} : { sessionGrants: options.sessionGrants })
   });
   const activityMode = config.overlay?.mode ?? "always";
-  const actionPill = config.overlay?.actionPill ?? true;
+  const dockLayout = (config.overlay?.layout ?? "dock") === "dock";
+  const actionPill = config.overlay?.actionPill ?? !dockLayout;
   const pillAutoHideMs = config.overlay?.pillAutoHideMs ?? 30_000;
   const overlay = new VisualSurfaceCoordinator(createOverlayRenderer(config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto", {
     sessionId,
@@ -373,9 +374,10 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   }
   const actionOverlay = new ToolActionOverlay(overlay, {
     widgetId: `agenthost-action-${sessionId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120)}`,
-    placement: actionPill ? "top_center" : config.overlay?.preferredPosition ?? "top_right",
-    persistent: actionPill ? pillAutoHideMs <= 0 : config.overlay?.persistent ?? true,
-    autoHideMs: actionPill ? pillAutoHideMs : config.overlay?.autoHideMs ?? 15_000,
+    // Dock layout: the action status is a bottom card inside the dock, so it never covers the work area.
+    placement: actionPill ? "top_center" : dockLayout ? "bottom_right" : config.overlay?.preferredPosition ?? "top_right",
+    persistent: actionPill || dockLayout ? pillAutoHideMs <= 0 : config.overlay?.persistent ?? true,
+    autoHideMs: actionPill || dockLayout ? pillAutoHideMs : config.overlay?.autoHideMs ?? 15_000,
     compact: actionPill,
     frame: config.overlay?.frame ?? true,
     // Nested-display coordinates mean nothing on the real screen.
@@ -401,10 +403,12 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       sessionId: sessionId.replace(/[^A-Za-z0-9._-]/g, "_"),
       readAlerts: async () => {
         const [state, attention] = await Promise.all([readRunState(config.agentHostDir), readAttention(config.agentHostDir)]);
+        // Only approvals hold the timeline open; "done" and "idle" just raise the terminal.
+        const approval = attention !== undefined && (attention.reason === "permission" || attention.reason === "confirmation");
         return {
           stopped: state.stop.requested,
           paused: state.pause.requested,
-          ...(attention === undefined ? {} : { attention: { source: attention.source, reason: attention.reason } })
+          ...(approval ? { attention: { source: attention.source, reason: attention.reason } } : {})
         };
       }
     })
@@ -527,6 +531,11 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
         await actionOverlay.refresh();
       }
     },
+    workWindowCaptureClean: dockLayout
+      && (config.overlay?.dockReserveSpace ?? true)
+      && !actionPill
+      && !(config.overlay?.frame ?? !dockLayout)
+      && !((config.overlay?.targetRing ?? !dockLayout) && backgroundDisplay === undefined),
     linux,
     runtime
   };

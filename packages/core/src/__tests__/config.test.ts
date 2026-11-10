@@ -27,9 +27,9 @@ describe("loadAgentHostConfig", () => {
       dockWidthPercent: 18,
       dockReserveSpace: true,
       timeline: true,
-      frame: true,
-      actionPill: true,
-      targetRing: true,
+      frame: false,
+      actionPill: false,
+      targetRing: false,
       targetRingLeadMs: 150,
       targetRingDurationMs: 600,
       pillAutoHideMs: 30_000

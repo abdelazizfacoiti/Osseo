@@ -23,9 +23,14 @@ export async function attentionRequest(agentHome: string, source: string | undef
     readAttention(agentHome)
   ]);
   const activeId = active?.activeWindow?.windowId;
+  // "done" and "idle" mean the person is needed in the client: no return target, so the
+  // next tool call does not pull focus away from the reply they are about to type.
+  const waiting = safeReason === "done" || safeReason === "idle";
   // Keep the original return target across repeated prompts so focus goes back
   // to the app the agent was working in, not to the terminal raised last time.
-  const returnWindowId = previous?.returnWindowId ?? (activeId !== undefined && activeId !== host?.windowId ? activeId : undefined);
+  const returnWindowId = waiting
+    ? undefined
+    : previous?.returnWindowId ?? (activeId !== undefined && activeId !== host?.windowId ? activeId : undefined);
   await writeAttention(agentHome, {
     schemaVersion: 1,
     source: safeSource,
@@ -34,8 +39,8 @@ export async function attentionRequest(agentHome: string, source: string | undef
     ...(host === undefined ? {} : { hostWindowId: host.windowId }),
     ...(returnWindowId === undefined ? {} : { returnWindowId })
   });
-  // "done"/"idle" only mark the state; raising on every finished turn would steal focus constantly.
-  const raise = host !== undefined && (safeReason === "permission" || safeReason === "confirmation")
+  // Every reason brings the assistant's window forward: an approval, a question, or a finished operation.
+  const raise = host !== undefined
     ? await raiseLinuxWindow(host.windowId).catch(() => undefined)
     : undefined;
   return {

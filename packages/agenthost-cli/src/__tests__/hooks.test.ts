@@ -56,3 +56,18 @@ describe("Claude Code attention hooks", () => {
     expect(await readFile(claudeSettingsPath(home), "utf8")).toBe("{ not json");
   });
 });
+
+describe("Claude Code finished and waiting hooks", () => {
+  it("raises the terminal when the turn ends, when Claude asks a question, and when it sits idle", async () => {
+    const home = await tempHome();
+    expect(await claudeHooksAdd(home, true)).toMatchObject({ applied: true, configured: true });
+    const settings = JSON.parse(await readFile(claudeSettingsPath(home), "utf8")) as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ command: string }> }>> };
+    const commandsFor = (event: string) => settings.hooks[event]?.flatMap((entry) => entry.hooks.map((hook) => hook.command)) ?? [];
+    expect(commandsFor("Stop")).toContain("agenthost attention request --source claude-code --reason done");
+    expect(settings.hooks.PreToolUse?.[0]).toMatchObject({ matcher: "AskUserQuestion" });
+    expect(commandsFor("Notification")).toEqual(expect.arrayContaining([
+      "agenthost attention request --source claude-code --reason permission",
+      "agenthost attention request --source claude-code --reason idle"
+    ]));
+  });
+});

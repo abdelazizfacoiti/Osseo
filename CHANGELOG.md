@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Claude Code raises the assistant's window when a turn ends (`Stop`), when Claude asks a question (`AskUserQuestion`), and when it sits idle waiting for you (`Notification` idle prompt). Re-run `agenthost integrations claude add --apply` to install the new hooks. `done` and `idle` do not pull focus back on the next tool call. Codex is not covered yet.
+- The dock timeline opens only for approvals; done and idle do not reopen it.
+- Dock layout by default: nothing floats over the work area. The action status is a bottom dock card (it stays until the task finishes, or hides 30 s after activity when there is no task). The floating pill, edge frame and target ring are off unless you enable them (`overlay.actionPill`, `overlay.frame`, `overlay.targetRing`). Verified actions no longer hide and redraw every card for each check, which was the flicker. Turning the pill, frame or ring back on restores the flicker.
 - Task finished: when an explicit task completes or is cancelled, the action card, the dock history (Agent activity) and its frame and ring close, and the assistant's own window (the terminal or IDE running it) comes back to the front. Works where the process tree identifies that window, which is the Linux terminal or IDE case.
 - The action card stays up between actions while an explicit task is open, instead of hiding 1.5 s after each action. Without a task it hides after `overlay.pillAutoHideMs` (default now 30 s, was 1.5 s).
 - Approve in chat: when the client supports MCP elicitation (Claude Code does), a pending confirmation asks the person in the chat (`approvals.chat`, default on). Only the person can answer, never the agent. Yes lets the agent repeat the exact call with its token; No rejects it. The prompt shows the redacted preview, never the token. Cards and `agenthost confirm` keep working; clients without elicitation are unchanged.
