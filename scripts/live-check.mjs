@@ -337,6 +337,10 @@ async function desktopChecks(mcp, entryFile, display) {
   check("the id from that picture clicks the control shown in it", fromPicture.ok && fromPicture.body?.data?.effect?.screenChanged === true, fromPicture.error ?? JSON.stringify(fromPicture.body?.data?.effect ?? null));
   const keyed = await mcp.call("desktop.hotkey", { keys: ["Escape"], activeWindow, returnScreenshot: "window" });
   check("a hotkey can return the active window inline", keyed.ok && keyed.images.length === 1, keyed.error ?? `${keyed.images.length} image(s)`);
+  const read = await mcp.call("screen.read", {});
+  const outline = read.body?.data?.outline ?? "";
+  check("screen.read names the controls, their state and bounds", read.ok && outline.includes('push button "Change label"') && outline.includes('push button "Locked" [disabled]') && /@\d+,\d+ \d+x\d+/.test(outline), outline.slice(0, 160));
+  check("screen.read stays within its byte cap", read.ok && (read.body?.data?.bytes ?? Infinity) <= 2048, String(read.body?.data?.bytes));
 
   const fieldAt = (x, y, args) => mcp.call("desktop.set_field", { x: origin.x + x, y: origin.y + y, activeWindow, ...args });
   const entryNow = () => readFileSync(entryFile, "utf8");

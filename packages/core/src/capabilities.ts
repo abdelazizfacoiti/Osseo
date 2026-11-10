@@ -636,6 +636,12 @@ export function createBaseCapabilityRegistry(): CapabilityRegistry {
       description: "Types text into the active window when policy and safety allow it."
     },
     {
+      name: "screen.read",
+      riskLevel: "low" as const,
+      strategy: "gui_control" as const,
+      description: "Outline of the active window from the accessibility tree (roles, names, enabled state, bounds; no text), capped in bytes. Falls back to a screenshot hint."
+    },
+    {
       name: "desktop.set_field",
       riskLevel: "medium" as const,
       strategy: "gui_control" as const,

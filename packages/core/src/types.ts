@@ -1314,6 +1314,8 @@ export interface AccessibilityTreeNode {
   sensitive?: boolean;
   hidden?: boolean;
   children?: AccessibilityTreeNode[];
+  /** AT-SPI ENABLED/SENSITIVE state; undefined when unknown. */
+  enabled?: boolean;
 }
 
 export interface AccessibilityElementCandidate {

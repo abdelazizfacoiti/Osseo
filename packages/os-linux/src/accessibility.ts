@@ -78,6 +78,7 @@ interface RawAccessibilityNode {
   bounds?: DesktopWindowBounds;
   sensitive?: boolean;
   hidden?: boolean;
+  enabled?: boolean | null;
   children?: RawAccessibilityNode[];
 }
 
@@ -743,6 +744,7 @@ def visit(node, depth, root_index, path_parts, app_name_ctx, window_title_ctx):
         "text": None if sensitive or hidden else text,
         "description": None if sensitive or hidden else description,
         "bounds": bounds,
+        "enabled": safe_enabled(node),
         "sensitive": sensitive,
         "hidden": hidden
     }
@@ -1044,6 +1046,10 @@ function redactNode(node: RawAccessibilityNode | undefined): AccessibilityTreeNo
 
   if (node.bounds !== undefined) {
     result.bounds = node.bounds;
+  }
+
+  if (typeof node.enabled === "boolean") {
+    result.enabled = node.enabled;
   }
 
   if (node.sensitive === true) {

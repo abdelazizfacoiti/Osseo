@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { createScreenTools } from "./tools/screen.js";
 import { renderResultText, type OutputVerbosity, type StateHolder } from "./lean-output.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -523,6 +524,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     ...createShellTools(),
     ...createFileTools(),
     ...createDesktopTools(),
+    ...createScreenTools(),
     ...createAppTools(),
     ...createComputerTools(),
     ...createTaskTools(),

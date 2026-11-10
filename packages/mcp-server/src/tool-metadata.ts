@@ -18,7 +18,7 @@ declare([
   "adapter.list", "adapter.get", "computer.observe_state", "computer.wait", "computer.wait_for", "file.exists", "file.list", "file.read", "file.read_many", "file.search", "system.get_info", "system.list_capabilities", "vision.analyze_image", "vision.find_target", "vision.find_text", "vision.find_text_on_screen", "window.list", "ui.tree", "ui.find", "clipboard.get", "browser.snapshot", "browser.wait_for", "browser.screenshot"
 ], readOnly());
 declare(["system.check_dependency"], diagnostic());
-declare(["agent.status"], readOnly());
+declare(["agent.status", "screen.read"], readOnly());
 declare(["agent.stop", "agent.takeover_begin", "agent.request_handoff"], metadataOnly());
 declare(["task.create", "task.status", "task.update", "task.update_status", "task.add_event", "task.list", "workflow.save", "workflow.list", "workflow.get", "workflow.delete", "memory.save", "memory.search", "memory.delete"], metadataOnly());
 declare([
