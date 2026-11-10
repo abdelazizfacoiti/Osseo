@@ -19,3 +19,20 @@ jobs:
       - run: npm run lint
       - run: npm run test
       - run: npm run smoke:mcp
+
+  # Windows (W1): the headless path only. Desktop tools are not implemented on Windows yet.
+  # Informational until a run on windows-latest is green; then remove continue-on-error.
+  windows-headless:
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run lint
+      - run: npm run test:windows
+      - run: node scripts/windows-smoke.mjs

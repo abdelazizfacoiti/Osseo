@@ -16,6 +16,7 @@
     "clean": "tsc -b --clean",
     "lint": "tsc -b --pretty false",
     "test": "vitest run",
+    "test:windows": "vitest run packages/core/src/__tests__/safety-windows.test.ts packages/core/src/__tests__/private-directory.test.ts packages/core/src/__tests__/workflow-expect.test.ts packages/core/src/__tests__/capabilities.test.ts packages/os-linux/src/__tests__/windows-helpers.test.ts packages/mcp-server/src/__tests__/lean-output.test.ts packages/mcp-server/src/__tests__/screen-read.test.ts packages/mcp-server/src/__tests__/screenshot-registry.test.ts packages/mcp-server/src/__tests__/set-field.test.ts packages/mcp-server/src/__tests__/label-target.test.ts",
     "start:mcp": "node packages/mcp-server/dist/index.js",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
     "check:live": "node scripts/live-check.mjs",
