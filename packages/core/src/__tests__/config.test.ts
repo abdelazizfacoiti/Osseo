@@ -32,7 +32,7 @@ describe("loadAgentHostConfig", () => {
       targetRing: true,
       targetRingLeadMs: 150,
       targetRingDurationMs: 600,
-      pillAutoHideMs: 1_500
+      pillAutoHideMs: 30_000
     }));
     expect((config as unknown as Record<string, unknown>).runtimeActivityOverlay).toBeUndefined();
     expect((config as unknown as Record<string, unknown>).browserBridge).toBeUndefined();

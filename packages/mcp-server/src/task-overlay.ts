@@ -20,6 +20,8 @@ export interface TaskActivityOverlayOptions {
   heartbeatMs?: number;
   maxResumeAgeMs?: number;
   now?: () => number;
+  /** Called once when an explicit task completes or is cancelled (not for the implicit activity card). */
+  onFinished?: (task: AgentTask) => Promise<void> | void;
 }
 
 export interface ActivityNote {
@@ -87,6 +89,7 @@ export class TaskActivityOverlay {
   #controller: TaskProgressOverlay | undefined;
   #poll: ReturnType<typeof setInterval> | undefined;
   #dismissedTaskId: string | undefined;
+  readonly #finishedNotified = new Set<string>();
   #runningTaskCount = 1;
   #stoppedByOperator = false;
   #pollCount = 0;
@@ -161,6 +164,11 @@ export class TaskActivityOverlay {
       if (!result.ok || !isAgentTask(result.data)) return;
       await this.#refreshRunningCount();
       await this.#sync(result.data);
+      const task = result.data;
+      if (TERMINAL_TASK_STATUSES.has(task.status) && !this.#isImplicitTask(task.taskId) && !this.#finishedNotified.has(task.taskId)) {
+        this.#finishedNotified.add(task.taskId);
+        await this.#options.onFinished?.(task);
+      }
     } catch {
       /* Task card updates never affect task results. */
     }
@@ -185,6 +193,15 @@ export class TaskActivityOverlay {
     if (controller === undefined) return;
     this.#stoppedByOperator = true;
     await controller.stopped("Stopped by operator");
+  }
+
+  /**
+   * True while an explicit task is still running or paused. The implicit activity card never
+   * counts: it has no "done" signal, so it cannot hold the action card open.
+   */
+  hasOpenTask(): boolean {
+    const task = this.#task;
+    return task !== undefined && !this.#isImplicitTask(task.taskId) && !TERMINAL_TASK_STATUSES.has(task.status) && this.#dismissedTaskId !== task.taskId;
   }
 
   snapshot(): { taskId?: string; status?: string; implicit: boolean; dismissed: boolean } {

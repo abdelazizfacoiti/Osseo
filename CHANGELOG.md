@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Task finished: when an explicit task completes or is cancelled, the action card, the dock history (Agent activity) and its frame and ring close, and the assistant's own window (the terminal or IDE running it) comes back to the front. Works where the process tree identifies that window, which is the Linux terminal or IDE case.
+- The action card stays up between actions while an explicit task is open, instead of hiding 1.5 s after each action. Without a task it hides after `overlay.pillAutoHideMs` (default now 30 s, was 1.5 s).
 - Approve in chat: when the client supports MCP elicitation (Claude Code does), a pending confirmation asks the person in the chat (`approvals.chat`, default on). Only the person can answer, never the agent. Yes lets the agent repeat the exact call with its token; No rejects it. The prompt shows the redacted preview, never the token. Cards and `agenthost confirm` keep working; clients without elicitation are unchanged.
 - `browser.open` joins a Chrome that already owns the agent profile (an orphan from a killed server, or another session) in a new tab instead of failing after 15 s. Closing leaves that browser running.
 - `screenChanged` is `null` (reason `window_still_changing`) when the window never settles (animation, video, blinking caret), instead of reporting a change that may be noise.

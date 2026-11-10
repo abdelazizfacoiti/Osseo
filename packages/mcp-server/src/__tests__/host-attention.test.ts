@@ -64,3 +64,22 @@ describe("host attention", () => {
     expect(selectHostWindow([99], windows)).toBeUndefined();
   });
 });
+
+describe("task finished", () => {
+  it("brings the assistant's own window back to the front", async () => {
+    const home = await tempHome();
+    const desktop = fakeDesktop("200");
+    const attention = new HostAttention(home, desktop.deps);
+    expect(await attention.bringHostForward()).toEqual({ raised: true });
+    expect(desktop.active()).toBe("100");
+  });
+
+  it("does nothing when the assistant window cannot be found", async () => {
+    const home = await tempHome();
+    const desktop = fakeDesktop("200");
+    desktop.deps.findHost = vi.fn(async () => undefined);
+    const attention = new HostAttention(home, desktop.deps);
+    expect(await attention.bringHostForward()).toEqual({ raised: false });
+    expect(desktop.active()).toBe("200");
+  });
+});

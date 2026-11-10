@@ -241,6 +241,14 @@ export class ActionTimeline {
     };
   }
 
+  /** The task is over: close the dock and clear its history so the next task starts empty. */
+  async reset(): Promise<void> {
+    this.#entries.length = 0;
+    this.#alerts = { stopped: false, paused: false };
+    this.#dismissedByUser = false;
+    await this.#hide();
+  }
+
   async close(): Promise<void> {
     this.#disposed = true;
     if (this.#alertTimer !== undefined) clearInterval(this.#alertTimer);

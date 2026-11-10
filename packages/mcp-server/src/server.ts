@@ -352,7 +352,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   });
   const activityMode = config.overlay?.mode ?? "always";
   const actionPill = config.overlay?.actionPill ?? true;
-  const pillAutoHideMs = config.overlay?.pillAutoHideMs ?? 1_500;
+  const pillAutoHideMs = config.overlay?.pillAutoHideMs ?? 30_000;
   const overlay = new VisualSurfaceCoordinator(createOverlayRenderer(config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto", {
     sessionId,
     inputGuardPath: inputGuardPath(config.agentHostDir),
@@ -392,7 +392,9 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       await clearActiveTaskApproval(config.agentHostDir);
       await taskActivity?.operatorStopped();
     },
-    isPaused: async () => (await readRunState(config.agentHostDir)).pause.requested
+    isPaused: async () => (await readRunState(config.agentHostDir)).pause.requested,
+    // Keep the action card, its frame and ring up between actions while an explicit task is open.
+    holdVisible: () => taskActivity?.hasOpenTask() === true
   });
   const actionTimeline = activityMode !== "off" && (config.overlay?.layout ?? "dock") === "dock" && config.overlay?.timeline !== false
     ? new ActionTimeline(overlay, {
@@ -434,7 +436,13 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       sessionId,
       placement: "bottom_right",
       persistent: config.overlay?.persistent ?? true,
-      ...(config.overlay?.persistent === false ? { autoHideMs: config.overlay?.autoHideMs ?? 15_000 } : {})
+      ...(config.overlay?.persistent === false ? { autoHideMs: config.overlay?.autoHideMs ?? 15_000 } : {}),
+      // Task finished: close the action card, the dock history, and hand focus back to the assistant.
+      onFinished: async () => {
+        await actionOverlay.dismiss().catch(() => undefined);
+        await actionTimeline?.reset().catch(() => undefined);
+        await hostAttention?.bringHostForward().catch(() => undefined);
+      }
     });
     if (process.env.NODE_ENV !== "test") await overlay.prewarm();
     await taskActivity.initialize();

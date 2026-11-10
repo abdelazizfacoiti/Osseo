@@ -162,4 +162,24 @@ describe("TaskActivityOverlay", () => {
       await manager.close();
     }
   });
+
+  it("reports an explicit task finishing once, and holds the action card only while it is open", async () => {
+    const home = await tempHome();
+    const task = await createTask(home, "Finish the form", ["Submit it"]);
+    const finished: string[] = [];
+    const manager = new OverlayManager(new HeadlessOverlayRenderer(), { sessionId: SESSION }, { hideMarkerPath: null });
+    const overlay = new TaskActivityOverlay({ manager, agentHostDir: home, heartbeatMs: 60_000, onFinished: (done) => { finished.push(done.taskId); } });
+    try {
+      await overlay.initialize();
+      expect(overlay.hasOpenTask()).toBe(true);
+      const { transitionTask } = await import("@agenthost/core");
+      const done = await transitionTask(home, task.taskId, "completed");
+      await overlay.observe("task.update_status", toolSuccess({ tool: "task.update_status", riskLevel: "low", data: done }));
+      await overlay.observe("task.update_status", toolSuccess({ tool: "task.update_status", riskLevel: "low", data: done }));
+      expect(finished).toEqual([task.taskId]);
+      expect(overlay.hasOpenTask()).toBe(false);
+    } finally {
+      await overlay.close();
+    }
+  });
 });

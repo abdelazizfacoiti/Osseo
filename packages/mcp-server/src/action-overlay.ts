@@ -50,6 +50,8 @@ export interface ToolActionOverlayOptions {
   onResume?: () => Promise<void> | void;
   onStop?: () => Promise<void> | void;
   isPaused?: () => Promise<boolean> | boolean;
+  /** While this returns true the card stays up between actions (for example while a task is open). */
+  holdVisible?: () => boolean;
 }
 
 interface ActiveAction {
@@ -141,6 +143,7 @@ export class ToolActionOverlay {
   readonly #onResume: (() => Promise<void> | void) | undefined;
   readonly #onStop: (() => Promise<void> | void) | undefined;
   readonly #isPaused: (() => Promise<boolean> | boolean) | undefined;
+  readonly #holdVisible: (() => boolean) | undefined;
   readonly #active = new Map<string, ActiveAction>();
   #last: LastAction | undefined;
   #renderQueue: Promise<void> = Promise.resolve();
@@ -187,6 +190,7 @@ export class ToolActionOverlay {
     this.#onResume = options.onResume;
     this.#onStop = options.onStop;
     this.#isPaused = options.isPaused;
+    this.#holdVisible = options.holdVisible;
   }
 
   async begin(input: ToolActionInput): Promise<ToolActionHandle> {
@@ -729,6 +733,7 @@ export class ToolActionOverlay {
 
   #scheduleAutoHide(): void {
     if (this.#persistent || this.#disposed || this.#paused || this.#stopRequested) return;
+    if (this.#holdVisible?.() === true) return;
     this.#clearAutoHide();
     const timer = setTimeout(() => {
       void (async () => {

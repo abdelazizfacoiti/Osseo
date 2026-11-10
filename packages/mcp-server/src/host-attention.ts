@@ -52,6 +52,19 @@ export class HostAttention {
     }
   }
 
+  /** The task is finished: bring the assistant's own window (the terminal or IDE running it) back to the front. */
+  async bringHostForward(): Promise<{ raised: boolean }> {
+    try {
+      const host = await this.#hostWindow();
+      if (host === undefined) return { raised: false };
+      const raised = await this.deps.raise(host.windowId).catch(() => false);
+      const focused = await this.deps.focus(host.windowId).catch(() => false);
+      return { raised: raised || focused };
+    } catch {
+      return { raised: false };
+    }
+  }
+
   /** Called when a call arrives carrying a confirmation token: the user has answered. */
   async resolveConfirmation(): Promise<{ restored: boolean }> {
     try {

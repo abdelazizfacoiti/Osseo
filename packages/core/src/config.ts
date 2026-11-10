@@ -318,7 +318,7 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     targetRing: fileConfig.overlay?.targetRing ?? true,
     targetRingLeadMs: fileConfig.overlay?.targetRingLeadMs ?? 150,
     targetRingDurationMs: fileConfig.overlay?.targetRingDurationMs ?? 600,
-    pillAutoHideMs: fileConfig.overlay?.pillAutoHideMs ?? 1_500
+    pillAutoHideMs: fileConfig.overlay?.pillAutoHideMs ?? 30_000
   };
   const grants = (fileConfig.grants ?? []).map((grant) => normalizeGrant(grant));
   const placement = z.enum(["foreground", "background"]).parse(env.AGENTHOST_EXECUTION_PLACEMENT ?? fileConfig.execution?.placement ?? "foreground");
