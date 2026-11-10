@@ -19,6 +19,7 @@
     "start:mcp": "node packages/mcp-server/dist/index.js",
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
     "check:live": "node scripts/live-check.mjs",
+    "benchmark:form": "node scripts/benchmark-form.mjs",
     "release:build": "node scripts/build-release.mjs",
     "release:preflight": "node scripts/release-preflight.mjs",
     "release:notices": "node scripts/generate-third-party-notices.mjs",
