@@ -1349,7 +1349,8 @@ export async function findLinuxAccessibilityElements(
       query: input.query,
       ...(input.role === undefined ? {} : { role: input.role }),
       limit: Math.min(Math.max(input.limit ?? 10, 1), 50),
-      maxDepth: 6,
+      // Web pages sit several levels below the browser chrome, so the walk must reach them.
+      maxDepth: 14,
       maxNodes: 1000,
       includeText: true
     },

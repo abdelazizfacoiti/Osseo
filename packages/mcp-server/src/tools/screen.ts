@@ -100,7 +100,7 @@ export function createScreenTools(): AnyAgentHostToolDefinition<AgentHostMcpCont
       if (!safety.allowed) {
         return toolFailure({ tool: "screen.read", riskLevel: safety.riskLevel, error: { code: "safety_blocked", message: "Reading this app's accessibility tree is blocked by policy.", details: { reasons: safety.reasons } }, observations: safety.reasons });
       }
-      const tree = await context.linux.getAccessibilityTree({ ...scope, maxDepth: 6, maxNodes: 200, includeText: false });
+      const tree = await context.linux.getAccessibilityTree({ ...scope, maxDepth: 14, maxNodes: 600, includeText: false });
       const maxBytes = input.maxBytes ?? 2048;
       if (!tree.supported || tree.root === undefined) {
         return toolSuccess({
