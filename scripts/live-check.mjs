@@ -145,7 +145,19 @@ const FORM = `<!doctype html><meta charset="utf-8"><title>Live form</title>
 <label>Password <input type="password" id="pw" placeholder="Password"></label>
 <button type="button" id="save" onclick="document.getElementById('msg').textContent='saved:' + document.getElementById('name').value">Save profile</button>
 <button type="button" id="send" onclick="document.getElementById('msg').textContent='sent'">Send</button>
-<p id="msg">ready</p>`;
+<p id="msg">ready</p>
+<p id="frame-note">loading frame</p>
+<iframe id="frame" title="Frame"></iframe>
+<script>
+const frame = document.getElementById("frame");
+frame.addEventListener("load", () => {
+  const doc = frame.contentDocument;
+  doc.body.innerHTML = "<label>Frame field <input aria-label='Frame field'></label><button type='button' disabled>Frame disabled</button><button type='button' id='fb'>Frame button</button>";
+  doc.getElementById("fb").addEventListener("click", () => { document.getElementById("msg").textContent = "frame clicked"; });
+  document.getElementById("frame-note").textContent = "frame ready";
+});
+frame.srcdoc = "<!doctype html><title>frame</title>";
+</script>`;
 
 function hasVte() {
   try {
@@ -347,6 +359,8 @@ async function browserChecks(mcp, work, env) {
   const opened = await mcp.call("browser.open", { url: pathToFileURL(form).toString(), headless: true });
   check("browser.open loads the local form in headless Chrome", opened.ok, opened.body?.error?.message ?? "");
 
+  const ready = await mcp.call("browser.wait_for", { text: "frame ready", timeoutMs: 8000 });
+  check("the iframe loads before the snapshot", ready.ok && ready.body?.data?.matched === true, ready.error ?? "");
   const snap = await mcp.call("browser.snapshot", {});
   const elements = snap.body?.data?.elements ?? [];
   const find = (predicate) => elements.find(predicate)?.ref;
@@ -360,6 +374,16 @@ async function browserChecks(mcp, work, env) {
   };
   const missingRefs = Object.entries(refs).filter(([, value]) => !value).map(([key]) => key);
   check("the snapshot finds every control by ref", missingRefs.length === 0, missingRefs.length ? `missing ${missingRefs.join(", ")}` : "");
+  const frameField = find((item) => item.name === "Frame field");
+  const frameDisabled = find((item) => item.name === "Frame disabled");
+  const frameButton = find((item) => item.name === "Frame button");
+  check("the snapshot lists a same-origin iframe control marked inFrame", Boolean(frameField) && elements.some((item) => item.name === "Frame field" && item.inFrame === true));
+  const frameFilled = await mcp.call("browser.fill", { fields: [{ ref: frameField, text: "in frame" }] });
+  check("browser.fill reaches a field inside the iframe and reads it back", frameFilled.ok && (frameFilled.body?.data?.fields ?? []).every((item) => item.confirmed), frameFilled.error ?? "");
+  const disabledClick = await mcp.call("browser.click", { ref: frameDisabled });
+  check("a disabled control in the iframe is refused before any click", disabledClick.error === "element_disabled", disabledClick.error ?? "clicked");
+  const frameClick = await mcp.call("browser.click", { ref: frameButton });
+  check("a click inside the iframe lands and reports domChanged, not navigated", frameClick.ok && frameClick.body?.data?.domChanged === true && frameClick.body?.data?.navigated === false, frameClick.error ?? JSON.stringify(frameClick.body?.data ?? null).slice(0, 160));
 
   const filled = await mcp.call("browser.fill", { fields: [{ ref: refs.name, text: "Ada Lovelace" }] });
   check("browser.fill types a value and reads it back", filled.ok && (filled.body?.data?.fields ?? []).every((item) => item.confirmed));

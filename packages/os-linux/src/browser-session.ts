@@ -24,6 +24,8 @@ export interface BrowserElement {
   value?: string;
   checked?: boolean;
   disabled?: boolean;
+  /** Inside a same-origin iframe (one level deep). */
+  inFrame?: boolean;
 }
 
 export interface BrowserSnapshot {
@@ -49,7 +51,7 @@ export interface BrowserElementInfo {
 }
 
 export interface BrowserOpenResult { opened: boolean; url: string; title: string; headless: boolean; reason?: string }
-export interface BrowserActionResult { ok: boolean; reason?: string; url?: string; title?: string }
+export interface BrowserActionResult { ok: boolean; reason?: string; url?: string; title?: string; navigated?: boolean; domChanged?: boolean }
 
 export interface BrowserSelectResult extends BrowserActionResult { selected?: string; options?: string[] }
 export interface BrowserWaitResult { matched: boolean; elapsedMs: number; url: string; title: string }
@@ -92,12 +94,21 @@ export function browserProfileDir(agentHostDir: string): string {
 const SNAPSHOT_SCRIPT = `(max) => {
   const selector = 'a[href], button, input, select, textarea, summary, [role="button"], [role="link"], [role="checkbox"], [role="radio"], [role="tab"], [role="menuitem"], [role="switch"], [contenteditable="true"]';
   const seen = new Set(); const found = [];
-  for (const el of document.querySelectorAll(selector)) {
-    if (seen.has(el)) continue; seen.add(el);
-    const rect = el.getBoundingClientRect(); const style = getComputedStyle(el);
-    if (rect.width < 2 || rect.height < 2 || style.visibility === 'hidden' || style.display === 'none') continue;
-    if (el.tagName === 'INPUT' && el.type === 'hidden') continue;
-    found.push(el);
+  const collect = (doc) => {
+    for (const el of doc.querySelectorAll(selector)) {
+      if (seen.has(el)) continue; seen.add(el);
+      const rect = el.getBoundingClientRect(); const style = (doc.defaultView || window).getComputedStyle(el);
+      if (rect.width < 2 || rect.height < 2 || style.visibility === 'hidden' || style.display === 'none') continue;
+      if (el.tagName === 'INPUT' && el.type === 'hidden') continue;
+      found.push(el);
+    }
+  };
+  collect(document);
+  // One level of same-origin iframes. Nested frames and cross-origin frames are not walked.
+  for (const frameEl of document.querySelectorAll('iframe')) {
+    let frameDoc = null;
+    try { frameDoc = frameEl.contentDocument; } catch (e) { frameDoc = null; }
+    if (frameDoc) collect(frameDoc);
   }
   const snap = (window.__ahSnap || 0) + 1; window.__ahSnap = snap; window.__ahRefs = found;
   const clean = (s) => String(s || '').replace(/\\s+/g, ' ').trim().slice(0, 80);
@@ -106,6 +117,7 @@ const SNAPSHOT_SCRIPT = `(max) => {
     const name = clean(el.getAttribute('aria-label') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || (type === 'submit' || type === 'button' ? el.value : '') || el.getAttribute('name'));
     const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'select' ? 'combobox' : tag === 'textarea' ? 'textbox' : tag === 'input' ? (type === 'checkbox' ? 'checkbox' : type === 'radio' ? 'radio' : type === 'submit' || type === 'button' ? 'button' : 'textbox') : tag);
     const item = { ref: 's' + snap + '-e' + i, role, name, tag };
+    if (el.ownerDocument !== document) item.inFrame = true;
     if (type) item.type = type;
     if (tag === 'input' && type !== 'password' && type !== 'checkbox' && type !== 'radio' && el.value && el.autocomplete !== 'one-time-code' && !/^cc-/.test(el.autocomplete || '')) item.value = clean(el.value).slice(0, 40);
     if (tag === 'input' && (type === 'checkbox' || type === 'radio')) item.checked = !!el.checked;
@@ -115,6 +127,9 @@ const SNAPSHOT_SCRIPT = `(max) => {
   const text = (document.body ? document.body.innerText : '').replace(/\\n{3,}/g, '\\n\\n').trim();
   return { url: location.href, title: document.title, elements, text: text.slice(0, 3000), truncated: found.length > max || text.length > 3000 };
 }`;
+
+// A cheap page fingerprint: URL, top-level size, and element count. Changes when the page does something.
+const PAGE_FINGERPRINT = `(() => { const b = document.body; if (!b) return ''; return [location.href, b.childElementCount, b.innerText.length, document.querySelectorAll('*').length].join('|'); })()`;
 
 const RESOLVE = `(ref) => {
   const m = /^s(\\d+)-e(\\d+)$/.exec(ref);
@@ -324,13 +339,21 @@ export class BrowserSession implements BrowserAutomation {
     if (this.#connection === undefined || this.#sessionId === undefined) return { ok: false, reason: "browser_not_open" };
     const point = await this.#evaluate<{ x: number; y: number } | { error: string }>(`(() => {
       const el = (${RESOLVE})(${JSON.stringify(input.ref)}); if (!el) return { error: 'stale_ref' };
+      if (el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true') return { error: 'element_disabled' };
       el.scrollIntoView({ block: 'center', inline: 'center' });
-      const r = el.getBoundingClientRect(); const x = r.left + r.width / 2; const y = r.top + r.height / 2;
-      const hit = document.elementFromPoint(x, y);
+      const doc = el.ownerDocument; const view = doc.defaultView;
+      const r = el.getBoundingClientRect(); const cx = r.left + r.width / 2; const cy = r.top + r.height / 2;
+      const hit = doc.elementFromPoint(cx, cy);
       if (!hit || (hit !== el && !el.contains(hit) && !hit.contains(el))) return { error: 'element_obscured' };
-      return { x, y };
+      // Mouse events go to the top page: add the iframe's offset when the element lives in one.
+      const frame = view && view.frameElement ? view.frameElement : null;
+      if (!frame) return { x: cx, y: cy };
+      const fr = frame.getBoundingClientRect();
+      return { x: fr.left + frame.clientLeft + cx, y: fr.top + frame.clientTop + cy };
     })()`);
     if (point === undefined || "error" in point) return { ok: false, reason: point === undefined ? "click_failed" : point.error };
+    const before = await this.#pageState().catch(() => ({ url: "", title: "" }));
+    const beforeFingerprint = await this.#evaluate<string>(PAGE_FINGERPRINT).catch(() => "");
     const known = await this.#pageTargets();
     const navigation = this.#watchNavigation();
     const send = (type: string, extra: Record<string, unknown> = {}) => this.#connection!.send("Input.dispatchMouseEvent", { type, x: point.x, y: point.y, button: "left", clickCount: 1, ...extra }, this.#sessionId);
@@ -339,7 +362,15 @@ export class BrowserSession implements BrowserAutomation {
     await send("mouseReleased");
     await this.#followNewTab(known).catch(() => undefined);
     await navigation.settle(250, 8_000);
-    return { ok: true, ...(await this.#pageState().catch(() => ({ url: "", title: "" }))) };
+    const after = await this.#pageState().catch(() => ({ url: "", title: "" }));
+    const afterFingerprint = await this.#evaluate<string>(PAGE_FINGERPRINT).catch(() => "");
+    return {
+      ok: true,
+      ...after,
+      // Reported so an agent can tell a click that did something from one that did nothing.
+      navigated: after.url !== before.url,
+      domChanged: afterFingerprint !== beforeFingerprint
+    };
   }
 
   async type(input: { ref: string; text: string; clear?: boolean; submit?: boolean }): Promise<BrowserActionResult> {

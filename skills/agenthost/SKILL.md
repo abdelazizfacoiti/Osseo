@@ -39,10 +39,12 @@ coding tools directly.
 2. **Prefer one governed call.** Give GUI input tools a `target` selector when
    possible; use the returned `state` snapshot instead of an observe-then-act
    round trip. Use `computer.run_steps` for known bounded sequences.
-3. **Use the browser tools for web pages.** `browser.open` then
-   `browser.snapshot` and act by element ref (`browser.click`, `browser.type`)
-   instead of clicking coordinates. It is a separate Chrome profile; if a site
-   needs the person's login, call `agent.request_handoff`, then continue.
+3. **Use the browser tools for web pages and web forms.** `browser.open` then
+   `browser.snapshot` and act by element ref (`browser.fill`, `browser.select`,
+   `browser.click`, `browser.upload`) instead of clicking or typing pixels in a
+   browser window. It is a separate Chrome profile; if a site needs the person's
+   login, call `agent.request_handoff`, then continue. Drive the person's own
+   Firefox window by pixels only when they explicitly ask for it.
 4. **Preferred order:** app-specific adapter → official API/plugin → CLI/script →
    browser automation → accessibility tree → GUI screenshot/click/type → guide
    mode. GUI clicking is the fallback, not the default.
@@ -193,7 +195,15 @@ There is one autonomous policy. Do the task; do not ask for routine clicks.
   a point in it with `screen = screenOrigin + image / inline.scale`.
 - Web forms: `browser.snapshot`, then `browser.fill` (several fields, read back),
   `browser.select`, `browser.upload` (needs confirmation), `browser.wait_for`
-  instead of sleeps, and `browser.screenshot` when layout matters.
+  instead of sleeps, and `browser.screenshot` when layout matters. A snapshot
+  lists `disabled` controls and `inFrame` ones (same-origin iframes, one level);
+  a disabled control is refused, and a click reports `navigated` and `domChanged`.
+- Native apps: `desktop.click` takes `label` (the visible name, resolved through
+  AT-SPI, then OCR) instead of coordinates; a disabled or ambiguous name is refused.
+  `desktop.set_field` focuses a field, replaces or appends its text, and reads it
+  back (`confirmed`); it refuses password fields and clicks that focus no editable
+  field. `desktop.file_dialog_select` picks a file in an open Open dialog (never a
+  Save dialog).
 - A pause that AgentHost set itself says so and names the resume command. Tell
   the user what you were doing, then wait; `agenthost agent resume` clears it.
 - Budgets reset when you call `task.update` with a new phase or verify a criterion.
