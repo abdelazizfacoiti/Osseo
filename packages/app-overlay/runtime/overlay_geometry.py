@@ -5,11 +5,41 @@ def clamp(value, low, high):
     return min(max(value, low), high)
 
 
-def card_position(area, width, height, placement="top_right", bounds=None, point=None, user_position=None, margin=24):
+def beside_position(area, width, height, bounds=None, point=None, margin=24, gap=12):
+    """Place a label next to its target: right, left, below, then above; the first that fits wins."""
+    area_x, area_y, area_width, area_height = area
+    width = max(1, int(width))
+    height = max(1, int(height))
+    if isinstance(bounds, dict):
+        try:
+            box_x, box_y = float(bounds.get("x", 0)), float(bounds.get("y", 0))
+            box_w, box_h = float(bounds.get("width", 1)), float(bounds.get("height", 1))
+        except (TypeError, ValueError):
+            box_x, box_y, box_w, box_h = area_x, area_y, 1.0, 1.0
+    else:
+        box_x, box_y = float(point.get("x", 0)), float(point.get("y", 0))
+        box_w, box_h = 0.0, 0.0
+    candidates = [
+        (box_x + box_w + gap, box_y),
+        (box_x - width - gap, box_y),
+        (box_x, box_y + box_h + gap),
+        (box_x, box_y - height - gap),
+    ]
+    for x, y in candidates:
+        if x >= area_x and y >= area_y and x + width <= area_x + area_width and y + height <= area_y + area_height:
+            return int(x), int(y)
+    x = clamp(box_x + box_w + gap, area_x + margin, area_x + area_width - width - margin)
+    y = clamp(box_y, area_y + margin, area_y + area_height - height - margin)
+    return int(x), int(y)
+
+
+def card_position(area, width, height, placement="top_right", bounds=None, point=None, user_position=None, margin=24, attach=None):
     area_x, area_y, area_width, area_height = area
     width = max(1, int(width))
     height = max(1, int(height))
     margin = max(0, int(margin))
+    if attach == "beside" and user_position is None and (isinstance(bounds, dict) or isinstance(point, dict)):
+        return beside_position(area, width, height, bounds=bounds if isinstance(bounds, dict) else None, point=point if isinstance(point, dict) else None, margin=margin)
 
     if isinstance(user_position, (tuple, list)) and not isinstance(bounds, dict) and not isinstance(point, dict):
         x, y = float(user_position[0]), float(user_position[1])

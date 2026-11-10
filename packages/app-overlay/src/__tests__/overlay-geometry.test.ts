@@ -27,6 +27,25 @@ describe("overlay geometry", () => {
     });
   });
 
+  it("places a tooltip beside its target, and falls back when no side has room", () => {
+    const beside = (bounds: Record<string, number>, point?: Record<string, number>) => {
+      const script = `
+import json, sys
+sys.path.insert(0, sys.argv[1])
+import overlay_geometry as geometry
+area = (0, 0, 1920, 1080)
+bounds = json.loads(sys.argv[2]) if sys.argv[2] != "null" else None
+point = json.loads(sys.argv[3]) if sys.argv[3] != "null" else None
+print(json.dumps(geometry.card_position(area, 300, 80, "top_right", bounds=bounds, point=point, attach="beside")))
+`;
+      return JSON.parse(execFileSync("python3", ["-c", script, runtimeDir, JSON.stringify(bounds), JSON.stringify(point ?? null)], { encoding: "utf8" }));
+    };
+    expect(beside({ x: 200, y: 180, width: 24, height: 24 })).toEqual([236, 180]);
+    expect(beside({ x: 1800, y: 180, width: 24, height: 24 })).toEqual([1488, 180]);
+    expect(beside({ x: 1800, y: 4, width: 24, height: 24 })).toEqual([1488, 4]);
+    expect(beside({ x: 0, y: 0, width: 1920, height: 1080 })).toEqual([1596, 24]);
+  });
+
   it("keeps the dock timeline clear of bottom cards at any size", () => {
     const layoutScript = `
 import json, sys

@@ -1223,6 +1223,8 @@ class Renderer:
         bounds = target.get("bounds") if isinstance(target, dict) else None
         point = target.get("point") if isinstance(target, dict) else None
         user_position = card.get("user_position")
+        # A tooltip labels its target, so it sits beside the target instead of in a corner.
+        attach = "beside" if record.get("type") == "tooltip" else None
         x, y = card_position(
             (area.x, area.y, area.width, area.height),
             width,
@@ -1232,6 +1234,7 @@ class Renderer:
             point=point if isinstance(point, dict) else None,
             user_position=user_position if isinstance(user_position, tuple) else None,
             margin=CARD_MARGIN,
+            attach=attach,
         )
         self.place_card(card, x, y, width, height, full, chrome)
 

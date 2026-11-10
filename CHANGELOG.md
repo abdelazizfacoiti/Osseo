@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tooltip cards sit beside their target (right, left, below, then above) instead of in a screen corner, so a label can point at the place it describes. Other cards keep avoiding their target. Nothing in the product shows tooltips yet; this is the base for guide-mode steps.
 - Claude Code raises the assistant's window when a turn ends (`Stop`), when Claude asks a question (`AskUserQuestion`), and when it sits idle waiting for you (`Notification` idle prompt). Re-run `agenthost integrations claude add --apply` to install the new hooks. `done` and `idle` do not pull focus back on the next tool call. Codex is not covered yet.
 - The dock timeline opens only for approvals; done and idle do not reopen it.
 - Dock layout by default: nothing floats over the work area. The action status is a bottom dock card (it stays until the task finishes, or hides 30 s after activity when there is no task). The floating pill, edge frame and target ring are off unless you enable them (`overlay.actionPill`, `overlay.frame`, `overlay.targetRing`). Verified actions no longer hide and redraw every card for each check, which was the flicker. Turning the pill, frame or ring back on restores the flicker.
