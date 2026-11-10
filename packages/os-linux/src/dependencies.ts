@@ -45,6 +45,13 @@ export function clearCommandPathCache(): void {
   commandPathCache.clear();
 }
 
+/** The name as typed, then with each PATHEXT extension when it has none. */
+export function windowsCommandNames(command: string, env: NodeJS.ProcessEnv | undefined): string[] {
+  if (path.extname(command) !== "") return [command];
+  const pathext = (env?.PATHEXT ?? process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").map((item) => item.trim()).filter(Boolean);
+  return [command, ...pathext.map((extension) => `${command}${extension.toLowerCase()}`)];
+}
+
 export async function findCommandPath(command: string, context: LinuxLookupContext = {}): Promise<string | undefined> {
   if (command.trim().length === 0) {
     return undefined;
@@ -64,11 +71,15 @@ export async function findCommandPath(command: string, context: LinuxLookupConte
   }
 
   for (const dir of splitPathEnv(context.env)) {
-    const candidate = path.join(dir, command);
+    // Windows finds programs by extension (PATHEXT): "node" is node.exe, or node.cmd for npm shims.
+    const names = process.platform === "win32" ? windowsCommandNames(command, context.env) : [command];
+    for (const name of names) {
+      const candidate = path.join(dir, name);
 
-    if (await isExecutable(candidate)) {
-      commandPathCache.set(cacheKey, candidate);
-      return candidate;
+      if (await isExecutable(candidate)) {
+        commandPathCache.set(cacheKey, candidate);
+        return candidate;
+      }
     }
   }
 

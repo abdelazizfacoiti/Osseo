@@ -3,6 +3,7 @@ import { accessSync, constants } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { CdpConnection } from "./cdp.js";
+import { killProcessTree } from "./process-tree.js";
 
 /*
  * One dedicated Chrome/Chromium instance the agent drives through the DevTools
@@ -76,12 +77,68 @@ export interface BrowserAutomation {
 
 const CHROME_CANDIDATES = ["google-chrome-stable", "google-chrome", "chromium-browser", "chromium"] as const;
 
-export function findChromeExecutable(env: NodeJS.ProcessEnv = process.env): string | undefined {
+export interface ChromeSearch {
+  /** Defaults to the host platform. Tests pass "win32" to check the Windows locations. */
+  platform?: NodeJS.Platform;
+  /** Test seam: whether a candidate exists. Defaults to the file system. */
+  exists?: (candidate: string) => boolean;
+}
+
+function isExecutableFile(candidate: string): boolean {
+  try { accessSync(candidate, constants.X_OK); return true; } catch { return false; }
+}
+
+function isExistingFile(candidate: string): boolean {
+  try { accessSync(candidate, constants.F_OK); return true; } catch { return false; }
+}
+
+/** Windows environment variables are case-insensitive; injected environments may not be. */
+function windowsEnv(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const wanted = name.toUpperCase();
+  for (const [key, value] of Object.entries(env)) {
+    if (key.toUpperCase() === wanted && value !== undefined && value !== "") return value;
+  }
+  return undefined;
+}
+
+/**
+ * The browser the browser.* tools drive: Chrome or Chromium on POSIX systems; on Windows, Chrome
+ * or Edge (both speak the same DevTools protocol), in their install folders or on PATH.
+ */
+export function findChromeExecutable(env: NodeJS.ProcessEnv = process.env, search: ChromeSearch = {}): string | undefined {
+  const platform = search.platform ?? process.platform;
+  if (platform === "win32") {
+    const win = path.win32;
+    const exists = search.exists ?? isExistingFile;
+    const programFiles = windowsEnv(env, "ProgramFiles") ?? "C:\\Program Files";
+    const programFilesX86 = windowsEnv(env, "ProgramFiles(x86)") ?? "C:\\Program Files (x86)";
+    const localAppData = windowsEnv(env, "LOCALAPPDATA");
+    const installed = [
+      win.join(programFiles, "Google", "Chrome", "Application", "chrome.exe"),
+      win.join(programFilesX86, "Google", "Chrome", "Application", "chrome.exe"),
+      ...(localAppData === undefined ? [] : [win.join(localAppData, "Google", "Chrome", "Application", "chrome.exe")]),
+      win.join(programFilesX86, "Microsoft", "Edge", "Application", "msedge.exe"),
+      win.join(programFiles, "Microsoft", "Edge", "Application", "msedge.exe")
+    ];
+    for (const candidate of installed) {
+      if (exists(candidate)) return candidate;
+    }
+    for (const directory of (windowsEnv(env, "PATH") ?? "").split(";")) {
+      const folder = directory.trim();
+      if (folder === "") continue;
+      for (const name of ["chrome.exe", "msedge.exe"]) {
+        const candidate = win.join(folder, name);
+        if (exists(candidate)) return candidate;
+      }
+    }
+    return undefined;
+  }
+  const exists = search.exists ?? isExecutableFile;
   for (const directory of (env.PATH ?? "").split(path.delimiter)) {
     if (directory === "") continue;
     for (const name of CHROME_CANDIDATES) {
       const candidate = path.join(directory, name);
-      try { accessSync(candidate, constants.X_OK); return candidate; } catch { /* Keep looking. */ }
+      if (exists(candidate)) return candidate;
     }
   }
   return undefined;
@@ -180,7 +237,7 @@ export class BrowserSession implements BrowserAutomation {
       "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1", `--user-data-dir=${profile}`,
       "--no-first-run", "--no-default-browser-check", "--disable-popup-blocking",
       ...(headless ? ["--headless=new", "--disable-gpu"] : []), "about:blank"
-    ], { stdio: "ignore", env: this.#env });
+    ], { stdio: "ignore", env: this.#env, windowsHide: true });
     child.on("exit", () => { if (this.#child === child) this.#reset(); });
     child.on("error", () => { if (this.#child === child) this.#reset(); });
     this.#child = child;
@@ -234,9 +291,9 @@ export class BrowserSession implements BrowserAutomation {
     this.#reset();
     if (child === undefined || child.exitCode !== null) return Promise.resolve();
     return new Promise((resolve) => {
-      const timer = setTimeout(() => { child.kill("SIGKILL"); resolve(); }, 3_000);
+      const timer = setTimeout(() => { killProcessTree(child, "SIGKILL"); resolve(); }, 3_000);
       child.once("exit", () => { clearTimeout(timer); resolve(); });
-      child.kill("SIGTERM");
+      killProcessTree(child, "SIGTERM");
     });
   }
 

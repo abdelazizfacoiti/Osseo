@@ -419,6 +419,25 @@ export async function openLinuxApp(
     shell: false,
     env: context.env ?? process.env
   });
+  // Wait for the spawn or its failure: a name that is not a program (on Windows, a command without
+  // its .exe) must be reported as not opened, not as launched, and must not crash the server.
+  const spawnError = await new Promise<Error | undefined>((resolve) => {
+    child.once("error", (error) => resolve(error));
+    child.once("spawn", () => resolve(undefined));
+  });
+  if (spawnError !== undefined) {
+    const failed: AppOpenResult = {
+      opened: false,
+      appId: detection.appId,
+      strategy: "cli_or_script",
+      command: [command, ...args].join(" "),
+      reason: `The app could not be started: ${spawnError.message}`
+    };
+    if (detection.displayName !== undefined) {
+      failed.displayName = detection.displayName;
+    }
+    return failed;
+  }
   child.unref();
 
   const result: AppOpenResult = {

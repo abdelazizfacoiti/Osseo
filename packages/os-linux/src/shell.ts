@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ShellRunResult } from "@agenthost/core";
+import { killProcessTree } from "./process-tree.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_TIMEOUT_MS = 60_000;
@@ -58,12 +59,17 @@ export async function runSafeLinuxCommand(input: RunSafeCommandInput): Promise<S
       cwd: input.cwd,
       ...(input.env === undefined ? {} : { env: input.env }),
       shell: false,
-      stdio: ["ignore", "pipe", "pipe"]
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true
     });
 
+    // A timeout ends the whole tree (on Windows, PowerShell's children too), then forces it if it lingers.
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
+      killProcessTree(child, "SIGTERM");
+      setTimeout(() => {
+        if (child.exitCode === null && child.signalCode === null) killProcessTree(child, "SIGKILL");
+      }, 2_000).unref();
     }, timeoutMs);
 
     child.stdout.on("data", (chunk: Buffer) => {
