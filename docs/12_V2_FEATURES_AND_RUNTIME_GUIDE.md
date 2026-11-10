@@ -1181,8 +1181,10 @@ At the time of writing, the tree passes:
 
 - `npm run build`
 - `npm run lint`
-- `npm test` — 91 files, 552 tests
+- `npm test` — 94 files, 581 tests
 - `npm run smoke:mcp` — 70 tools, 3 resources
+- `npm run test:windows` — 10 files, 83 tests: the unit tests that do not assume Linux (run in CI on windows-latest, which is informational for now)
+- `node scripts/windows-smoke.mjs` — the built server over stdio: 12 checks here on Linux; `scripts\windows-check.ps1` runs it on Windows (not yet run there)
 - `npm run check:live` — 79 checks on a nested display and headless Chrome (CLI, desktop, browser, session end, file dialogs, plans, screenshot ids); opens a small window on your screen for about a minute
 - `npm run benchmark:form` — one form task three ways; the gate for the pixel path is 50% fewer calls, 40% fewer bytes, no unverified successes. Latest run: pixel-after -53% calls and -48% bytes against pixel-before; the browser route -68% calls and -98% bytes
 - `npm run benchmark:agent` — isolated, non-destructive runner overhead benchmark
