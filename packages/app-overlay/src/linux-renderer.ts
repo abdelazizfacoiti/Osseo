@@ -26,6 +26,8 @@ const RENDERER_PROCESS_PATTERN = "app-overlay/runtime/gtk3-renderer.py --protoco
 export interface OverlayOrphanSweepResult { killed: number[]; skippedLive: number[]; }
 
 export function listOverlayRendererPids(): number[] {
+  // pgrep and ps are Linux tools; elsewhere there is no renderer process list to sweep.
+  if (process.platform !== "linux") return [];
   try {
     return execFileSync("pgrep", ["-f", RENDERER_PROCESS_PATTERN], { encoding: "utf8" })
       .split(/\s+/)
@@ -37,6 +39,7 @@ export function listOverlayRendererPids(): number[] {
 }
 
 export function sweepOrphanedOverlayRenderers(): OverlayOrphanSweepResult {
+  if (process.platform !== "linux") return { killed: [], skippedLive: [] };
   const killed: number[] = [];
   const skippedLive: number[] = [];
   for (const pid of listOverlayRendererPids()) {

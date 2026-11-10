@@ -1,4 +1,5 @@
 import { mkdir } from "node:fs/promises";
+import { ensurePrivateDirectory } from "@agenthost/core";
 import { createScreenTools } from "./tools/screen.js";
 import { renderResultText, type OutputVerbosity, type StateHolder } from "./lean-output.js";
 import { spawn } from "node:child_process";
@@ -316,7 +317,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const resultState: StateHolder = {};
   setUserBlockedApps(config.blockedApps ?? []);
   // Desktop commands run with this as their working directory; on a fresh install it may not exist yet.
-  await mkdir(config.agentHostDir, { recursive: true, mode: 0o700 }).catch(() => undefined);
+  // Owner-only: mode 0700 on POSIX, an access list (icacls) on Windows where file modes do nothing.
+  await ensurePrivateDirectory(config.agentHostDir).catch(() => undefined);
   // Background placement: all desktop work happens on a nested display. If it
   // cannot start, fail loudly: quietly acting on the person's screen is what
   // they asked to avoid.

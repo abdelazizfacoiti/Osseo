@@ -39,6 +39,8 @@ const linuxDeps: RequirementsBootstrapDeps = {
  * not re-prompt on every start; `agenthost setup deps --apply` retries.
  */
 export async function bootstrapRequirements(agentHostDir: string, enabled: boolean, deps: RequirementsBootstrapDeps = linuxDeps): Promise<RequirementsBootstrapResult> {
+  // The desktop packages are Linux packages: there is nothing to install on Windows or macOS.
+  if (deps === linuxDeps && process.platform !== "linux") return { missing: [], action: "none" };
   const marker = path.join(agentHostDir, "run", "requirements.json");
   const missing = missingAptPackages(await deps.check());
   if (missing.length === 0) return { missing, action: "none" };
