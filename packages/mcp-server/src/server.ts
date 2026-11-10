@@ -46,6 +46,7 @@ import {
   detectLinuxAccessibilitySupport,
   ensureLinuxDir,
   findLinuxAccessibilityElements,
+  readLinuxTextAtPoint,
   focusLinuxAccessibilityElement,
   focusLinuxWindow,
   getLinuxActiveWindow,
@@ -472,6 +473,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       analyzeImage: (input) => analyzeLinuxImage(input, { env: process.env }),
       getAccessibilityTree: (input) => getLinuxAccessibilityTree(input, desktopContext),
       findAccessibilityElement: (input) => findLinuxAccessibilityElements(input, desktopContext),
+      readTextAtPoint: (input) => readLinuxTextAtPoint(input, desktopContext),
       inspectAccessibilityElement: (input) =>
         inspectLinuxAccessibilityElement(input, desktopContext),
       invokeAccessibilityAction: (input) =>

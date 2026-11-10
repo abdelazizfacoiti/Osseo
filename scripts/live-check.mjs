@@ -98,6 +98,10 @@ locked = Gtk.Button(label="Locked")
 locked.set_size_request(200, 30)
 locked.set_sensitive(False)
 fixed.put(locked, 20, 200)
+secret = Gtk.Entry()
+secret.set_visibility(False)
+secret.set_size_request(110, 30)
+fixed.put(secret, 230, 200)
 entry = Gtk.Entry()
 entry.set_size_request(320, 30)
 entry.connect("changed", lambda e: open(out, "w", encoding="utf-8").write(e.get_text()))
@@ -293,6 +297,27 @@ async function desktopChecks(mcp, entryFile) {
   check("a near-miss name is refused and the real name is suggested", near.error === "label_not_found" && JSON.stringify(near.body?.error?.details ?? {}).includes("Does nothing"), near.error ?? "");
   const mixed = await mcp.call("desktop.click", { x: 1, y: 1, label: "Reset label", activeWindow });
   check("x/y together with a label is refused before any action", mixed.ok === false && mixed.error !== undefined, mixed.error ?? "accepted");
+
+  const fieldAt = (x, y, args) => mcp.call("desktop.set_field", { x: origin.x + x, y: origin.y + y, activeWindow, ...args });
+  const entryNow = () => readFileSync(entryFile, "utf8");
+  const one = await fieldAt(180, 175, { text: "Field one" });
+  await sleep(300);
+  check("set_field replaces the text and reads it back", one.ok && one.body?.data?.confirmed === true && entryNow() === "Field one", JSON.stringify(one.body?.data ?? one.error ?? null));
+  const two = await fieldAt(180, 175, { text: "Field two" });
+  await sleep(300);
+  check("set_field over existing text leaves exactly the new text", two.ok && two.body?.data?.confirmed === true && entryNow() === "Field two", entryNow() === "Field two" ? "" : `got ${JSON.stringify(entryNow())}`);
+  const appended = await fieldAt(180, 175, { text: "+3", replace: false });
+  await sleep(300);
+  check("set_field with replace false appends at the end", appended.ok && appended.body?.data?.confirmed === true && entryNow() === "Field two+3", entryNow() === "Field two+3" ? "" : `got ${JSON.stringify(entryNow())}`);
+  const cleared = await fieldAt(180, 175, { text: "" });
+  await sleep(300);
+  check("set_field with empty text clears the field", cleared.ok && cleared.body?.data?.confirmed === true && entryNow() === "", JSON.stringify(cleared.body?.data ?? cleared.error ?? null));
+  const notField = await fieldAt(120, 120, { text: "SHOULD NOT APPEAR" });
+  await sleep(300);
+  check("set_field refuses a click that focuses no editable field, typing nothing", notField.error === "field_not_exposed" && entryNow() === "", notField.error ?? "accepted");
+  const secretField = await fieldAt(285, 215, { text: "hunter2" });
+  await sleep(300);
+  check("set_field refuses a password field before typing anything", ["sensitive_field", "field_not_exposed"].includes(secretField.error) && entryNow() === "", secretField.error ?? "accepted");
   return { mcp, win, activeWindow, clickAt };
 }
 

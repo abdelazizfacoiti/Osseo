@@ -22,7 +22,7 @@ export function workflowActionForTool(tool: string): WorkflowStepAction {
   if (tool === "browser.wait_for_state") return "wait_for_state";
   if (tool === "browser.find_element") return "find_element";
   if (tool === "browser.click_element") return "click_element";
-  if (tool === "browser.fill_text" || tool === "desktop.type_text" || tool === "accessibility.set_value") return "fill_text_redacted";
+  if (tool === "browser.fill_text" || tool === "desktop.type_text" || tool === "desktop.set_field" || tool === "accessibility.set_value") return "fill_text_redacted";
   if (tool === "browser.extract_text" || tool === "browser.get_selected_text") return "extract_text_redacted";
   if (tool.startsWith("accessibility.")) return "accessibility_action";
   if (tool.startsWith("desktop.")) return "pointer_action";

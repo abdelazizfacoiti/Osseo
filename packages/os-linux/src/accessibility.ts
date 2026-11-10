@@ -4,6 +4,7 @@ import {
   type AccessibilityElementCandidate,
   type AccessibilityElementDetails,
   type AccessibilityFindElementResult,
+  type AccessibilityFieldAtPointResult,
   type AccessibilityFocusElementResult,
   type AccessibilityInspectElementResult,
   type AccessibilityInvokeActionResult,
@@ -121,6 +122,15 @@ interface RawAccessibilityElement {
   hidden?: boolean;
 }
 
+interface RawFieldAtPoint {
+  found: boolean;
+  role?: string | null;
+  focused?: boolean;
+  sensitive?: boolean;
+  text?: string | null;
+  length?: number | null;
+}
+
 type AccessibilityBackendResult =
   | {
       supported: false;
@@ -143,7 +153,70 @@ type AccessibilityBackendResult =
       changed?: boolean;
       focused?: boolean;
       actionName?: string;
+      fieldAtPoint?: RawFieldAtPoint;
     };
+
+export interface LinuxTextAtPointInput {
+  appName?: string;
+  pid?: number;
+  x: number;
+  y: number;
+}
+
+/**
+ * Reads the editable text field at a screen point through AT-SPI. The text is for the caller's
+ * read-back check only; it must never be returned to an agent or logged. Sensitive and hidden
+ * fields report found: true with no text.
+ */
+export async function readLinuxTextAtPoint(
+  input: LinuxTextAtPointInput,
+  context: LinuxAccessibilityContext = {}
+): Promise<AccessibilityFieldAtPointResult> {
+  const session = sessionInfo(context);
+
+  if (!session.displayAvailable) {
+    return { supported: false, backend: "unavailable", found: false, reason: "No Linux desktop display session is available." };
+  }
+
+  if (input.pid === undefined && input.appName === undefined) {
+    return { supported: false, backend: "unavailable", found: false, reason: "The field needs an app to search." };
+  }
+
+  const result = await pythonAccessibilityResult(
+    {
+      mode: "text_at_point",
+      ...(input.pid === undefined ? {} : { pid: input.pid }),
+      ...(input.pid === undefined && input.appName !== undefined ? { appName: input.appName } : {}),
+      x: Math.round(input.x),
+      y: Math.round(input.y),
+      maxDepth: 14,
+      maxNodes: 800,
+      includeText: true
+    },
+    context
+  );
+
+  if (!result.supported) {
+    return { supported: false, backend: result.backend, found: false, reason: result.reason };
+  }
+
+  const field = result.fieldAtPoint;
+  if (field === undefined || field.found !== true) {
+    return { supported: true, backend: result.backend, found: false, reason: result.reason };
+  }
+
+  return {
+    supported: true,
+    backend: result.backend,
+    found: true,
+    reason: result.reason,
+    ...(typeof field.role === "string" ? { role: field.role } : {}),
+    focused: field.focused === true,
+    sensitive: field.sensitive === true || field.role === "password text",
+    ...(typeof field.text === "string" ? { text: field.text } : {}),
+    ...(typeof field.length === "number" ? { length: field.length } : {})
+  };
+}
 
 function sessionInfo(context: LinuxAccessibilityContext = {}): SessionInfo {
   const env = context.env ?? process.env;
@@ -476,6 +549,87 @@ if not roots:
             "reason": "No matching accessibility root was found.",
             "redacted": False
         })
+    raise SystemExit(0)
+
+if mode == "text_at_point":
+    # Read-only. The editable text field whose bounds contain (x, y) inside the scoped app. It is
+    # what desktop.set_field checks before and after typing, so a stale focused field elsewhere
+    # can never be mistaken for the one that was clicked. Sensitive and hidden fields never
+    # return their text.
+    EDITABLE_ROLES = {"text", "password text", "editable text", "entry", "search bar", "spin button"}
+    point_x = int(input_data.get("x", 0))
+    point_y = int(input_data.get("y", 0))
+    scan_budget = {"left": max(400, max_nodes)}
+    best = {"node": None, "area": None}
+
+    def scan_point(node, depth):
+        if scan_budget["left"] <= 0 or depth > max_depth:
+            return
+        scan_budget["left"] -= 1
+        bounds = safe_bounds(node)
+        inside = bounds is not None and bounds["width"] > 0 and bounds["height"] > 0 and bounds["x"] <= point_x < bounds["x"] + bounds["width"] and bounds["y"] <= point_y < bounds["y"] + bounds["height"]
+        if inside and role_name(node) in EDITABLE_ROLES:
+            area = bounds["width"] * bounds["height"]
+            if best["area"] is None or area <= best["area"]:
+                best["node"] = node
+                best["area"] = area
+        if bounds is not None and not inside:
+            return
+        try:
+            child_count = min(node.childCount, 200)
+        except Exception:
+            child_count = 0
+        for child_index in range(child_count):
+            try:
+                child = node.getChildAtIndex(child_index)
+            except Exception:
+                continue
+            scan_point(child, depth + 1)
+
+    for _root_index, root in roots:
+        scan_point(root, 0)
+
+    field_node = best["node"]
+    if field_node is None:
+        emit({
+            "supported": True,
+            "backend": "atspi",
+            "reason": "No editable text field is exposed through AT-SPI at that point.",
+            "fieldAtPoint": {"found": False}
+        })
+        raise SystemExit(0)
+
+    field_sensitive, field_hidden = state_flags(field_node)
+    field_role = role_name(field_node)
+    # Some toolkits do not set the PASSWORD_TEXT state; the role alone is enough to treat it as secret.
+    if field_role == "password text":
+        field_sensitive = True
+    try:
+        field_focused = bool(field_node.getState().contains(pyatspi.STATE_FOCUSED))
+    except Exception:
+        field_focused = False
+    field_text = None
+    field_length = None
+    if not field_sensitive and not field_hidden:
+        try:
+            text_iface = field_node.queryText()
+            field_length = int(text_iface.characterCount)
+            field_text = text_iface.getText(0, min(field_length, 20000))
+        except Exception:
+            field_text = None
+    emit({
+        "supported": True,
+        "backend": "atspi",
+        "reason": "Read the editable text field at that point through AT-SPI.",
+        "fieldAtPoint": {
+            "found": True,
+            "role": field_role,
+            "focused": field_focused,
+            "sensitive": field_sensitive or field_hidden,
+            "text": field_text,
+            "length": field_length
+        }
+    })
     raise SystemExit(0)
 
 node_count = 0

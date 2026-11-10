@@ -8,6 +8,7 @@ import type {
   AuditLogger,
   ToolTraceLogger,
   AccessibilityFindElementResult,
+  AccessibilityFieldAtPointResult,
   AccessibilityFocusElementResult,
   AccessibilityInspectElementResult,
   AccessibilityInvokeActionResult,
@@ -120,6 +121,8 @@ export interface LinuxAutomation {
     role?: string;
     limit?: number;
   }): Promise<AccessibilityFindElementResult>;
+  /** The editable text field at a screen point, for desktop.set_field's checks. Optional for fakes. */
+  readTextAtPoint?(input: { appName?: string; pid?: number; x: number; y: number }): Promise<AccessibilityFieldAtPointResult>;
   inspectAccessibilityElement(input: {
     appName?: string;
     windowId?: string;

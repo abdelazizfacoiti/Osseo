@@ -12,13 +12,14 @@ import {
   type DesktopHotkeyResult,
   type DesktopScreenshotResult,
   type DesktopTypeTextResult,
+  type DesktopSetFieldResult,
   type DesktopWindowContext,
   type ToolResult
 } from "@agenthost/core";
 import { z } from "zod";
 import { resolveLabelTarget, type LabelResolution, type LabelTarget } from "../label-target.js";
 import { readFile as readEffectBytes, rm as removeEffectFile } from "node:fs/promises";
-import { randomUUID as effectId } from "node:crypto";
+import { createHash, randomUUID as effectId } from "node:crypto";
 import { join as joinEffectPath } from "node:path";
 import { downscaleToJpeg, measureEffect, type EffectResult } from "@agenthost/os-linux";
 import type { AgentHostMcpContext } from "../context.js";
@@ -128,18 +129,7 @@ const clickInputSchema = guiContextRefine(z
     target: targetWindowSchema.optional(),
     dryRun: z.boolean().optional(),
     confirmationToken: confirmationTokenSchema
-  }).strict()).superRefine((input, ctx) => {
-    const hasPoint = input.x !== undefined || input.y !== undefined;
-    if (hasPoint && (input.x === undefined || input.y === undefined)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass both x and y." });
-    }
-    if (hasPoint === (input.label !== undefined)) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass either x and y, or label." });
-    }
-    if (input.role !== undefined && input.label === undefined) {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "role only narrows a label; pass label too." });
-    }
-  });
+  }).strict()).superRefine(pointOrLabelRules);
 
 type ClickPoint = { x: number; y: number };
 /** Where a label-addressed action will land, resolved after the active window is validated. */
@@ -147,6 +137,80 @@ type PointLocator = (activeWindow: DesktopWindowContext) => Promise<
   | { ok: true; point: ClickPoint; data: Record<string, unknown> }
   | { ok: false; code: string; message: string; data: Record<string, unknown> }
 >;
+
+/** A target is either x and y, or a label (optionally with a role). Refused otherwise, before any action. */
+function pointOrLabelRules(input: { x?: number | undefined; y?: number | undefined; label?: string | undefined; role?: string | undefined }, ctx: z.RefinementCtx): void {
+  const hasPoint = input.x !== undefined || input.y !== undefined;
+  if (hasPoint && (input.x === undefined || input.y === undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass both x and y." });
+  }
+  if (hasPoint === (input.label !== undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass either x and y, or label." });
+  }
+  if (input.role !== undefined && input.label === undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "role only narrows a label; pass label too." });
+  }
+}
+
+const setFieldInputSchema = guiContextRefine(z
+  .object({
+    x: z.number().int().min(0).optional(),
+    y: z.number().int().min(0).optional(),
+    label: z.string().trim().min(1).max(200).optional(),
+    role: z.string().trim().min(1).max(80).optional(),
+    text: z.string().max(10_000),
+    replace: z.boolean().optional(),
+    activeWindow: activeWindowSchema.optional(),
+    target: targetWindowSchema.optional(),
+    dataSensitivity: z.enum(["none", "low", "sensitive", "secret"]).optional(),
+    dryRun: z.boolean().optional(),
+    confirmationToken: confirmationTokenSchema
+  }).strict()).superRefine(pointOrLabelRules);
+
+type SetFieldInput = z.infer<typeof setFieldInputSchema>;
+
+/** The app scope for the focused-field read-back: its process when known, else its name. */
+function fieldScope(window: DesktopWindowContext): { pid: number } | { appName: string } | undefined {
+  if (window.pid !== undefined) return { pid: window.pid };
+  if (window.appName !== undefined) return { appName: window.appName };
+  return undefined;
+}
+
+/** Fingerprint of the text, so an approval binds the exact content without storing it. */
+function fingerprintText(text: string): string {
+  return createHash("sha256").update(text).digest("hex").slice(0, 16);
+}
+
+/** Compares read-back samples with the expected text. Stops at the first exact match. */
+export function readbackVerdict(
+  expected: string | undefined,
+  samples: Array<{ readable: boolean; text?: string | undefined }>
+): { confirmed: boolean | "unknown"; observedLength?: number } {
+  if (expected === undefined) return { confirmed: "unknown" };
+  let confirmed: boolean | "unknown" = "unknown";
+  let observedLength: number | undefined;
+  for (const sample of samples) {
+    if (!sample.readable || sample.text === undefined) break;
+    observedLength = sample.text.length;
+    confirmed = sample.text === expected;
+    if (confirmed) break;
+  }
+  return observedLength === undefined ? { confirmed: "unknown" } : { confirmed, observedLength };
+}
+
+/** Resolves a label inside the validated window, for previews of label-addressed actions. */
+function labelLocator(context: AgentHostMcpContext, input: { label?: string | undefined; role?: string | undefined }): PointLocator | undefined {
+  const label = input.label;
+  if (label === undefined) return undefined;
+  return async (activeWindow) => {
+    const resolved = await resolveLabelTarget(context, activeWindow, { label, ...(input.role === undefined ? {} : { role: input.role }) });
+    return resolved.ok
+      ? { ok: true, point: resolved.target.point, data: { resolved: { label, ...resolved.target } } }
+      : { ok: false, code: resolved.code, message: resolved.message, data: { resolved: { label, code: resolved.code, candidates: resolved.candidates } } };
+  };
+}
+
+const pauseFor = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const POINTER_ACTIONS = ["move_mouse", "scroll", "double_click", "right_click", "drag"] as const;
 
@@ -480,25 +544,27 @@ function labelRefusal<T>(tool: string, resolution: Extract<LabelResolution, { ok
   });
 }
 
-async function locateClick(
+/** Turns a target (x and y, or a label) into a point. The failure result is typed for the calling tool. */
+async function locateClick<T = DesktopClickResult>(
   context: AgentHostMcpContext,
   input: { x?: number | undefined; y?: number | undefined; label?: string | undefined; role?: string | undefined },
-  activeWindow: DesktopWindowContext
-): Promise<{ ok: true; point: ClickPoint; resolved?: LabelTarget } | { ok: false; result: ToolResult<DesktopClickResult> }> {
+  activeWindow: DesktopWindowContext,
+  tool = "desktop.click"
+): Promise<{ ok: true; point: ClickPoint; resolved?: LabelTarget } | { ok: false; result: ToolResult<T> }> {
   if (input.label !== undefined) {
     const resolution = await resolveLabelTarget(context, activeWindow, { label: input.label, ...(input.role === undefined ? {} : { role: input.role }) });
-    if (!resolution.ok) return { ok: false, result: labelRefusal<DesktopClickResult>("desktop.click", resolution) };
+    if (!resolution.ok) return { ok: false, result: labelRefusal<T>(tool, resolution) };
     return { ok: true, point: resolution.target.point, resolved: resolution.target };
   }
   if (input.x !== undefined && input.y !== undefined) return { ok: true, point: { x: input.x, y: input.y } };
   return {
     ok: false,
-    result: toolFailure<DesktopClickResult>({
-      tool: "desktop.click",
+    result: toolFailure<T>({
+      tool,
       riskLevel: "medium",
       strategy: "gui_control",
       error: { code: "missing_target", message: "Pass x and y, or label." },
-      observations: ["No click was performed."]
+      observations: ["No action was performed."]
     })
   };
 }
@@ -816,6 +882,218 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
+  const setField: AgentHostToolDefinition<SetFieldInput, DesktopSetFieldResult, AgentHostMcpContext> = {
+    name: "desktop.set_field",
+    description: "Sets a text field: focuses it (x and y, or a label), selects its text, pastes the new text, then reads the field back through AT-SPI. replace false appends at the end; empty text clears the field. confirmed is true only when the field reads back exactly, false is an error (readback_mismatch), and unknown means AT-SPI cannot read the field here. Refuses before typing when the click focuses no editable field, or when the field is a password.",
+    riskLevel: "medium",
+    inputSchema: setFieldInputSchema,
+    mcpInputSchema: {
+      type: "object",
+      properties: {
+        x: { type: "integer", minimum: 0, description: "Use with y, instead of label." },
+        y: { type: "integer", minimum: 0, description: "Use with x, instead of label." },
+        label: { type: "string", minLength: 1, maxLength: 200, description: "Visible name of the field's control, instead of x and y." },
+        role: { type: "string", minLength: 1, maxLength: 80, description: "Optional with label, such as 'entry' or 'text'." },
+        text: { type: "string", maxLength: 10000, description: "The text to put in the field. Empty clears it." },
+        replace: { type: "boolean", description: "Default true: replace the field's text. false appends at the end." },
+        activeWindow: activeWindowMcpSchema,
+        target: activeWindowMcpSchema,
+        dataSensitivity: { type: "string", enum: ["none", "low", "sensitive", "secret"] },
+        ...executionMcpProperties
+      },
+      required: ["text"],
+      additionalProperties: false
+    },
+    inputSummary: "Set text field",
+    auditInputSummary: (i) => `Set ${i.replace === false ? "appended" : "replaced"} text (${i.text.length} characters) ${i.label === undefined ? `at (${i.x}, ${i.y})` : `in "${i.label}"`} in ${activeWindowAppName(toActiveWindowContext(inputWindow(i))) ?? "active window"}.`,
+    preview: {
+      isDryRun: (i) => i.dryRun === true,
+      resolveEffect: (i, context) => {
+        const replace = i.replace !== false;
+        const verb = i.text.length === 0 ? "Clear" : replace ? "Set" : "Append";
+        return desktopPreview(
+          "desktop.set_field",
+          "gui_type",
+          i,
+          context,
+          (window, point) => `${verb} ${i.text.length} characters ${i.label === undefined ? "" : `in "${i.label}" `}at ${point === undefined ? (i.x === undefined ? "the field" : `(${i.x}, ${i.y})`) : `(${point.x}, ${point.y})`} in ${window}.`,
+          (window, point) => `setfield:${window}:${point?.x ?? i.x}:${point?.y ?? i.y}:${replace ? "replace" : "append"}:${fingerprintText(i.text)}`,
+          { textLength: i.text.length, replace, ...(i.label === undefined ? { x: i.x, y: i.y } : { label: i.label }) },
+          i.dataSensitivity,
+          labelLocator(context, i)
+        );
+      }
+    },
+    safety: {
+      actionType: "inspect",
+      getInput: (input) => {
+        const appName = activeWindowAppName(toActiveWindowContext(inputWindow(input)));
+        return appName === undefined ? {} : { appName };
+      }
+    },
+    async handler(input, context): Promise<ToolResult<DesktopSetFieldResult>> {
+      const tool = "desktop.set_field";
+      const validation = await resolveGuiWindow(context, input);
+      if (!validation.supported || !validation.matched) {
+        return toolFailure({
+          tool,
+          riskLevel: "medium",
+          strategy: "gui_control",
+          error: { code: "active_window_mismatch", message: validation.reason ?? "Active window validation failed." },
+          observations: [validation.reason ?? "Active window validation failed."]
+        });
+      }
+      const window = validation.activeWindow!;
+
+      const postResolutionSafety = evaluateSafety(
+        {
+          tool,
+          actionType: "gui_type",
+          strategy: "gui_control",
+          ...(input.dataSensitivity === undefined ? {} : { dataSensitivity: input.dataSensitivity }),
+          ...(window.appName === undefined ? {} : { appName: window.appName })
+        },
+        context.policy,
+        createSafetyEvaluationContext(context)
+      );
+      if (!postResolutionSafety.allowed) return safetyFailure(tool, postResolutionSafety);
+
+      const located = await locateClick<DesktopSetFieldResult>(context, input, window, tool);
+      if (!located.ok) return located.result;
+      const { point, resolved } = located;
+      const replace = input.replace !== false;
+      const scope = fieldScope(window);
+
+      // Focus the field, then check the editable field at the clicked point before any text is typed.
+      // Checking the point (not whatever has focus) keeps a stale focused field from passing.
+      const focus = await context.linux.click({ x: point.x, y: point.y, button: "left", activeWindow: window });
+      if (focus.supported !== true || focus.clicked !== true) return failedDesktopAction<DesktopSetFieldResult>(tool, "click_failed", focus);
+      const pointRead = scope === undefined || context.linux.readTextAtPoint === undefined
+        ? undefined
+        : { ...scope, x: point.x, y: point.y };
+      if (pointRead === undefined) {
+        return toolFailure<DesktopSetFieldResult>({
+          tool,
+          riskLevel: "medium",
+          strategy: "gui_control",
+          error: { code: "accessibility_unavailable", message: "set_field needs AT-SPI to confirm the field, so nothing was typed. desktop.type_text enters text without a read-back." },
+          observations: ["No text was typed."]
+        });
+      }
+      let before: Awaited<ReturnType<NonNullable<typeof context.linux.readTextAtPoint>>> | undefined;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await pauseFor(attempt === 0 ? 150 : 250);
+        before = await context.linux.readTextAtPoint!(pointRead);
+        if (before.supported !== true || before.found !== true || before.focused === true) break;
+      }
+      if (before === undefined || before.supported !== true) {
+        return toolFailure<DesktopSetFieldResult>({
+          tool,
+          riskLevel: "medium",
+          strategy: "gui_control",
+          error: { code: "accessibility_unavailable", message: `AT-SPI could not check the field: ${before?.reason ?? "no answer"}. Nothing was typed.` },
+          observations: ["No text was typed."]
+        });
+      }
+      if (before.found !== true) {
+        return toolFailure<DesktopSetFieldResult>({
+          tool,
+          riskLevel: "medium",
+          strategy: "gui_control",
+          error: { code: "field_not_exposed", message: "No editable text field is exposed through AT-SPI at that point, so nothing was typed. Password and some custom fields are not exposed; use desktop.type_text only if you accept an unverified entry." },
+          observations: ["No text was typed.", "Check the target with desktop.screenshot, or pass a label and role."]
+        });
+      }
+      if (before.sensitive === true) {
+        return toolFailure<DesktopSetFieldResult>({
+          tool,
+          riskLevel: "medium",
+          strategy: "gui_control",
+          error: { code: "sensitive_field", message: "The field is a password or hidden field, so nothing was typed. The operator must enter secrets." },
+          observations: ["No text was typed."]
+        });
+      }
+      if (before.focused !== true) {
+        return toolFailure<DesktopSetFieldResult>({
+          tool,
+          riskLevel: "medium",
+          strategy: "gui_control",
+          error: { code: "field_not_focused", message: "The click did not focus the editable field, so nothing was typed." },
+          observations: ["No text was typed.", "Check the target with desktop.screenshot, or pass a label and role."]
+        });
+      }
+      const previous = typeof before.text === "string" ? before.text : undefined;
+
+      // Replace selects everything first; append moves to the end so the read-back can be exact.
+      const positioned = await context.linux.hotkey({ keys: replace ? ["ctrl", "a"] : ["ctrl", "End"], activeWindow: window });
+      if (positioned.supported !== true || positioned.sent !== true) return failedDesktopAction(tool, "select_failed", positioned);
+
+      let backend = focus.backend;
+      if (input.text.length > 0) {
+        const typed = await context.linux.typeText({ text: input.text, activeWindow: window });
+        if (typed.supported !== true || typed.typed !== true) return failedDesktopAction(tool, "type_failed", typed);
+        backend = typed.backend;
+      } else if (replace) {
+        const cleared = await context.linux.hotkey({ keys: ["BackSpace"], activeWindow: window });
+        if (cleared.supported !== true || cleared.sent !== true) return failedDesktopAction(tool, "clear_failed", cleared);
+      }
+
+      // Read back from the same point: the field that was checked is the one that must hold the text.
+      const expected = replace ? input.text : previous === undefined ? undefined : previous + input.text;
+      const samples: Array<{ readable: boolean; text?: string | undefined }> = [];
+      if (expected !== undefined) {
+        for (let attempt = 0; attempt < 4; attempt += 1) {
+          await pauseFor(attempt === 0 ? 200 : 250);
+          const after = await context.linux.readTextAtPoint!(pointRead);
+          const sample = after.supported === true && after.found === true && after.sensitive !== true && typeof after.text === "string"
+            ? { readable: true, text: after.text }
+            : { readable: false };
+          samples.push(sample);
+          if (!sample.readable || sample.text === expected) break;
+        }
+      }
+      const verdict = readbackVerdict(expected, samples);
+      const target = resolved === undefined ? {} : { resolved: { label: input.label, ...resolved } };
+
+      if (verdict.confirmed === false) {
+        return toolFailure<DesktopSetFieldResult>({
+          tool,
+          riskLevel: "medium",
+          strategy: "gui_control",
+          error: {
+            code: "readback_mismatch",
+            message: `The field holds ${verdict.observedLength ?? "an unknown number of"} characters, not the ${input.text.length} requested. Check the screen before retrying.`,
+            details: { expectedCharacters: expected?.length ?? null, observedCharacters: verdict.observedLength ?? null, ...target }
+          },
+          observations: ["The text was typed, but the field does not show it.", "Check the target with desktop.screenshot before retrying."]
+        });
+      }
+
+      const data: DesktopSetFieldResult = {
+        supported: true,
+        backend,
+        set: true,
+        confirmed: verdict.confirmed,
+        replaced: replace,
+        characterCount: input.text.length,
+        ...(verdict.observedLength === undefined ? {} : { observedLength: verdict.observedLength }),
+        activeWindow: window,
+        reason: verdict.confirmed === true ? "The field reads back as expected." : "AT-SPI could not read the field back."
+      };
+      return toolSuccess({
+        tool,
+        riskLevel: "medium",
+        strategy: "gui_control",
+        data: { ...data, ...target },
+        observations: [
+          verdict.confirmed === true
+            ? `Set ${input.text.length} characters and read them back.`
+            : "Typed, but AT-SPI cannot read this field back, so the result is unverified. Check it with desktop.screenshot or screen.read."
+        ]
+      });
+    }
+  };
+
   const click: AgentHostToolDefinition<ClickInput, DesktopClickResult, AgentHostMcpContext> = {
     name: "desktop.click",
     description: "Clicks at absolute screen coordinates (x, y), or on a visible control named by label inside the active window. A label is resolved through AT-SPI, then OCR, and the preview shows the resolved point; a confirmed click is refused if that point moved. Disabled and ambiguous controls are refused, never clicked.",
@@ -1054,5 +1332,5 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
-  return [screenshot, hotkey, typeText, click, pointer];
+  return [screenshot, hotkey, typeText, setField, click, pointer];
 }

@@ -636,10 +636,16 @@ export function createBaseCapabilityRegistry(): CapabilityRegistry {
       description: "Types text into the active window when policy and safety allow it."
     },
     {
+      name: "desktop.set_field",
+      riskLevel: "medium" as const,
+      strategy: "gui_control" as const,
+      description: "Focuses a text field by label or coordinates, replaces or appends its text, and reads it back through AT-SPI; refuses password fields and clicks that focus no editable field."
+    },
+    {
       name: "desktop.click",
       riskLevel: "medium" as const,
       strategy: "gui_control" as const,
-      description: "Clicks screen coordinates when policy and active-window context allow it."
+      description: "Clicks screen coordinates, or a visible control named by label through AT-SPI with OCR fallback, when policy and active-window context allow it."
     },
     ...["desktop.move_mouse", "desktop.scroll", "desktop.double_click", "desktop.right_click", "desktop.drag"].map((name) => ({
       name,

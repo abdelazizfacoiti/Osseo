@@ -1381,6 +1381,32 @@ export interface AccessibilityFindElementResult {
   reason: string;
 }
 
+export interface AccessibilityFieldAtPointResult {
+  supported: boolean;
+  backend: string;
+  found: boolean;
+  reason: string;
+  role?: string;
+  focused?: boolean;
+  sensitive?: boolean;
+  /** Internal read-back only: never returned to an agent and never logged. */
+  text?: string;
+  length?: number;
+}
+
+export interface DesktopSetFieldResult {
+  supported: boolean;
+  backend: string;
+  set: boolean;
+  /** true: the field reads back as expected; false: it does not; "unknown": AT-SPI could not read it. */
+  confirmed: boolean | "unknown";
+  replaced: boolean;
+  characterCount: number;
+  observedLength?: number;
+  activeWindow: DesktopWindowContext;
+  reason: string;
+}
+
 export interface AccessibilityInspectElementResult {
   supported: boolean;
   backend: string;
