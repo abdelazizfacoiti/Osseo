@@ -207,6 +207,10 @@ the MCP process is owned by the client.
 
 ## Files and shell
 
+On Windows the path policy and the shell classifier use Windows rules (drive
+letters, UNC paths, `%NAME%`, PowerShell and cmd patterns). See
+[the platforms doc](13_PLATFORMS.md#windows-headless-w1) for what is covered.
+
 Read-only: `file.read`, `file.read_many`, `file.list`, `file.search`, `file.exists`. `file.list` supports bounded recursion; `file.search` returns matching paths and line numbers without file contents. Routine state-changing:
 `file.write`, `file.ensure_dir`, `file.copy`, `file.move`. `file.delete`
 requires an exact confirmation. `file.delete` is file-only; recursive

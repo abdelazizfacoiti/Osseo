@@ -23,7 +23,7 @@ GUI clicking/typing is fallback only. Use guide mode for unsupported or sensitiv
 
 ## Current milestone
 
-**Accuracy, cost, and Windows** (plan: AgentHost accuracy, cost, and Windows). Milestones 1–3 are done: verified actions, label and screenshot-id targeting, set_field with read-back, file dialogs, lean results, `screen.read`, plan expectations, and the form benchmark gate. Milestone 4 (Windows) is in progress: headless first (W1), then the desktop adapter (W2), overlay and approvals (W3), and packaging (W4). Keep the P0 rules: previews and confirmation tokens for consequential actions, stop/takeover, audit, and truthful manifests. Verify source, tests, build, and smoke before claiming completion.
+**Accuracy, cost, and Windows** (plan: AgentHost accuracy, cost, and Windows). Milestones 1–3 are done: verified actions, label and screenshot-id targeting, set_field with read-back, file dialogs, lean results, `screen.read`, plan expectations, and the form benchmark gate. Milestone 4 (Windows) is in progress: W1 (headless: paths, shell rules, process trees, browser discovery, access lists, start-up guards) is implemented and waits for a run on Windows (`scripts\windows-check.ps1`); then the desktop adapter (W2), overlay and approvals (W3), and packaging (W4). Keep the P0 rules: previews and confirmation tokens for consequential actions, stop/takeover, audit, and truthful manifests. Verify source, tests, build, and smoke before claiming completion.
 
 ## Architecture rules
 
@@ -53,6 +53,8 @@ packages/
 | `npm start:mcp` | Run MCP server |
 | `npm run smoke:mcp` | Smoke test |
 | `npm run check:live` | End-to-end check of this build (79 checks): CLI help and resume, verified clicks, typing, labels, set_field and screenshot ids on a nested display, self-pause, headless-Chrome forms with an iframe, session end (cards close when the client disconnects), file dialogs, and plan expectations. Opens a small window on your screen for about a minute. |
+| `npm run test:windows` | The unit tests that do not assume Linux (run in the `windows-headless` CI job and by `scripts\windows-check.ps1`) |
+| `node scripts/windows-smoke.mjs` | The built server over stdio on any OS: tools, files, protected paths, shell classification, browser, tasks |
 | `npm run benchmark:form` | One form task three ways (pixel before, pixel after, browser) with the gate: 50% fewer calls, 40% fewer bytes, no unverified successes. The pixel routes need headed Chrome, Xephyr, and GTK. |
 | `npm run benchmark:agent` | Non-destructive runner/plan overhead benchmark in an isolated home |
 | `npm run benchmark:desktop` | Non-destructive Linux desktop-backend latency benchmark |
