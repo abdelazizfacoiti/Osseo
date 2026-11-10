@@ -22,7 +22,7 @@ declare(["agent.status"], readOnly());
 declare(["agent.stop", "agent.takeover_begin", "agent.request_handoff"], metadataOnly());
 declare(["task.create", "task.status", "task.update", "task.update_status", "task.add_event", "task.list", "workflow.save", "workflow.list", "workflow.get", "workflow.delete", "memory.save", "memory.search", "memory.delete"], metadataOnly());
 declare([
-  "app.open", "app.open_url", "computer.run_steps", "desktop.click", "desktop.hotkey", "desktop.pointer", "desktop.screenshot", "desktop.set_field", "desktop.type_text", "file.copy", "file.ensure_dir", "file.move", "file.write", "shell.run", "window.focus", "ui.activate", "ui.set_text", "clipboard.set", "browser.open", "browser.click", "browser.type", "browser.navigate", "browser.close", "browser.select", "browser.fill"
+  "app.open", "app.open_url", "computer.run_steps", "desktop.click", "desktop.hotkey", "desktop.pointer", "desktop.file_dialog_select", "desktop.screenshot", "desktop.set_field", "desktop.type_text", "file.copy", "file.ensure_dir", "file.move", "file.write", "shell.run", "window.focus", "ui.activate", "ui.set_text", "clipboard.set", "browser.open", "browser.click", "browser.type", "browser.navigate", "browser.close", "browser.select", "browser.fill"
 ], directStateChanging());
 declare(["file.delete"], confirmedStateChanging());
 declare(["browser.upload"], confirmedStateChanging());

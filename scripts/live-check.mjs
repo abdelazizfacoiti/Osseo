@@ -495,6 +495,78 @@ async function sessionExitChecks(root) {
   }
 }
 
+const DIALOG_PROBE = `
+import gi, sys
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk
+out, title = sys.argv[1], sys.argv[2]
+is_open = title.lower().startswith("open")
+action = Gtk.FileChooserAction.OPEN if is_open else Gtk.FileChooserAction.SAVE
+dlg = Gtk.FileChooserDialog(title=title, action=action)
+dlg.add_buttons("Cancel", Gtk.ResponseType.CANCEL, "Open" if is_open else "Save", Gtk.ResponseType.OK)
+dlg.set_default_size(480, 320)
+dlg.move(0, 0)
+def on_response(d, response):
+    if response == Gtk.ResponseType.OK:
+        open(out, "w", encoding="utf8").write(d.get_filename() or "")
+    d.destroy()
+    Gtk.main_quit()
+dlg.connect("response", on_response)
+dlg.show_all()
+Gtk.main()
+`;
+
+async function fileDialogChecks(root) {
+  console.log("== File dialogs (a nested display opens for a few seconds)");
+  const display = freeDisplay();
+  const work = path.join(root, "dialog-work");
+  mkdirSync(work, { recursive: true });
+  const home = path.join(root, "dialog-home");
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  const config = path.join(home, "config.json");
+  writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
+  const picked = path.join(work, "picked.txt");
+  writeFileSync(picked, "chosen");
+  const dialogScript = path.join(work, "dialog_probe.py");
+  writeFileSync(dialogScript, DIALOG_PROBE);
+  const started = [];
+  try {
+    started.push(spawn("Xephyr", [display, "-screen", "800x600", "-no-host-grab"], { env: { ...process.env, DISPLAY: HOST_DISPLAY }, stdio: "ignore" }));
+    for (let attempt = 0; attempt < 60 && !existsSync(`/tmp/.X11-unix/X${display.slice(1)}`); attempt += 1) await sleep(100);
+    const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config, DISPLAY: display, XDG_SESSION_TYPE: "x11" };
+    const openOut = path.join(work, "opened.txt");
+    started.push(spawn("python3", ["-W", "ignore", dialogScript, openOut, "Open File"], { env: { ...process.env, DISPLAY: display }, stdio: "ignore" }));
+    await sleep(2000);
+    const server = spawn(process.execPath, [SERVER], { env, stdio: ["pipe", "pipe", "pipe"] });
+    started.push(server);
+    const mcp = mcpClient(server);
+    await mcp.initialize();
+    const listed = await mcp.call("window.list", { includeTitles: true });
+    const dialog = listed.body?.data?.windows?.find((item) => item.title === "Open File");
+    check("AgentHost lists the open file dialog with its window id", Boolean(dialog), dialog ? `window ${dialog.windowId}` : JSON.stringify(listed.body?.error ?? "not listed"));
+    if (dialog) {
+      const selected = await mcp.call("desktop.file_dialog_select", { path: picked, windowId: dialog.windowId });
+      await sleep(300);
+      check("file_dialog_select types the path, submits it, and the dialog closes", selected.ok && selected.body?.data?.closed === true, selected.error ?? JSON.stringify(selected.body?.observations ?? []));
+      check("the dialog accepted exactly the requested file", existsSync(openOut) && readFileSync(openOut, "utf8") === picked, existsSync(openOut) ? `got ${JSON.stringify(readFileSync(openOut, "utf8"))}` : "no result written");
+    }
+    const savePath = path.join(work, "should-not-exist.txt");
+    started.push(spawn("python3", ["-W", "ignore", dialogScript, path.join(work, "saved.txt"), "Save File"], { env: { ...process.env, DISPLAY: display }, stdio: "ignore" }));
+    await sleep(2000);
+    const save = await mcp.call("desktop.file_dialog_select", { path: savePath, dialogTitle: "Save File" });
+    check("file_dialog_select refuses a Save dialog and writes nothing", save.error === "save_dialog_refused" && !existsSync(savePath), save.error ?? "accepted");
+  } finally {
+    for (const child of started.reverse()) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        /* Already gone. */
+      }
+    }
+    await sleep(500);
+  }
+}
+
 async function main() {
   if (!existsSync(SERVER) || !existsSync(CLI)) {
     console.log("Build first: npm run build");
@@ -561,6 +633,7 @@ async function main() {
     }
 
     await sessionExitChecks(root);
+    await fileDialogChecks(root);
   } finally {
     for (const child of children.reverse()) {
       try {

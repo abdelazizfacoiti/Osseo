@@ -206,7 +206,10 @@ async function actionTargetFor(toolName: string, input: unknown, context: AgentH
   return undefined;
 }
 
-const STATE_RESULT_FAMILIES = new Set(["desktop", "window", "file", "shell"]);
+// Families whose state-changing results report the windows that appeared during the call.
+const STATE_RESULT_FAMILIES = new Set(["app", "computer", "desktop", "file", "shell", "ui", "window"]);
+// AgentHost's own card windows (see gtk3-renderer.py). They must never count as new windows.
+const AGENTHOST_WINDOW_TITLES = new Set(["AgentHost Overlay", "AgentHost Sidebar"]);
 type CapturedToolState = Omit<ToolStateSnapshot, "newlyAppearedWindows"> & {
   windows?: NonNullable<ToolStateSnapshot["newlyAppearedWindows"]>;
 };
@@ -240,7 +243,10 @@ function attachStateDelta(result: ToolResult, before: CapturedToolState | undefi
   const windowChanged = JSON.stringify(beforeActive ?? null) !== JSON.stringify(afterActive ?? null);
   const newlyAppearedWindows = before.windows === undefined
     ? []
-    : (afterWindows ?? []).filter((window) => !before.windows!.some((prior) => prior.windowId === window.windowId)).slice(0, 8);
+    : (afterWindows ?? [])
+      .filter((window) => window.title === undefined || !AGENTHOST_WINDOW_TITLES.has(window.title))
+      .filter((window) => !before.windows!.some((prior) => prior.windowId === window.windowId))
+      .slice(0, 8);
   result.state = {
     ...afterState,
     windowChanged,

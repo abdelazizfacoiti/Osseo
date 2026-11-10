@@ -193,10 +193,16 @@ export function createComputerTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
           ? undefined
           : await context.linux.fileExists({ path: fileConditionPath ?? input.fileExists }).catch(() => ({ exists: false }));
         const fileMatched = input.fileExists === undefined || file?.exists === true;
+        // A title match names its window too, so the caller can act on it by windowId.
+        const titleWindow = input.titleMatches === undefined
+          ? undefined
+          : (active.activeWindow?.title?.toLowerCase().includes(input.titleMatches.toLowerCase()) === true
+            ? active.activeWindow
+            : windows?.windows.find((entry) => entry.title?.toLowerCase().includes(input.titleMatches!.toLowerCase()) === true));
         const state = {
           activeWindow: active.activeWindow,
           screen: screen.supported ? screen.bounds : undefined,
-          window: matchedWindow,
+          window: matchedWindow ?? titleWindow,
           capturedAt: new Date().toISOString()
         };
         lastState = state;

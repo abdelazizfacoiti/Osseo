@@ -12,8 +12,10 @@ import {
   type DesktopHotkeyResult,
   type DesktopScreenshotResult,
   type DesktopTypeTextResult,
+  type DesktopFileDialogSelectResult,
   type DesktopSetFieldResult,
   type DesktopWindowContext,
+  type DesktopWindowSummary,
   type ToolResult
 } from "@agenthost/core";
 import { z } from "zod";
@@ -23,7 +25,7 @@ import { createHash, randomUUID as effectId } from "node:crypto";
 import { join as joinEffectPath } from "node:path";
 import { downscaleToJpeg, measureEffect, type EffectResult } from "@agenthost/os-linux";
 import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { AgentHostToolDefinition, AnyAgentHostToolDefinition, ToolPreviewEffect } from "../tool-runner.js";
 import { createSafetyEvaluationContext } from "../grants.js";
 
 const nonEmptyString = z.string().trim().min(1).max(1000);
@@ -207,6 +209,62 @@ function labelLocator(context: AgentHostMcpContext, input: { label?: string | un
     return resolved.ok
       ? { ok: true, point: resolved.target.point, data: { resolved: { label, ...resolved.target } } }
       : { ok: false, code: resolved.code, message: resolved.message, data: { resolved: { label, code: resolved.code, candidates: resolved.candidates } } };
+  };
+}
+
+const fileDialogSelectInputSchema = z.object({
+  path: z.string().trim().min(1).max(1000),
+  windowId: z.string().trim().min(1).max(200).optional(),
+  dialogTitle: z.string().trim().min(1).max(200).optional(),
+  waitMs: z.number().int().min(500).max(15_000).optional(),
+  dryRun: z.boolean().optional(),
+  confirmationToken: confirmationTokenSchema
+}).strict();
+
+type FileDialogSelectInput = z.infer<typeof fileDialogSelectInputSchema>;
+
+// Strict on purpose: "Open Gmail - Firefox" is a browser window, not a file dialog.
+const FILE_DIALOG_TITLE = /^(open|save as|save|choose|select|upload)( (file|files|image|document))?$/i;
+
+type FileDialogFound =
+  | { ok: true; window: DesktopWindowSummary }
+  | { ok: false; code: string; message: string; candidates: string[] };
+
+/** The file dialog to act on: by windowId (preferred), by title text, or the only strict match. */
+async function findFileDialog(context: AgentHostMcpContext, input: { windowId?: string | undefined; dialogTitle?: string | undefined }): Promise<FileDialogFound> {
+  const listed = await context.linux.listWindows({ limit: 100, includeTitles: true }).catch(() => undefined);
+  const windows = (listed?.windows ?? []).filter((item) => item.title === undefined || !item.title.startsWith("AgentHost "));
+  if (input.windowId !== undefined) {
+    const match = windows.find((item) => item.windowId === input.windowId);
+    return match === undefined
+      ? { ok: false, code: "dialog_not_found", message: `No open window has id ${input.windowId}.`, candidates: [] }
+      : { ok: true, window: match };
+  }
+  const titled = windows.filter((item) => item.title !== undefined && (
+    input.dialogTitle === undefined
+      ? FILE_DIALOG_TITLE.test(item.title.trim())
+      : item.title.toLowerCase().includes(input.dialogTitle.toLowerCase())
+  ));
+  if (titled.length === 0) {
+    return { ok: false, code: "dialog_not_found", message: "No open file dialog was found. Open the dialog first, then pass its windowId (from window.list) or dialogTitle.", candidates: [] };
+  }
+  if (titled.length > 1) {
+    return { ok: false, code: "dialog_ambiguous", message: "More than one file dialog matches. Pass windowId.", candidates: titled.map((item) => `${item.windowId}: ${item.title}`) };
+  }
+  return { ok: true, window: titled[0]! };
+}
+
+/** Whether the dialog would write a file (a Save dialog). Selecting a path there overwrites or creates one. */
+function isSaveDialog(window: DesktopWindowSummary): boolean {
+  return /\bsave\b/i.test(window.title ?? "");
+}
+
+function dialogContext(window: DesktopWindowSummary): DesktopWindowContext {
+  return {
+    windowId: window.windowId,
+    ...(window.appName === undefined ? {} : { appName: window.appName }),
+    ...(window.title === undefined ? {} : { title: window.title }),
+    ...(window.pid === undefined ? {} : { pid: window.pid })
   };
 }
 
@@ -1094,6 +1152,117 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
+  const fileDialogSelect: AgentHostToolDefinition<FileDialogSelectInput, DesktopFileDialogSelectResult, AgentHostMcpContext> = {
+    name: "desktop.file_dialog_select",
+    description: "Picks a file in an open file dialog: focuses the dialog (by windowId, or by dialogTitle when it is the only match), types the path into its location bar (ctrl+L, pasted), presses Return, and checks that the dialog closed. The path must pass the file read policy. Refuses Save dialogs (they would write a file) and nothing is typed when no single dialog matches.",
+    riskLevel: "medium",
+    inputSchema: fileDialogSelectInputSchema,
+    mcpInputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", minLength: 1, maxLength: 1000, description: "Absolute path of the file to pick." },
+        windowId: { type: "string", minLength: 1, maxLength: 200, description: "The dialog's window id from window.list or a state result. Preferred." },
+        dialogTitle: { type: "string", minLength: 1, maxLength: 200, description: "Title text that identifies the dialog, when windowId is not known." },
+        waitMs: { type: "integer", minimum: 500, maximum: 15000, description: "How long to wait for the dialog to close. Default 5000." },
+        ...executionMcpProperties
+      },
+      required: ["path"],
+      additionalProperties: false
+    },
+    inputSummary: "Select file in dialog",
+    auditInputSummary: (i) => `Select a file in a file dialog${i.windowId === undefined ? "" : ` (window ${i.windowId})`}; path omitted.`,
+    preview: {
+      isDryRun: (i) => i.dryRun === true,
+      resolveEffect: async (i, context): Promise<ToolPreviewEffect> => {
+        const fileName = path.basename(i.path);
+        const policy = evaluateSafety(
+          { tool: "desktop.file_dialog_select", actionType: "file_read", filePath: normalizePathForPolicy(i.path, { agentHostDir: context.config.agentHostDir }), strategy: "cli_or_script" },
+          context.policy,
+          createSafetyEvaluationContext(context)
+        );
+        const found = await findFileDialog(context, i);
+        if (!found.ok) {
+          return { summary: `Not selected: ${found.message}`, targetFingerprint: `filedialog:none:${fingerprintText(i.path)}`, riskLevel: "medium", approval: { required: false, status: "not_required" }, blocked: true, reasons: [found.message], blockedCode: found.code, data: { candidates: found.candidates } };
+        }
+        if (isSaveDialog(found.window)) {
+          const message = "This is a Save dialog. Selecting a path there would write a file, so it is refused.";
+          return { summary: `Not selected: ${message}`, targetFingerprint: `filedialog:save:${found.window.windowId}`, riskLevel: "medium", approval: { required: false, status: "not_required" }, blocked: true, reasons: [message], blockedCode: "save_dialog_refused" };
+        }
+        if (!policy.allowed) {
+          return { summary: "Not selected: the path is blocked by the file policy.", targetFingerprint: `filedialog:blocked:${found.window.windowId}`, riskLevel: policy.riskLevel, approval: policy.approval, blocked: true, reasons: policy.reasons, blockedCode: "path_blocked" };
+        }
+        return {
+          summary: `Select ${fileName} in the file dialog "${found.window.title ?? found.window.windowId}" (window ${found.window.windowId}).`,
+          targetFingerprint: `filedialog:${found.window.windowId}:${fingerprintText(i.path)}`,
+          riskLevel: policy.riskLevel,
+          approval: policy.approval,
+          requiresConfirmation: policy.approval.required === true || policy.riskLevel === "high",
+          reasons: policy.reasons,
+          data: { windowId: found.window.windowId, title: found.window.title ?? null, appName: found.window.appName ?? null }
+        };
+      }
+    },
+    safety: { actionType: "inspect", getInput: () => ({}) },
+    async handler(input, context): Promise<ToolResult<DesktopFileDialogSelectResult>> {
+      const tool = "desktop.file_dialog_select";
+      const policy = evaluateSafety(
+        { tool, actionType: "file_read", filePath: normalizePathForPolicy(input.path, { agentHostDir: context.config.agentHostDir }), strategy: "cli_or_script" },
+        context.policy,
+        createSafetyEvaluationContext(context)
+      );
+      if (!policy.allowed) return safetyFailure(tool, policy);
+
+      const found = await findFileDialog(context, input);
+      if (!found.ok) {
+        return toolFailure({ tool, riskLevel: "medium", strategy: "gui_control", error: { code: found.code, message: found.message, details: { candidates: found.candidates } }, observations: [found.message, "No path was typed."] });
+      }
+      const dialog = found.window;
+      if (isSaveDialog(dialog)) {
+        return toolFailure({ tool, riskLevel: "medium", strategy: "gui_control", error: { code: "save_dialog_refused", message: "This is a Save dialog. Selecting a path there would write a file, so nothing was typed." }, observations: ["No path was typed."] });
+      }
+      const activeWindow = dialogContext(dialog);
+
+      const focus = await context.linux.focusWindow({ windowId: dialog.windowId });
+      if (focus.supported !== true || focus.focused !== true) {
+        return toolFailure({ tool, riskLevel: "medium", strategy: "gui_control", error: { code: "dialog_focus_failed", message: "The dialog could not be focused, so no path was typed." }, observations: ["No path was typed."] });
+      }
+      const location = await context.linux.hotkey({ keys: ["ctrl", "l"], activeWindow });
+      if (location.supported !== true || location.sent !== true) return failedDesktopAction(tool, "hotkey_failed", location);
+      const typed = await context.linux.typeText({ text: input.path, activeWindow });
+      if (typed.supported !== true || typed.typed !== true) return failedDesktopAction(tool, "type_failed", typed);
+      const submitted = await context.linux.hotkey({ keys: ["Return"], activeWindow });
+      if (submitted.supported !== true || submitted.sent !== true) return failedDesktopAction(tool, "submit_failed", submitted);
+
+      // An accepted file closes the dialog. Poll for that instead of guessing a delay.
+      const deadline = Date.now() + (input.waitMs ?? 5_000);
+      let closed = false;
+      while (Date.now() < deadline) {
+        await pauseFor(250);
+        const listed = await context.linux.listWindows({ limit: 100, includeTitles: true }).catch(() => undefined);
+        if (listed !== undefined && !listed.windows.some((item) => item.windowId === dialog.windowId)) {
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) {
+        return toolFailure({
+          tool,
+          riskLevel: "medium",
+          strategy: "gui_control",
+          error: { code: "dialog_still_open", message: "The dialog is still open: the path may not exist, or the dialog wants another confirmation. Check the screen before retrying." },
+          observations: ["The path was typed and submitted.", "Check the dialog with desktop.screenshot."]
+        });
+      }
+      return toolSuccess({
+        tool,
+        riskLevel: "medium",
+        strategy: "gui_control",
+        data: { supported: true, backend: typed.backend, selected: true, closed: true, windowId: dialog.windowId, reason: "The dialog closed after the path was submitted." },
+        observations: ["Selected the file and the dialog closed."]
+      });
+    }
+  };
+
   const click: AgentHostToolDefinition<ClickInput, DesktopClickResult, AgentHostMcpContext> = {
     name: "desktop.click",
     description: "Clicks at absolute screen coordinates (x, y), or on a visible control named by label inside the active window. A label is resolved through AT-SPI, then OCR, and the preview shows the resolved point; a confirmed click is refused if that point moved. Disabled and ambiguous controls are refused, never clicked.",
@@ -1332,5 +1501,5 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
-  return [screenshot, hotkey, typeText, setField, click, pointer];
+  return [screenshot, hotkey, typeText, setField, fileDialogSelect, click, pointer];
 }

@@ -243,6 +243,7 @@ describe("CapabilityRegistry", () => {
       "desktop.hotkey",
       "desktop.type_text",
     "desktop.set_field",
+    "desktop.file_dialog_select",
       "desktop.click",
       "desktop.move_mouse",
       "desktop.scroll",

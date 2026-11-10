@@ -642,6 +642,12 @@ export function createBaseCapabilityRegistry(): CapabilityRegistry {
       description: "Focuses a text field by label or coordinates, replaces or appends its text, and reads it back through AT-SPI; refuses password fields and clicks that focus no editable field."
     },
     {
+      name: "desktop.file_dialog_select",
+      riskLevel: "medium" as const,
+      strategy: "gui_control" as const,
+      description: "Picks a file in an open file dialog by windowId or dialog title: types the path into the location bar, submits it, and checks that the dialog closed. Refuses Save dialogs and paths the file policy blocks."
+    },
+    {
       name: "desktop.click",
       riskLevel: "medium" as const,
       strategy: "gui_control" as const,

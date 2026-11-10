@@ -1394,6 +1394,15 @@ export interface AccessibilityFieldAtPointResult {
   length?: number;
 }
 
+export interface DesktopFileDialogSelectResult {
+  supported: boolean;
+  backend: string;
+  selected: boolean;
+  closed: boolean;
+  windowId: string;
+  reason: string;
+}
+
 export interface DesktopSetFieldResult {
   supported: boolean;
   backend: string;
