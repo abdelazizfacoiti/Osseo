@@ -23,11 +23,15 @@ export interface LabelCandidate {
   role?: string;
   center: { x: number; y: number };
   enabled?: boolean;
+  /** The control's box; present for accessibility matches only. */
+  bounds?: DesktopWindowBounds;
   source: "accessibility" | "ocr";
 }
 
 export interface LabelTarget {
   point: { x: number; y: number };
+  /** The control's box; present for accessibility matches only (used by guide.show). */
+  bounds?: DesktopWindowBounds;
   source: "accessibility" | "ocr";
   name: string;
   role?: string;
@@ -108,6 +112,7 @@ async function accessibilityItems(
       name,
       role: candidate.role,
       center,
+      bounds: candidate.bounds,
       ...(candidate.enabled === undefined ? {} : { enabled: candidate.enabled }),
       source: "accessibility"
     }];
@@ -150,6 +155,7 @@ function fromChoice(choice: Choice, query: LabelQuery): LabelResolution | undefi
         ok: true,
         target: {
           point: choice.item.center,
+          ...(choice.item.bounds === undefined ? {} : { bounds: choice.item.bounds }),
           source: choice.item.source,
           name: choice.item.name,
           ...(choice.item.role === undefined ? {} : { role: choice.item.role }),

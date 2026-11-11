@@ -243,6 +243,8 @@ describe("CapabilityRegistry", () => {
       "desktop.hotkey",
       "desktop.type_text",
     "screen.read",
+    "guide.show",
+    "guide.clear",
     "desktop.set_field",
     "desktop.file_dialog_select",
       "desktop.click",

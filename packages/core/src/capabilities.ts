@@ -642,6 +642,18 @@ export function createBaseCapabilityRegistry(): CapabilityRegistry {
       description: "Outline of the active window from the accessibility tree (roles, names, enabled state, bounds; no text), capped in bytes. Falls back to a screenshot hint."
     },
     {
+      name: "guide.show",
+      riskLevel: "low" as const,
+      strategy: "gui_control" as const,
+      description: "Guide mode: draws highlight boxes with text labels where the person should click. Never clicks."
+    },
+    {
+      name: "guide.clear",
+      riskLevel: "low" as const,
+      strategy: "gui_control" as const,
+      description: "Removes the marks guide.show drew."
+    },
+    {
       name: "desktop.set_field",
       riskLevel: "medium" as const,
       strategy: "gui_control" as const,

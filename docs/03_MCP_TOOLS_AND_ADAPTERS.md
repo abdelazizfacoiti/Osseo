@@ -33,6 +33,8 @@ present before the call. Missing backend data is omitted rather than guessed.
 | `ui.tree` | low | read_only (AT-SPI tree of an app or the active window) |
 | `ui.find` | low | read_only (elements by name/role with screen bounds) |
 | `screen.read` | low | read_only (text-free outline of the active window: roles, names, enabled state, bounds; capped in bytes, default 2048) |
+| `guide.show` | low | metadata only (draws highlight boxes with text labels where the person should click; never clicks) |
+| `guide.clear` | low | metadata only (removes the marks `guide.show` drew) |
 | `clipboard.get` | medium | read_only + exact confirmation (clipboard may hold secrets) |
 | `window.list` | low | read_only |
 | `file.read` | low | read_only |
@@ -280,6 +282,19 @@ the field reads back exactly, `false` is an error (`readback_mismatch`), and
 names, enabled state, and bounds, with no text content, capped in bytes. It is
 the cheap answer to "what is on screen"; a window with no outline returns a hint
 to take a screenshot.
+
+`guide.show` is guide mode: it draws a highlight box and a text label (`Step 1 of 3`,
+or `Tip` for one step) on each place the person should click. It never clicks. Use it
+when the person asks to be shown how, or when the app is sensitive or blocked for
+automation. Up to 8 steps; each is placed by screen `bounds`, by a rectangle in a
+`desktop.screenshot` picture (`screenshotId` plus `imageX`, `imageY`, `imageWidth`,
+`imageHeight`), or by a control `label` (accessibility tree only, with an optional
+`role`). If any step cannot be placed, nothing is shown and the error names the step
+(`screenshot_unknown`, `image_point_outside`, `label_not_found`, `label_ambiguous`,
+`bounds_off_screen`). A new `guide.show` replaces the previous guide; `guide.clear`
+removes it. `desktop.screenshot` does not show the marks, and while a guide is up,
+window-only captures hide and restore the cards as usual. The overlay keeps marks at
+most 300 seconds.
 
 ASCII text shorter than 512 characters uses a zero-delay `xdotool type`; longer
 or layout-unsafe text uses clipboard paste and fails explicitly when neither

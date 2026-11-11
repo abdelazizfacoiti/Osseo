@@ -40,7 +40,7 @@ describe("resolveLabelTarget (AT-SPI)", () => {
     const result = await resolveLabelTarget(context, ACTIVE, { label: "Send" }, { ocr: false });
     expect(result).toEqual({
       ok: true,
-      target: { point: { x: 140, y: 60 }, source: "accessibility", name: "Send", role: "push button", enabled: true }
+      target: { point: { x: 140, y: 60 }, bounds: { x: 100, y: 50, width: 80, height: 20 }, source: "accessibility", name: "Send", role: "push button", enabled: true }
     });
   });
 

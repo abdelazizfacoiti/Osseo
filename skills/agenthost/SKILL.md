@@ -142,6 +142,21 @@ coding tools directly.
 MCP clients may prefix tool names (for example `mcp__agenthost__desktop_click` or
 `agenthost_desktop_click`). Match on the suffix (`desktop.click` → `desktop_click`).
 
+## Guide mode
+
+Use `guide.show` when the person asks to be shown how, or when the app is sensitive or
+blocked for automation. It draws a box and a text label on each place the person should
+click. It never clicks: the person does. Place each step (up to 8) one of three ways:
+
+- `bounds` (screen x, y, width, height);
+- `screenshotId` with `imageX`, `imageY`, `imageWidth`, `imageHeight` (a rectangle in a
+  `desktop.screenshot` picture);
+- `label` (and optional `role`): the visible name of a control, found through the
+  accessibility tree.
+
+If a step cannot be placed, nothing is shown and the error says which step. Call
+`guide.clear` when the person is done. Screenshots do not show the marks.
+
 ## Fast-path recipes
 
 There is one autonomous policy. Do the task; do not ask for routine clicks.

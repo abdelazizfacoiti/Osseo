@@ -1,6 +1,7 @@
 import { mkdir } from "node:fs/promises";
 import { ensurePrivateDirectory } from "@agenthost/core";
 import { createScreenTools } from "./tools/screen.js";
+import { createGuideTools } from "./tools/guide.js";
 import { renderResultText, type OutputVerbosity, type StateHolder } from "./lean-output.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -549,6 +550,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     ...createFileTools(),
     ...createDesktopTools(),
     ...createScreenTools(),
+    ...createGuideTools(),
     ...createAppTools(),
     ...createComputerTools(),
     ...createTaskTools(),

@@ -20,6 +20,7 @@ import {
 } from "@agenthost/core";
 import { z } from "zod";
 import { resolveLabelTarget, type LabelResolution, type LabelTarget } from "../label-target.js";
+import { windowCaptureClean } from "./guide.js";
 import { imagePointToScreen, recallScreen, rememberScreen, sameBounds } from "../screenshot-registry.js";
 import { readFile as readEffectBytes, rm as removeEffectFile } from "node:fs/promises";
 import { createHash, randomUUID as effectId } from "node:crypto";
@@ -323,7 +324,7 @@ export async function settledPicture(
       format: "png",
       ...(region === undefined ? { includeActiveWindowOnly: true } : { region })
     });
-    const cleanWindow = region === undefined && context.workWindowCaptureClean === true;
+    const cleanWindow = region === undefined && windowCaptureClean(context);
     const data = context.overlayScreenshotSuppression === undefined || cleanWindow ? await capture() : await context.overlayScreenshotSuppression(capture);
     if (data.supported !== true || data.path === undefined || origin === undefined) return undefined;
     const size = await imageSize(png);
@@ -648,7 +649,7 @@ async function captureActiveWindow(context: AgentHostMcpContext): Promise<Buffer
       await removeEffectFile(file, { force: true }).catch(() => undefined);
     }
   };
-  return context.overlayScreenshotSuppression === undefined || context.workWindowCaptureClean === true ? run() : context.overlayScreenshotSuppression(run);
+  return context.overlayScreenshotSuppression === undefined || windowCaptureClean(context) ? run() : context.overlayScreenshotSuppression(run);
 }
 
 /** Runs an action and reports whether the window changed. Disabled callers get the action alone. */
@@ -860,7 +861,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         ...(input.scale === undefined ? {} : { scale: input.scale }),
         ...(input.region === undefined ? {} : { region: input.region })
       });
-      const cleanWindow = input.includeActiveWindowOnly === true && context.workWindowCaptureClean === true;
+      const cleanWindow = input.includeActiveWindowOnly === true && windowCaptureClean(context);
       const data = context.overlayScreenshotSuppression === undefined || cleanWindow
         ? await capture()
         : await context.overlayScreenshotSuppression(capture);

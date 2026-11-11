@@ -5,19 +5,50 @@
 [![platform](https://img.shields.io/badge/platform-linux%20x86__64-lightgrey.svg)](docs/08_RELEASE_AND_OPERATIONS.md)
 [![node](https://img.shields.io/badge/node-20%2B-green.svg)](docs/08_RELEASE_AND_OPERATIONS.md)
 
-**Give any AI agent a safe, visible body on a real computer.** AgentHost is a
-local, provider-agnostic computer-use runtime: the model reasons about a goal
-and composes computer, filesystem, shell, vision/OCR, and desktop capabilities
-to accomplish it — observing each result, verifying outcomes, and recovering
-from failures. Every action passes through schema validation → risk
-classification → policy check → preview/dry-run → confirmation → execution →
-redacted audit logging. Unlike other computer-use tools, **you can see
-what is happening**: an always-on current-task card shows the goal, current
-phase, step checklist, elapsed time, and pause/resume/stop controls; approval
-waits raise the card and send a desktop notification. Pointer primitives can
-highlight a target without intercepting clicks.
+**AgentHost lets any AI agent use your real computer, and you can see and stop everything it does.**
 
-## 60-second start (release archive)
+It is a local server that speaks MCP, the protocol AI coding tools use to call
+external tools. Connect it to your agent and the agent can open apps, click,
+type, read files, run commands and drive a browser. A panel on your screen
+shows each step as it happens, and you can pause or stop at any time.
+
+<!-- demo.gif goes here -->
+The demo will show an agent filling in a web form while the side dock lists
+each action, then a delete request waiting on an approval card.
+
+## What it does
+
+- Controls the desktop: click, type, press keys, take screenshots, list and focus windows.
+- Reads and writes files and runs shell commands, with protected system paths blocked.
+- Drives a browser on its own Chrome profile, never your personal profile, using element references instead of screen pixels.
+- Tracks work as tasks with a checklist, and saves repeatable plans as workflows with parameters.
+- Runs saved workflows on a schedule through systemd user timers.
+- Reports whether each click, key press or typed value changed the screen, so the agent does not guess.
+
+## Why it is different
+
+| | |
+|---|---|
+| Works with every MCP client | One server for Claude Code, Codex, Cursor, Copilot (VS Code and CLI), OpenCode and any other MCP client. Setup for these is built in. |
+| Safety you can check | Sending, uploading, deleting, reading private data and payments need your approval of the exact action, usable once. Every call goes to a redacted audit log. Pause and Stop buttons are on screen and the agent cannot press them. |
+| Guide mode | For apps the agent must not drive, `guide.show` draws labelled boxes on the places you should click. It never clicks. |
+
+More detail on how it stays accurate and visible:
+
+- Clicks can target a control by its visible name, or a point in a screenshot the agent just took. `desktop.set_field` types a value and reads it back.
+- A dock at the side of the screen shows a live timeline of what the agent did, the current task with its checklist, and Pause and Stop. Nothing floats over the work area.
+- Password, one-time-code and card fields are refused. Credential and security apps are blocked.
+- When a task finishes or the agent asks a question, the agent's own window comes back to the front (Claude Code).
+
+On the project's form benchmark, the browser route used over 50% fewer tool
+calls and over 40% fewer result bytes than clicking pixels. These are the
+benchmark's pass gate (`scripts/benchmark-form.mjs`). The test suite has over
+550 tests.
+
+## Quick start
+
+You need Linux x86_64 with an X11 session (Wayland works through XWayland) and
+Node 20 or newer. Download a release archive, then:
 
 ```bash
 sha256sum -c agenthost-v0.1.0-linux-x64.tar.gz.sha256
@@ -25,146 +56,42 @@ tar -xzf agenthost-v0.1.0-linux-x64.tar.gz
 cd agenthost-v0.1.0-linux-x64
 ./bin/agenthost.mjs doctor
 ./bin/agenthost.mjs setup
-./bin/agenthost.mjs integrations <client> add --apply
-./bin/agenthost.mjs start
 ```
 
-No `sudo`, no system services, no silent installs — AgentHost writes only its
-own user directories. Register the MCP server for the client you use:
+`doctor` checks your machine and lists missing desktop packages. Nothing runs
+as root and nothing is installed silently.
+
+Register the server with your agent. The command previews first; `--apply`
+writes one entry and backs up an existing config:
 
 ```bash
 agenthost integrations <client> add --apply   # opencode, claude, codex, copilot, copilot-cli, cursor
 ```
 
-Each command previews first. `--apply` writes one entry, preserves existing
-servers, and backs up an existing config file. Reload the client so it spawns
-`agenthost start`;
-do not run `agenthost start` manually for a client session. Any other MCP
-client can use the portable form:
+Reload the client so it starts AgentHost itself. Do not run `agenthost start`
+by hand for a client session. Any other MCP client can use this entry:
 
 ```json
-{
-  "mcpServers": {
-    "agenthost": { "command": "agenthost", "args": ["start"] }
-  }
-}
+{ "mcpServers": { "agenthost": { "command": "agenthost", "args": ["start"] } } }
 ```
 
-Works with Codex, Claude Code, Copilot (VS Code + CLI), OpenCode, Cursor, and
-any MCP client. Agent clients: don't ingest every tool schema up front — pull
-`agenthost://capabilities.md` first, or paste `agenthost capabilities --markdown`
-into static configs. Contributors: [`git clone` path below](#source-checkout).
+Then type this into the agent:
 
-Teach the assistant *when* to reach for AgentHost with the portable skill. The
-installer also registers the MCP server for the same clients:
+> Open Firefox and take a screenshot.
 
-```bash
-npm run skill:install -- --target all          # skill + MCP config for opencode, Claude Code, Codex, Copilot (VS Code + CLI), Cursor
-npm run skill:install -- --target copilot --project /path/to/repo
-npm run skill:install -- --target all --no-mcp # skill text only
-npm run skill:install -- --print               # paste into any other tool
-```
-
-The skill file lives at [`skills/agenthost/SKILL.md`](skills/agenthost/SKILL.md).
-
-## Why AgentHost
-
-| | AgentHost |
-|---|---|
-| **Safety model** | Risk tiers + capability grants + exact-preview, target-bound single-use tokens for consequential effects, with routine local actions direct + short-lived active-task approval for low/medium effects + a redacted audit entry on *every* call |
-| **Visibility** | Automatic ambient action pill, screen-edge frame, and target ring for every computer action by default (`overlay.mode` can limit it to state changes or turn it off), plus an active-task/activity card with goal, step checklist, elapsed time, and pause/resume/stop controls; optional 20% X11 dock layout; approval waits raise the card and send a desktop notification; pointer and highlight primitives pass clicks through |
-| **Speed** | Inspect-once/act/verify task guidance, duplicate-call nudges, WindowId focus, 2s window-list cache, and cached PATH lookups |
-| **Provider-agnostic** | Any model via MCP stdio; live capability resources keep system prompts small |
-| **Private by construction** | Local stdio transport, redacted logs/traces/overlays, emergency stop independent of the model |
-| **Verified** | Extensive Vitest suite, `build → lint → test` on every change, smoke-tested MCP handshake |
-
-Browser work uses ordinary desktop automation — focus, hotkeys, typing,
-screenshots, and OCR/vision — with no cookies, passwords, storage, or
-arbitrary JavaScript. Sensitive pages remain policy-gated, and failures
-surface honestly instead of pretending an action succeeded.
-
-## Honest performance numbers
-
-`npm run benchmark:desktop` on a live X11 workstation (non-destructive subset,
-21 iterations, real backends):
-
-| backend operation | median | p95 |
-|---|---|---|
-| active_window | 20.7 ms | 27.7 ms |
-| window_list (cold) | 17.1 ms | 24.5 ms |
-| window_list (warm cache) | 0.0 ms | 0.1 ms |
-| focus by windowId (no listing) | 20.8 ms | 26.9 ms |
-| screen geometry | 9.5 ms | 13.1 ms |
-| screenshot | 278.4 ms | 305.8 ms |
-
-`npm run benchmark:agent` measures full runner overhead (schema, policy,
-gates, preview, handler, audit) for observation, filesystem, and a governed
-`computer.run_steps` plan in an isolated home with overlays off.
-
-`npm run benchmark:tasks` runs 20 reproducible non-destructive scenarios in an
-isolated home. The latest run completed 20/20 scenarios with 22 governed tool
-calls in 839.4 ms total; desktop-input and OCR scenarios use mocked backends so
-the benchmark never types or clicks in the user’s desktop.
-
-Historical-to-current desktop comparison from the same X11 workstation:
-
-| operation | historical median / p95 | current median / p95 |
-|---|---:|---:|
-| active window | 20.7 / 27.7 ms | 12.9 / 21.6 ms |
-| cold window list | 17.1 / 24.5 ms | 14.9 / 20.7 ms |
-| screenshot | 278.4 / 305.8 ms | 192.4 / 206.6 ms |
-
-These are local runs, not portability claims; compositor, display, and backend
-availability change the numbers.
-
-No external benchmark claims — run it yourself and compare.
-
-## How it compares
-
-- **vs browser-only agents** (e.g. BrowserUse): AgentHost drives the whole
-  desktop — any app, terminal, files, hotkeys — not just web pages. Browser
-  work uses ordinary desktop automation instead of a bundled extension.
-- **vs terminal coding agents** (e.g. OpenInterpreter, Cline): same local-first
-  spirit, but AgentHost adds GUI grounding (click/type/focus with active-window
-  verification), visual narration, and a uniform confirmation/audit pipeline
-  across *all* tools instead of shell-only approvals.
-- **vs cloud computer-use** (e.g. Claude/OpenAI operator-style products):
-  AgentHost runs on your machine, under your policy, with your data never
-  leaving the machine. No account, no per-action API meter.
-
-## CLI
-
-```text
-agenthost doctor [--json]
-agenthost setup [--resume]
-agenthost start / stop / status
-agenthost confirmations [list] / confirm <tokenId> / deny <tokenId>
-agenthost agent status / pause / stop / takeover-begin / resume --stop|--takeover|--pause
-agenthost task watch <id> [--follow] [--notify] [--overlay]
-agenthost task export <id> [--format md|html] [--out <path>]
-agenthost task approve <id> [--max-risk low|medium]
-agenthost task pause <id> / task resume <id>
-agenthost overlay hide [--orphans] / overlay status
-agenthost integrations <client> add|status|remove [--project DIR] [--apply]
-```
-
-`start --background` is not supported: run `agenthost start` in the foreground
-or let the MCP client spawn it. `task export` renders a run's redacted event
-log to shareable Markdown or self-contained HTML — post your agent's runs in
-issues and PRs. See [task reports](examples/task-reports/README.md).
-
-## Source checkout
+<details>
+<summary>Build from a source checkout</summary>
 
 ```bash
 git clone https://github.com/abdelazizfacoiti/AgentHost.git
 cd AgentHost
-npm install
+npm ci
 npm run build
 npm run smoke:mcp
-npm test && npm run lint && npm run benchmark:desktop
+npm test
 ```
 
-Isolated dev home so experiments never touch your install:
+To keep experiments away from your install, use an isolated home:
 
 ```bash
 export AGENTHOST_HOME="$PWD/.agenthost"
@@ -172,36 +99,59 @@ export AGENTHOST_CONFIG="$PWD/.agenthost/config.json"
 npm run start:mcp
 ```
 
-## Safety boundary
+To install the portable skill that tells an assistant when to use AgentHost,
+and register the server in one step:
 
-- No public listeners, hidden persistence, or unsupported background process.
-- No credential extraction, CAPTCHA/MFA/login/payment bypass, or sudo.
-- No silent send/submit/upload/delete/pay/buy; no arbitrary generated code.
-- No access to the person's own browser profile, cookies, or storage (`browser.*` drives a separate AgentHost Chrome profile).
-- No raw private content, tokens, or secrets in logs or overlays.
-  Visual surfaces never control target applications.
+```bash
+npm run skill:install -- --target all
+```
 
-Details: [Security, permissions, and logging](docs/04_SECURITY_PERMISSIONS_AND_LOGGING.md).
+</details>
 
-## Roadmap
+## How approvals work
 
-- **P1 — less friction:** `doctor --fix` for missing system deps, clearer
-  one-command setup, and a hosted docs site.
-- **P2 — more humans:** macOS/Windows adapters (the `LinuxAutomation`
-  interface is already the portability contract), `npx`/brew/Docker
-  distribution, OSWorld-style eval harness, skill marketplace.
-- If you want any of these, open an issue — P2 order follows demand.
+When an action needs approval, the agent gets a preview of the exact action.
+You can answer in any of these ways:
 
-## Documentation and contribution
+- In the chat: your MCP client asks you directly, and the agent cannot answer for you.
+- On screen: an approval card that only a real mouse press can accept.
+- In a terminal: `agenthost confirmations` lists pending requests, then `agenthost confirm <id>` or `agenthost deny <id>`.
+- From a paired phone, if you set it up with `agenthost phone pair`.
 
-- [Documentation index](docs/INDEX.md) · [Product spec](docs/01_PRODUCT_SPEC.md) · [Architecture](docs/02_SYSTEM_ARCHITECTURE.md) · [MCP tools](docs/03_MCP_TOOLS_AND_ADAPTERS.md) · [Security](docs/04_SECURITY_PERMISSIONS_AND_LOGGING.md) · [Release ops](docs/08_RELEASE_AND_OPERATIONS.md) · [Privacy](docs/11_PRIVACY_AND_SUPPORT.md)
-- [Task reports](examples/task-reports/README.md) · [Contributing](CONTRIBUTING.md) · [Security reporting](SECURITY.md) · [Support](SUPPORT.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
+Each approval covers one action and expires after 15 minutes.
 
-If AgentHost does something cool on your machine, star the repo and post the
-`task export` — shared runs are how this gets better.
+## Platform support
+
+| Platform | Status |
+|---|---|
+| Linux x86_64 (X11, Wayland through XWayland) | Supported |
+| Windows | In progress, untested |
+| macOS | Not started |
+
+See [docs/13_PLATFORMS.md](docs/13_PLATFORMS.md) for what works in each session type.
+
+## Documentation
+
+- [Documentation index](docs/INDEX.md)
+- [Product spec](docs/01_PRODUCT_SPEC.md)
+- [System architecture](docs/02_SYSTEM_ARCHITECTURE.md)
+- [MCP tools and adapters](docs/03_MCP_TOOLS_AND_ADAPTERS.md)
+- [Security, permissions and logging](docs/04_SECURITY_PERMISSIONS_AND_LOGGING.md)
+- [Release and operations](docs/08_RELEASE_AND_OPERATIONS.md)
+- [Privacy and support](docs/11_PRIVACY_AND_SUPPORT.md)
+- [Features and runtime guide](docs/12_V2_FEATURES_AND_RUNTIME_GUIDE.md)
+- [Platforms](docs/13_PLATFORMS.md)
+- [Agent skill](skills/agenthost/SKILL.md)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md)
+
+## Status
+
+AgentHost is early software with a single maintainer. It runs on Linux only
+today. Windows work is in progress and has not been tested. The tool names and
+configuration may change between releases. Bug reports and run reports
+(`agenthost task export <id>`) are welcome as issues.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE), [NOTICE](NOTICE),
-[THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES). Host programs (GTK3, Tesseract,
-eSpeak NG, Bubblewrap) stay separately licensed and are never bundled.
+Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

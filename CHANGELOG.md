@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Guide mode: `guide.show` draws highlight boxes with a text label (`Step 1 of 3`) on each place the person should click, placed by screen bounds, a screenshot rectangle, or a control label; `guide.clear` removes them. The agent never clicks. For apps it must not drive, or when the person asks to be shown how.
 - Tooltip cards sit beside their target (right, left, below, then above) instead of in a screen corner, so a label can point at the place it describes. Other cards keep avoiding their target. Nothing in the product shows tooltips yet; this is the base for guide-mode steps.
 - Claude Code raises the assistant's window when a turn ends (`Stop`), when Claude asks a question (`AskUserQuestion`), and when it sits idle waiting for you (`Notification` idle prompt). Re-run `agenthost integrations claude add --apply` to install the new hooks. `done` and `idle` do not pull focus back on the next tool call. Codex is not covered yet.
 - The dock timeline opens only for approvals; done and idle do not reopen it.

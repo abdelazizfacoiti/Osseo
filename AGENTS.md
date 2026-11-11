@@ -156,6 +156,12 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
 - **Screenshot ids live in the server process** (`screenshot-registry.ts`). A
   restarted server forgets them, and a click on an unknown id fails with
   `screenshot_unknown`.
+- **Guide mode**: `guide.show` / `guide.clear` (`packages/mcp-server/src/tools/guide.ts`) draw a
+  `highlight` plus a `tooltip` per step as `window_region` primitives and never click. Steps resolve
+  before anything is drawn, so one bad step shows nothing. Labels use AT-SPI only (no OCR, which has
+  no box). The overlay manager keeps marks at most 300 s whatever `ttlSeconds` says. While a guide is
+  up, `guideActive` makes window-only captures in `desktop.ts` use card suppression again
+  (`windowCaptureClean`), because a mark over the window corrupts the capture.
 - **Stale X displays**: a killed nested X server leaves `/tmp/.X<n>-lock` behind.
   `check:live` ignores locks whose process is gone; do the same in new scripts.
 
@@ -170,6 +176,7 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
 - `packages/mcp-server/src/__tests__/set-field.test.ts` — read-back verdicts and set_field input rules
 - `packages/mcp-server/src/__tests__/screenshot-registry.test.ts` — screenshot ids: expiry, bounds, point mapping
 - `packages/mcp-server/src/__tests__/lean-output.test.ts` — lean and full result rendering, state sent once
+- `packages/mcp-server/src/__tests__/guide-tools.test.ts` — guide.show/clear: placement, replacement, failures that show nothing, `guideActive`
 - `packages/mcp-server/src/__tests__/screen-read.test.ts` — the text-free outline and its byte cap
 - `packages/mcp-server/src/__tests__/stdio-exit.test.ts` — the built server exits when stdin closes or on SIGHUP
 - `packages/core/src/__tests__/workflow-expect.test.ts` — step expectation validation in saved workflows
