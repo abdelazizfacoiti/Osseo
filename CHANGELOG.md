@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Guide mode can wait for the person's click: `guide.show` takes `waitForClick` and `waitSeconds`, blocks until a press inside a box, clears the marks and reports which step was clicked, so the agent keeps its turn. Stop now removes the guide marks, and the stopped task card has a Resume button that clears the stop flag.
 - Removed the Blender and SSH adapter packages, the `adapter.list` and `adapter.get` tools, and the adapter registry, because no tool was ever registered for them. An `optionalAdapters` key in an existing config file is still accepted and ignored.
 - `agenthost integrations codex add` now also sets Codex's top-level `notify` so the terminal is raised when a turn ends. It never replaces a different `notify` program that is already set, and `remove` deletes only AgentHost's entry.
 - The release build also writes `agenthost-linux-x64.tar.gz` (fixed name) with its checksum, which is the file `scripts/install.sh` downloads.

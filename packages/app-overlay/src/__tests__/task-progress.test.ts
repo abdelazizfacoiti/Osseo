@@ -70,6 +70,41 @@ describe("TaskProgressOverlay", () => {
     }
   });
 
+  it("a resumable stopped card shows Resume and Dismiss, and a resume press is reported", async () => {
+    const { manager, controller, actions } = createController();
+    try {
+      await controller.start();
+      await controller.stopped("Stopped by operator", { resumable: true });
+      expect(buttons(manager)).toEqual(["Resume", "Dismiss"]);
+      manager.pushEvent(event("task-1", "resume"));
+      expect(await controller.pollEvents()).toEqual(["resume"]);
+      // The owner clears the stop flag first, then resumes the card.
+      expect(controller.snapshot().status).toBe("stopped");
+      await controller.resume();
+      expect(controller.snapshot().status).toBe("running");
+      expect(buttons(manager)).toEqual(["Pause", "Stop"]);
+      expect(actions).toEqual(["resume"]);
+    } finally {
+      await controller.dismiss();
+      await manager.close();
+    }
+  });
+
+  it("a stopped card that is not resumable shows Dismiss only and ignores resume", async () => {
+    const { manager, controller } = createController();
+    try {
+      await controller.start();
+      await controller.stopped("Cancelled");
+      expect(buttons(manager)).toEqual(["Dismiss"]);
+      manager.pushEvent(event("task-1", "resume"));
+      expect(await controller.pollEvents()).toEqual([]);
+      expect(controller.snapshot().status).toBe("stopped");
+    } finally {
+      await controller.dismiss();
+      await manager.close();
+    }
+  });
+
   it("applies cooperative pause, resume, and stop events", async () => {
     const { manager, controller, actions } = createController();
     try {

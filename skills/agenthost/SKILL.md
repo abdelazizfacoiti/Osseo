@@ -153,8 +153,21 @@ click. It never clicks: the person does. Place each step (up to 8) one of three 
 - `label` (and optional `role`): the visible name of a control, found through the
   accessibility tree.
 
-If a step cannot be placed, nothing is shown and the error says which step. Call
-`guide.clear` when the person is done. Screenshots do not show the marks.
+If a step cannot be placed, nothing is shown and the error says which step. Screenshots
+do not show the marks.
+
+Run it as a loop and stay in the same turn:
+
+1. `desktop.screenshot`.
+2. `guide.show` with one step and `waitForClick: true`. The call returns when the person
+   clicks inside the box.
+3. On `clicked`, wait a second, take a new `desktop.screenshot`, and show the next step.
+4. Never end the turn between steps. Never click for the person.
+5. At the end, call `guide.clear` and say one closing line.
+
+If the result has `waitTimedOut`, ask the person whether to continue. If it has
+`waitUnavailable`, ask them to say when they have clicked. If it has `stopped`, do not
+show another guide and do not act until they say so.
 
 ## Fast-path recipes
 

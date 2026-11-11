@@ -53,6 +53,8 @@ export class TaskProgressOverlay {
   #status: TaskProgressStatus = "running";
   #detail: string | undefined;
   #waitingCommand: string | undefined;
+  /** Set by stopped(): the stop came from the stop flag, so the card offers Resume. */
+  #resumable = false;
   #runningTaskCount: number;
   #heartbeat: ReturnType<typeof setInterval> | undefined;
   #keepalive: ReturnType<typeof setInterval> | undefined;
@@ -124,6 +126,9 @@ export class TaskProgressOverlay {
     this.#status = status;
     if (TERMINAL.has(status)) await this.#afterTerminal();
     else {
+      this.#resumable = false;
+      // Leaving a terminal state (Resume after Stop) restarts the clock.
+      this.#terminalElapsedMs = undefined;
       this.#stopKeepalive();
       if (this.#autoHide !== undefined) clearTimeout(this.#autoHide);
       this.#autoHide = undefined;
@@ -159,9 +164,10 @@ export class TaskProgressOverlay {
     await this.#afterTerminal();
   }
 
-  async stopped(detail?: string): Promise<void> {
+  async stopped(detail?: string, options: { resumable?: boolean } = {}): Promise<void> {
     if (detail !== undefined) this.#detail = detail;
     this.#status = "stopped";
+    this.#resumable = options.resumable === true;
     this.#waitingCommand = undefined;
     await this.#afterTerminal();
   }
@@ -200,6 +206,8 @@ export class TaskProgressOverlay {
       return "pause";
     }
     if (event.event === "resume") {
+      // A resumable stopped card reports the press; the owner clears the stop flag and calls resume().
+      if (this.#status === "stopped") return this.#resumable ? "resume" : undefined;
       if (this.#status !== "paused" && this.#status !== "pause_requested") return undefined;
       this.#status = "running";
       await this.#render();
@@ -274,6 +282,7 @@ export class TaskProgressOverlay {
     if (this.#status === "paused") return [["Resume", "resume"], ["Stop", "emergency_stop_requested"]];
     if (this.#status === "waiting_approval") return [["Stop", "emergency_stop_requested"]];
     if (this.#status === "stopping") return [];
+    if (this.#status === "stopped" && this.#resumable) return [["Resume", "resume"], ["Dismiss", "dismissed"]];
     return [["Dismiss", "dismissed"]];
   }
 

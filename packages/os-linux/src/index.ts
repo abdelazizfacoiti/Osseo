@@ -2,6 +2,7 @@ export * from "./apps.js";
 export * from "./accessibility.js";
 export * from "./desktop.js";
 export * from "./gtk-clipboard.js";
+export * from "./pointer-watch.js";
 export * from "./dependencies.js";
 export * from "./files.js";
 export * from "./shell.js";

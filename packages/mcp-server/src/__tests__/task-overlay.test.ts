@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { appendTaskEvent, createTask, readRunState, toolSuccess } from "@agenthost/core";
+import { appendTaskEvent, createTask, readRunState, requestStop, toolSuccess } from "@agenthost/core";
 import { HeadlessOverlayRenderer, OverlayManager } from "@agenthost/app-overlay";
 import { TaskActivityOverlay } from "../task-overlay.js";
 
@@ -151,12 +151,59 @@ describe("TaskActivityOverlay", () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
       expect(overlay.snapshot().status).toBe("stopped");
       expect((await readRunState(home)).stop.requested).toBe(true);
-      expect(buttons(manager)).toEqual(["Dismiss"]);
+      expect(buttons(manager)).toEqual(["Resume", "Dismiss"]);
 
       manager.pushEvent(event(task.taskId, "dismissed"));
       expect(await overlay.pollOnce()).toEqual(["dismiss"]);
       expect(overlay.snapshot().dismissed).toBe(true);
       expect((await manager.state()).overlays).toHaveLength(0);
+    } finally {
+      await overlay.close();
+      await manager.close();
+    }
+  });
+
+  it("Stop then Resume clears the stop flag and returns the card to running", async () => {
+    const home = await tempHome();
+    const task = await createTask(home, "Research the offer");
+    const { manager, overlay } = createController(home);
+    try {
+      await overlay.initialize();
+      manager.pushEvent(event(task.taskId, "emergency_stop_requested"));
+      await overlay.pollOnce();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(overlay.snapshot().status).toBe("stopped");
+      expect((await readRunState(home)).stop.requested).toBe(true);
+
+      manager.pushEvent(event(task.taskId, "resume"));
+      expect(await overlay.pollOnce()).toEqual(["resume"]);
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect((await readRunState(home)).stop.requested).toBe(false);
+      expect(overlay.snapshot().status).toBe("running");
+      expect(buttons(manager)).toEqual(["Pause", "Stop"]);
+    } finally {
+      await overlay.close();
+      await manager.close();
+    }
+  });
+
+  it("a stop flag set from outside makes the card resumable", async () => {
+    const home = await tempHome();
+    const task = await createTask(home, "Research the offer");
+    const { manager, overlay } = createController(home);
+    try {
+      await overlay.initialize();
+      await requestStop(home, "operator_stop");
+      for (let i = 0; i < 4; i += 1) await overlay.pollOnce();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(overlay.snapshot().status).toBe("stopped");
+      expect(buttons(manager)).toEqual(["Resume", "Dismiss"]);
+
+      manager.pushEvent(event(task.taskId, "resume"));
+      await overlay.pollOnce();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect((await readRunState(home)).stop.requested).toBe(false);
+      expect(overlay.snapshot().status).toBe("running");
     } finally {
       await overlay.close();
       await manager.close();

@@ -1,7 +1,9 @@
 import { randomBytes } from "node:crypto";
-import { toolFailure, toolSuccess, type OverlayTargetBinding, type ToolResult } from "@agenthost/core";
+import { stat } from "node:fs/promises";
+import { readRunState, toolFailure, toolSuccess, type OverlayTargetBinding, type RunStateSnapshot, type ToolResult } from "@agenthost/core";
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
+import { inputGuardPath } from "../input-guard.js";
 import { resolveLabelTarget } from "../label-target.js";
 import { imagePointToScreen, recallScreen } from "../screenshot-registry.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
@@ -50,7 +52,9 @@ const stepSchema = z.object({
 const showInput = z.object({
   steps: z.array(stepSchema).min(1).max(8),
   windowId: z.string().trim().min(1).max(200).optional(),
-  ttlSeconds: z.number().int().min(30).max(1800).optional()
+  ttlSeconds: z.number().int().min(30).max(1800).optional(),
+  waitForClick: z.boolean().optional(),
+  waitSeconds: z.number().int().min(5).max(240).optional()
 }).strict();
 
 const clearInput = z.object({}).strict();
@@ -62,7 +66,28 @@ type Step = ShowInput["steps"][number];
 const OVERLAY_MAX_TTL_MS = 300_000;
 const DEFAULT_TTL_SECONDS = 600;
 
-const shown = new WeakMap<AgentHostMcpContext, { ids: string[]; until: number }>();
+type GuideState = { ids: string[]; until: number; stopWatch?: ReturnType<typeof setInterval> };
+type GuideWait = { controller: AbortController; reason?: "cleared" | "stopped" };
+
+const shown = new WeakMap<AgentHostMcpContext, GuideState>();
+const waits = new WeakMap<AgentHostMcpContext, GuideWait>();
+
+const STOP_POLL_MS = 1000;
+const INJECTED_PRESS_WINDOW_MS = 1000;
+const DEFAULT_WAIT_SECONDS = 120;
+
+/** Test seam: how the stop flag is read. */
+export const guideHooks: { readRunState: (agentHostDir: string) => Promise<RunStateSnapshot> } = { readRunState };
+
+async function stopRequested(context: AgentHostMcpContext): Promise<boolean> {
+  const dir = context.config?.agentHostDir;
+  if (dir === undefined) return false;
+  try {
+    return (await guideHooks.readRunState(dir)).stop.requested;
+  } catch {
+    return false;
+  }
+}
 
 /** True while a guide is on screen and not expired. Marks over a window corrupt window-only captures. */
 export function guideActive(context: AgentHostMcpContext, now = Date.now()): boolean {
@@ -75,9 +100,16 @@ export function windowCaptureClean(context: AgentHostMcpContext): boolean {
   return context.workWindowCaptureClean === true && !guideActive(context);
 }
 
-async function clearGuide(context: AgentHostMcpContext): Promise<number> {
+async function clearGuide(context: AgentHostMcpContext, reason: "cleared" | "stopped" = "cleared"): Promise<number> {
   const state = shown.get(context);
   shown.delete(context);
+  if (state?.stopWatch !== undefined) clearInterval(state.stopWatch);
+  const wait = waits.get(context);
+  if (wait !== undefined) {
+    waits.delete(context);
+    wait.reason = reason;
+    wait.controller.abort();
+  }
   if (state === undefined) return 0;
   let cleared = 0;
   for (const id of state.ids) {
@@ -89,6 +121,17 @@ async function clearGuide(context: AgentHostMcpContext): Promise<number> {
     }
   }
   return cleared;
+}
+
+/** Whether an injected input marker was touched recently, so a press now is AgentHost's own. */
+async function recentInjectedInput(context: AgentHostMcpContext): Promise<boolean> {
+  const dir = context.config?.agentHostDir;
+  if (dir === undefined) return false;
+  try {
+    return Date.now() - (await stat(inputGuardPath(dir))).mtimeMs < INJECTED_PRESS_WINDOW_MS;
+  } catch {
+    return false;
+  }
 }
 
 type Placed = { ok: true; bounds: Bounds; source: "bounds" | "screenshot" | "label" } | { ok: false; code: string; message: string };
@@ -123,10 +166,31 @@ async function placeStep(context: AgentHostMcpContext, step: Step, windowId: str
   return { ok: true, bounds: { ...resolved.target.bounds }, source: "label" };
 }
 
+type PressOutcome =
+  | { kind: "clicked"; index: number; x: number; y: number }
+  | { kind: "timeout" | "unavailable" | "cleared" | "stopped" };
+
+async function waitForPress(context: AgentHostMcpContext, regions: Bounds[], timeoutMs: number, wait: GuideWait): Promise<PressOutcome> {
+  const watch = context.linux.waitForPointerPress;
+  if (watch === undefined) return { kind: "unavailable" };
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return { kind: "timeout" };
+    const result = await watch({ regions, timeoutMs: remaining, signal: wait.controller.signal }).catch(() => ({ pressed: false as const, reason: "unavailable" as const }));
+    if (result.pressed) {
+      if (await recentInjectedInput(context)) continue;
+      return { kind: "clicked", index: result.index, x: result.x, y: result.y };
+    }
+    if (result.reason === "aborted") return { kind: wait.reason === "stopped" ? "stopped" : "cleared" };
+    return { kind: result.reason === "timeout" ? "timeout" : "unavailable" };
+  }
+}
+
 export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
   const show: AgentHostToolDefinition<ShowInput, unknown, AgentHostMcpContext> = {
     name: "guide.show",
-    description: "Guide mode: draws a highlight box and a text label on each place the person should click. It never clicks; the person does. Use it when the person asks to be shown how, or when the app is sensitive or blocked for automation. Place each step by screen bounds, by a rectangle in a desktop.screenshot picture (screenshotId + imageX/imageY/imageWidth/imageHeight), or by the visible name of a control (label, optional role). Replaces any guide already shown. Screenshots taken by desktop.screenshot do not show the guide marks. Call guide.clear when done.",
+    description: "Guide mode: draws a highlight box and a text label on each place the person should click. It never clicks; the person does. Use it when the person asks to be shown how, or when the app is sensitive or blocked for automation. Place each step by screen bounds, by a rectangle in a desktop.screenshot picture (screenshotId + imageX/imageY/imageWidth/imageHeight), or by the visible name of a control (label, optional role). Replaces any guide already shown. Screenshots taken by desktop.screenshot do not show the guide marks. For a step-by-step guide, show one step at a time with waitForClick: true. The call then waits until the person clicks inside the box and returns which step was clicked, so you stay in the same turn: wait about a second, take a new desktop.screenshot, and call guide.show again for the next place. Do not end your turn between steps. If the wait times out, ask the person. Call guide.clear when done.",
     riskLevel: "low",
     inputSchema: showInput,
     mcpInputSchema: {
@@ -154,7 +218,9 @@ export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpConte
           }
         },
         windowId: { type: "string", description: "Window the steps belong to. Default: the active window." },
-        ttlSeconds: { type: "integer", minimum: 30, maximum: 1800, description: "How long the marks stay. Default 600; the overlay keeps marks at most 300 seconds." }
+        ttlSeconds: { type: "integer", minimum: 30, maximum: 1800, description: "How long the marks stay. Default 600; the overlay keeps marks at most 300 seconds." },
+        waitForClick: { type: "boolean", description: "Block until the person clicks inside any box, then clear the marks and return which step was clicked. Default false." },
+        waitSeconds: { type: "integer", minimum: 5, maximum: 240, description: "With waitForClick: how long to wait. Default 120." }
       },
       required: ["steps"],
       additionalProperties: false
@@ -164,6 +230,8 @@ export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpConte
     async handler(input: ShowInput, context): Promise<ToolResult<unknown>> {
       const fail = (code: string, message: string, observations: string[] = ["Nothing was shown."]) =>
         toolFailure({ tool: "guide.show", riskLevel: "low", strategy: "gui_control", error: { code, message }, observations });
+
+      if (await stopRequested(context)) return fail("emergency_stop_requested", "The person pressed Stop, so no guide is shown.", ["Nothing was shown. Do not act until the person says so."]);
 
       const overlay = context.overlay;
       if (overlay === undefined) return fail("overlay_unavailable", "The overlay is not running, so a guide cannot be drawn.", ["Tell the person the steps in text instead."]);
@@ -234,7 +302,40 @@ export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpConte
       }
       if (ids.length === 0) return fail("overlay_unavailable", "The overlay refused every mark.", ["Tell the person the steps in text instead."]);
 
-      shown.set(context, { ids, until: Date.now() + ttlMs });
+      const state: GuideState = { ids, until: Date.now() + ttlMs };
+      // Stop removes the marks even while no tool call is running.
+      state.stopWatch = setInterval(() => {
+        void stopRequested(context).then((stopped) => { if (stopped && shown.get(context) === state) return clearGuide(context, "stopped"); return undefined; });
+      }, STOP_POLL_MS);
+      state.stopWatch.unref();
+      shown.set(context, state);
+
+      const base = {
+        shown: total,
+        steps: placed.map((item, index) => ({ index: index + 1, bounds: item.bounds, source: item.source })),
+        expiresAt,
+        ...(failures === 0 ? {} : { markFailures: failures })
+      };
+      if (input.waitForClick === true) {
+        const wait: GuideWait = { controller: new AbortController() };
+        waits.set(context, wait);
+        const outcome = await waitForPress(context, placed.map((item) => item.bounds), (input.waitSeconds ?? DEFAULT_WAIT_SECONDS) * 1000, wait);
+        if (waits.get(context) === wait) waits.delete(context);
+        const done = (data: Record<string, unknown>, observations: string[]) => toolSuccess({ tool: "guide.show", riskLevel: "low", strategy: "gui_control", data: { ...base, ...data }, observations });
+        if (outcome.kind === "clicked") {
+          await clearGuide(context);
+          return done({ clicked: { index: outcome.index + 1, x: outcome.x, y: outcome.y } }, [
+            `The person clicked step ${outcome.index + 1}. The marks are cleared.`,
+            "Wait about a second for the app to react, take a new desktop.screenshot, then call guide.show with waitForClick: true for the next place.",
+            "Do not end the turn between steps.",
+            "When the task is finished, call guide.clear and tell the person in one line."
+          ]);
+        }
+        if (outcome.kind === "stopped") return done({ clicked: null, stopped: true }, ["The person pressed Stop and the marks were removed. Do not show another guide and do not act until they say so."]);
+        if (outcome.kind === "cleared") return done({ clicked: null, cleared: true }, ["The guide was cleared before the person clicked."]);
+        if (outcome.kind === "unavailable") return done({ clicked: null, waitUnavailable: true }, ["Click detection is not available here. The marks stay up. Ask the person to say when they have clicked."]);
+        return done({ clicked: null, waitTimedOut: true }, ["The person has not clicked yet. The marks stay up. Ask them whether to continue."]);
+      }
       return toolSuccess({
         tool: "guide.show",
         riskLevel: "low",

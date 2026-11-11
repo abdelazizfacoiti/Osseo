@@ -294,6 +294,15 @@ removes it. `desktop.screenshot` does not show the marks, and while a guide is u
 window-only captures hide and restore the cards as usual. The overlay keeps marks at
 most 300 seconds.
 
+With `waitForClick: true` (and `waitSeconds`, 5 to 240, default 120) the call blocks until
+the person presses the left button inside any step's box, clears the marks, and returns
+`data.clicked: { index, x, y }` (index is 1-based). The agent then takes a new screenshot and
+shows the next step in the same turn. On timeout the marks stay and the result has
+`clicked: null` and `waitTimedOut: true`. If click detection is missing the result has
+`waitUnavailable: true`. `guide.clear` ends a wait (`cleared: true`). Stop removes the marks,
+ends a wait (`stopped: true`), and `guide.show` refuses to draw while the stop flag is set
+(`emergency_stop_requested`). Presses injected by AgentHost are ignored.
+
 ASCII text shorter than 512 characters uses a zero-delay `xdotool type`; longer
 or layout-unsafe text uses clipboard paste and fails explicitly when neither
 `xclip` nor `xsel` is available. Screenshot results include bounded

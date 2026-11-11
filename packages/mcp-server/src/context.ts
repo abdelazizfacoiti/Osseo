@@ -103,6 +103,8 @@ export interface LinuxAutomation {
   checkSandboxSupport?(): Promise<SandboxSupportProbeResult>;
   analyzeImage?(input: { imagePath: string; source: "agenthost_screenshot" | "agenthost_output" | "granted_path"; basename: string; mode: VisionMode; maxItems: number }): Promise<VisionGroundingResult>;
   getScreenGeometry?(): Promise<{ supported: boolean; bounds?: { x: number; y: number; width: number; height: number }; reason: string }>;
+  /** Resolves on the person's next left-button press inside one of the regions. Read-only; absent on Windows. */
+  waitForPointerPress?(input: { regions: Array<{ x: number; y: number; width: number; height: number }>; timeoutMs: number; signal?: AbortSignal }): Promise<{ pressed: true; index: number; x: number; y: number } | { pressed: false; reason: "timeout" | "aborted" | "unavailable"; detail?: string }>;
   getActiveWindowBounds?(): Promise<{ supported: boolean; bounds?: { x: number; y: number; width: number; height: number }; reason: string }>;
   getAccessibilityTree(input: {
     appName?: string;

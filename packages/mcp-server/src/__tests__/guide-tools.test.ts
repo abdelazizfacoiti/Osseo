@@ -1,16 +1,22 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentHostMcpContext } from "../context.js";
 import { forgetScreens, rememberScreen } from "../screenshot-registry.js";
-import { createGuideTools, guideActive } from "../tools/guide.js";
+import { inputGuardPath } from "../input-guard.js";
+import { createGuideTools, guideActive, guideHooks } from "../tools/guide.js";
 
 const [show, clear] = createGuideTools() as unknown as Array<{ name: string; inputSchema: { parse(v: unknown): unknown }; handler(input: unknown, context: AgentHostMcpContext): Promise<{ ok: boolean; data?: any; error?: { code: string; message: string } }> }>;
 
-function fake(options: { overlay?: boolean; screen?: { width: number; height: number }; active?: boolean; showOk?: boolean } = {}) {
+function fake(options: { overlay?: boolean; screen?: { width: number; height: number }; active?: boolean; showOk?: boolean; wait?: (input: any) => Promise<any>; dir?: string } = {}) {
   const showPrimitive = vi.fn(async (_p: any, _r?: any) => ({ ok: options.showOk ?? true, errors: [] as string[] }));
   const dismiss = vi.fn(async (_id: string) => ({ ok: true }));
   const context = {
+    ...(options.dir === undefined ? {} : { config: { agentHostDir: options.dir } }),
     ...(options.overlay === false ? {} : { overlay: { showPrimitive, dismiss } }),
     linux: {
+      ...(options.wait === undefined ? {} : { waitForPointerPress: options.wait }),
       getActiveWindow: async () => ({ activeWindow: options.active === false ? undefined : { windowId: "w1", title: "App", appName: "App", pid: 7 } }),
       getScreenGeometry: async () => ({ supported: true, bounds: { x: 0, y: 0, ...(options.screen ?? { width: 1920, height: 1080 }) }, reason: "ok" })
     }
@@ -21,6 +27,9 @@ function fake(options: { overlay?: boolean; screen?: { width: number; height: nu
 const run = (context: AgentHostMcpContext, input: unknown) => show!.handler(show!.inputSchema.parse(input), context);
 
 afterEach(() => forgetScreens());
+
+const clearBox = [{ text: "a", bounds: { x: 0, y: 0, width: 50, height: 50 } }, { text: "b", bounds: { x: 100, y: 100, width: 50, height: 50 } }];
+const noStop = { stop: { requested: false }, takeover: { requested: false }, pause: { requested: false } };
 
 describe("guide.show", () => {
   it("draws a box and a labelled tooltip per bounds step", async () => {
@@ -138,5 +147,133 @@ describe("guide.clear and guideActive", () => {
     expect(guideActive(context, Date.now() + 31_000)).toBe(false);
     await clear!.handler({}, context);
     expect(guideActive(context)).toBe(false);
+  });
+});
+
+
+describe("guide.show waitForClick", () => {
+  it("reports the clicked step (1-based), clears the marks and passes the regions", async () => {
+    const wait = vi.fn(async (_i: any) => ({ pressed: true as const, index: 1, x: 120, y: 130 }));
+    const { context, dismiss } = fake({ wait });
+    const result = await run(context, { steps: clearBox, waitForClick: true, waitSeconds: 30 });
+    expect(result.ok).toBe(true);
+    expect(result.data.clicked).toEqual({ index: 2, x: 120, y: 130 });
+    expect(wait.mock.calls[0]![0].regions).toEqual([clearBox[0]!.bounds, clearBox[1]!.bounds]);
+    expect(wait.mock.calls[0]![0].timeoutMs).toBeLessThanOrEqual(30_000);
+    expect(dismiss).toHaveBeenCalledTimes(4);
+    expect(guideActive(context)).toBe(false);
+    expect((result as any).observations.join(" ")).toMatch(/clicked step 2/);
+  });
+
+  it("leaves the marks on timeout", async () => {
+    const { context, dismiss } = fake({ wait: async () => ({ pressed: false, reason: "timeout" }) });
+    const result = await run(context, { steps: clearBox, waitForClick: true });
+    expect(result.data).toMatchObject({ clicked: null, waitTimedOut: true });
+    expect(dismiss).not.toHaveBeenCalled();
+    expect(guideActive(context)).toBe(true);
+    await clear!.handler({}, context);
+  });
+
+  it("leaves the marks when the watcher is missing or unavailable", async () => {
+    const missing = fake();
+    const r1 = await run(missing.context, { steps: clearBox, waitForClick: true });
+    expect(r1.data).toMatchObject({ clicked: null, waitUnavailable: true });
+    expect(guideActive(missing.context)).toBe(true);
+    const unavailable = fake({ wait: async () => ({ pressed: false, reason: "unavailable" }) });
+    const r2 = await run(unavailable.context, { steps: clearBox, waitForClick: true });
+    expect(r2.data).toMatchObject({ clicked: null, waitUnavailable: true });
+    expect(unavailable.dismiss).not.toHaveBeenCalled();
+    await clear!.handler({}, missing.context);
+    await clear!.handler({}, unavailable.context);
+  });
+
+  it("ignores a press while the input-guard file is fresh and counts the next one", async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "guide-wait-"));
+    try {
+      mkdirSync(path.join(dir, "run"), { recursive: true });
+      writeFileSync(inputGuardPath(dir), "");
+      let calls = 0;
+      const wait = vi.fn(async () => {
+        calls += 1;
+        if (calls === 2) rmSync(inputGuardPath(dir));
+        return { pressed: true as const, index: 0, x: 5, y: 6 };
+      });
+      const { context } = fake({ wait, dir });
+      const result = await run(context, { steps: clearBox, waitForClick: true });
+      expect(wait).toHaveBeenCalledTimes(2);
+      expect(result.data.clicked).toEqual({ index: 1, x: 5, y: 6 });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("guide.clear during a wait ends it with cleared", async () => {
+    const wait = (input: any) => new Promise<any>((resolve) => input.signal.addEventListener("abort", () => resolve({ pressed: false, reason: "aborted" })));
+    const { context } = fake({ wait });
+    const pending = run(context, { steps: clearBox, waitForClick: true });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await clear!.handler({}, context);
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(result.data).toMatchObject({ clicked: null, cleared: true });
+  });
+
+  it("a wait without waitForClick behaves as before", async () => {
+    const wait = vi.fn();
+    const { context } = fake({ wait });
+    const result = await run(context, { steps: clearBox });
+    expect(wait).not.toHaveBeenCalled();
+    expect(result.data.clicked).toBeUndefined();
+    expect(guideActive(context)).toBe(true);
+    await clear!.handler({}, context);
+  });
+
+  it("rejects out-of-range waitSeconds", () => {
+    expect(() => show!.inputSchema.parse({ steps: clearBox, waitSeconds: 2 })).toThrow();
+    expect(() => show!.inputSchema.parse({ steps: clearBox, waitSeconds: 241 })).toThrow();
+  });
+});
+
+describe("guide.show and Stop", () => {
+  const original = guideHooks.readRunState;
+  afterEach(() => { guideHooks.readRunState = original; vi.useRealTimers(); });
+
+  it("refuses to show while the stop flag is set, but guide.clear still works", async () => {
+    guideHooks.readRunState = async () => ({ ...noStop, stop: { requested: true } });
+    const { context, showPrimitive } = fake({ dir: "/nonexistent-guide-dir" });
+    const result = await run(context, { steps: clearBox });
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("emergency_stop_requested");
+    expect(showPrimitive).not.toHaveBeenCalled();
+    expect((await clear!.handler({}, context)).ok).toBe(true);
+  });
+
+  it("removes the marks and ends a wait when Stop is pressed", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let stopped = false;
+    guideHooks.readRunState = async () => ({ ...noStop, stop: { requested: stopped } });
+    const wait = (input: any) => new Promise<any>((resolve) => input.signal.addEventListener("abort", () => resolve({ pressed: false, reason: "aborted" })));
+    const { context, dismiss } = fake({ wait, dir: "/nonexistent-guide-dir" });
+    const pending = run(context, { steps: clearBox, waitForClick: true });
+    await vi.advanceTimersByTimeAsync(10);
+    stopped = true;
+    await vi.advanceTimersByTimeAsync(1100);
+    const result = await pending;
+    expect(result.data).toMatchObject({ clicked: null, stopped: true });
+    expect(dismiss).toHaveBeenCalledTimes(4);
+    expect(guideActive(context)).toBe(false);
+  });
+
+  it("removes the marks of a plain guide when Stop is pressed", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let stopped = false;
+    guideHooks.readRunState = async () => ({ ...noStop, stop: { requested: stopped } });
+    const { context, dismiss } = fake({ dir: "/nonexistent-guide-dir" });
+    await run(context, { steps: clearBox });
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(dismiss).not.toHaveBeenCalled();
+    stopped = true;
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(dismiss).toHaveBeenCalledTimes(4);
   });
 });

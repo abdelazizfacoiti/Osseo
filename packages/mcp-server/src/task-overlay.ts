@@ -2,6 +2,7 @@ import type { OverlayPlacement, AgentTask, ToolResult } from "@agenthost/core";
 import {
   clearActiveTaskApproval,
   clearPause,
+  clearStop,
   listTasks,
   readRunState,
   requestPause,
@@ -192,7 +193,7 @@ export class TaskActivityOverlay {
     const controller = this.#controller;
     if (controller === undefined) return;
     this.#stoppedByOperator = true;
-    await controller.stopped("Stopped by operator");
+    await controller.stopped("Stopped by operator", { resumable: true });
   }
 
   /**
@@ -327,6 +328,17 @@ export class TaskActivityOverlay {
       }
       return;
     }
+    if (action === "resume" && controller.snapshot().status === "stopped") {
+      // Resume on a stopped card: the same flag `agenthost agent resume --stop` clears.
+      try {
+        await clearStop(this.#options.agentHostDir);
+        this.#stoppedByOperator = false;
+        await controller.resume();
+      } catch {
+        /* Clearing failed: the card stays stopped. */
+      }
+      return;
+    }
     if (action === "resume") {
       try {
         const state = await readRunState(this.#options.agentHostDir);
@@ -345,7 +357,7 @@ export class TaskActivityOverlay {
         await requestStop(this.#options.agentHostDir, `agent_task_overlay_stop:${task.taskId}`);
         await clearActiveTaskApproval(this.#options.agentHostDir);
         this.#stoppedByOperator = true;
-        await controller.stopped("Stopped by operator");
+        await controller.stopped("Stopped by operator", { resumable: true });
       } catch {
         await controller.fail("Stop request failed. State-changing actions may still run.");
       }
@@ -367,7 +379,7 @@ export class TaskActivityOverlay {
       const cardStatus = controller.snapshot().status;
       if (state.stop.requested) {
         this.#stoppedByOperator = true;
-        if (!TERMINAL_CARD_STATUSES.has(cardStatus)) await controller.stopped(state.stop.reason ?? "Stopped by operator");
+        if (!TERMINAL_CARD_STATUSES.has(cardStatus)) await controller.stopped(state.stop.reason ?? "Stopped by operator", { resumable: true });
         return;
       }
       if (this.#stoppedByOperator) {
