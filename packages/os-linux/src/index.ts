@@ -9,7 +9,6 @@ export * from "./sandbox-support.js";
 export * from "./system-info.js";
 export * from "./vision.js";
 export * from "./browser-inventory.js";
-export * from "./speech.js";
 export * from "./host-window.js";
 export * from "./requirements.js";
 export * from "./idle.js";
