@@ -9,7 +9,7 @@ What AgentHost can control, by operating system and session. Run
 | Linux | Wayland + XWayland | X11 (XWayland) windows only: list, focus, type, click, screenshot, cards | Headless GNOME compositor with `Xwayland` |
 | Linux | Native Wayland, no XWayland | None directly. Use `execution.placement: "background"` (Xephyr) | Headless GNOME compositor |
 | Linux | Headless | Only tools that need no display | Yes |
-| Windows | Native desktop (W2) | Windows, mouse, keyboard, screenshots, clipboard through a PowerShell helper (`packages/os-windows`); headless tools as in W1. No accessibility tools (`ui.*`, label clicks, `set_field` read-back) yet; windows running as administrator are refused (`elevated_window`) | Not yet verified on a Windows machine: run `scripts\windows-desktop-check.ps1` |
+| Windows | Native desktop (W2) | Windows, mouse, keyboard, screenshots, clipboard and accessibility (Windows UI Automation: `ui.*`, `screen.read`, label clicks, `set_field` read-back, `guide.show` labels) through a PowerShell helper (`packages/os-windows`); headless tools as in W1. No OCR fallback; windows running as administrator are refused (`elevated_window`) | Not yet verified on a Windows machine: run `scripts\windows-desktop-check.ps1` |
 | macOS | Native | Not implemented: desktop tools fail with `unsupported_platform` | No |
 
 Tools that do not touch the desktop (files, shell, tasks, workflows, memory,
@@ -34,11 +34,53 @@ JSON lines on stdin and stdout, like the GTK renderer on Linux. Nothing is insta
 - **Elevated windows:** Windows drops input from a normal process to an administrator window (UIPI).
   The helper checks the target's token first and refuses with `elevated_window`. UAC prompts and the
   lock screen cannot be automated; hand those to the person.
-- **Not yet:** UI Automation (`ui.*`, label clicks, `set_field` read-back report that accessibility is
-  unavailable), OCR, an overlay and approval cards (W3), the `ffmpeg`-free inline JPEG (screenshots
-  work, but inline images need `ffmpeg` on PATH for now), and packaging (W4).
+- **Accessibility (UI Automation):** the helper compiles a second C# class that uses
+  `System.Windows.Automation` (control view). It is loaded on its own, so if it fails the rest of the helper
+  still works and the accessibility tools report why. Each request runs on a worker thread with a deadline
+  (8 s); a hung app returns what was read with `truncated`, never a hang. Elements are found again on every
+  call from an id made of the window handle, a child-index path and a hash of role and name (no COM object is
+  kept between calls). Roles use the Linux names (`push button`, `entry`, `check box`, `link`, `menu item`,
+  `page tab`, `list item`, `combo box`, `label`, `password text`). Password controls and credential-looking
+  edit fields are `sensitive`: their text is never read and `ui.set_text` refuses them. Invoke, then Toggle,
+  then SelectionItem, then ExpandCollapse are tried for `ui.activate`. A window of an administrator process is
+  refused (`elevated_window`). Chrome and Edge expose page controls only once a UI Automation client has asked
+  (they switch accessibility on by themselves); other apps (games, custom-drawn UIs) may expose nothing.
+- **Not yet:** OCR for label clicks, an overlay and approval cards (W3), the `ffmpeg`-free inline JPEG (screenshots
+  work, but inline images need `ffmpeg` on PATH for now).
 - **Check it:** `powershell -ExecutionPolicy Bypass -File scripts\windows-desktop-check.ps1`. It drives
   a test window it creates, never your own apps. `-ElevatedProbe` checks the administrator refusal.
+
+## Windows packaging (W4)
+
+Added, and not yet run on a Windows machine. What exists:
+
+- **Installer.** `scripts/install.ps1` (Windows PowerShell 5.1): checks OS, x64 and Node 20+, takes the
+  archive from `AGENTHOST_ARCHIVE`, `AGENTHOST_ARCHIVE_URL` or the latest release
+  (`agenthost-win-x64.zip`), always verifies the SHA-256, installs under `%LOCALAPPDATA%\AgentHost`
+  with a `current` junction, writes `bin\agenthost.cmd` (and an `agenthost` shim for Git Bash), and adds
+  `bin` to the user `Path` only when missing. No administrator rights, no execution-policy change
+  (run it with `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`). `-DryRun`, `-Help`.
+  Download and read the script before running it; do not pipe it into `iex`.
+- **Release zip.** `npm run release:build:windows` (after `release:build`) writes
+  `agenthost-v<version>-win-x64.zip` with Node only (`packages/agenthost-cli/src/zip.ts`). The CLI reads
+  it the same way: `agenthost update --archive <zip> --apply`. Zip64, encryption and symbolic links are
+  refused, and so are names with `..`, `:` or backslashes.
+- **Folders.** Config `%APPDATA%\agenthost\config.json`; runtime data `%USERPROFILE%\.agenthost`
+  (unchanged, so the W1 access-list rules apply); releases `%LOCALAPPDATA%\AgentHost`.
+- **Client integrations.** Same config files as on Linux, under `%USERPROFILE%`; entries run
+  `cmd /c agenthost start`. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME` and `XDG_CONFIG_HOME`
+  override the roots. A byte order mark in a config file is accepted.
+- **Schedules.** `agenthost schedule add|list|remove` use `schtasks.exe` (`/SC DAILY|WEEKLY|MINUTE`),
+  task `AgentHost\wf-<name>`, per user, `/F`, preview unless `--apply`. Names must match
+  `^[A-Za-z0-9._-]{1,64}$`; parameters containing `" % ^ & | < >` or a line break are refused; the
+  command line is limited to 261 characters. A custom `AGENTHOST_HOME` or `AGENTHOST_CONFIG` cannot be
+  carried into a task and is refused. The task starts a console window while it runs.
+- **Not done.** Attention hooks record a request but cannot raise a window on Windows (W3). The Python
+  overlay is not shipped. `doctor` still reports Linux-only checks. Uninstall leaves the `Path` entry and
+  any scheduled tasks.
+- **Check it.** `scripts\windows-check.ps1` now also runs `install.ps1 -DryRun`; `npm run test:windows`
+  includes the zip, layout, junction, schedule and integration tests. For a real install, build the zip on
+  Linux and run `$env:AGENTHOST_ARCHIVE = "C:\path\agenthost-win-x64.zip"; powershell -ExecutionPolicy Bypass -File scripts\install.ps1`.
 
 ## Windows (headless, W1)
 
@@ -75,9 +117,9 @@ What the Windows port covers today, and what it does not.
   the desktop package bootstrap (`apt-get`) do nothing on Windows.
 
 Not done, and not claimed: any desktop control (windows, input, screenshots,
-cards, accessibility), elevated (UAC) windows and the secure desktop (they cannot
-be controlled from a normal process), macOS, scheduling through Task Scheduler,
-and the installer (W2 to W4 in the plan).
+cards, accessibility; the desktop part is W2 above), elevated (UAC) windows and the secure desktop (they cannot
+be controlled from a normal process), and macOS. The installer and Task Scheduler
+are in the W4 section below, untested.
 
 How it is checked:
 

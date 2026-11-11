@@ -141,11 +141,11 @@ async function validateLegalFiles(root, manifest, failures) {
   }
 }
 
-export async function validateReleaseTree(root, manifest) {
+export async function validateReleaseTree(root, manifest, options = {}) {
   const failures = [];
   if (manifest?.product !== "AgentHost") failures.push("manifest:product");
   if (manifest?.schemaVersion !== 2) failures.push("manifest:schema_version");
-  if (manifest?.platform !== "linux") failures.push("manifest:platform");
+  if (manifest?.platform !== (options.platform ?? "linux")) failures.push("manifest:platform");
   if (manifest?.architecture !== "x64") failures.push("manifest:architecture");
   await validateLegalFiles(root, manifest, failures);
 

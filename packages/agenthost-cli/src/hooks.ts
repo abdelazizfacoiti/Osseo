@@ -21,6 +21,19 @@ const REQUEST_IDLE = "agenthost attention request --source claude-code --reason 
 // unless an attention record is actually pending.
 const CLEAR = "[ -f \"${AGENTHOST_HOME:-$HOME/.agenthost}/run/attention.json\" ] && agenthost attention clear --restore || true";
 
+// Windows: hook commands run in whatever shell the client uses (Git Bash, PowerShell or cmd), so the
+// command is a plain program call with no shell syntax. `attention clear` returns at once when nothing
+// is pending; the cost is one short Node start per tool call.
+const CLEAR_PORTABLE = "agenthost attention clear --restore";
+
+export function claudeAttentionHooks(platform: NodeJS.Platform = process.platform): Record<string, HookEntry[]> {
+  if (platform !== "win32") return CLAUDE_ATTENTION_HOOKS;
+  return {
+    ...CLAUDE_ATTENTION_HOOKS,
+    PostToolUse: [{ matcher: "*", hooks: [{ type: "command", command: CLEAR_PORTABLE, timeout: 5 }] }]
+  };
+}
+
 export const CLAUDE_ATTENTION_HOOKS: Record<string, HookEntry[]> = {
   PermissionRequest: [{ matcher: "*", hooks: [{ type: "command", command: REQUEST, timeout: 5 }] }],
   // The question tool: Claude asks you to choose or type something.
@@ -43,8 +56,9 @@ export interface HookReport {
   error?: string;
 }
 
-export function claudeSettingsPath(home: string): string {
-  return path.join(home, ".claude", "settings.json");
+/** `configDir` is Claude Code's CLAUDE_CONFIG_DIR when set; it replaces `<home>/.claude`. */
+export function claudeSettingsPath(home: string, configDir?: string): string {
+  return path.join(configDir ?? path.join(home, ".claude"), "settings.json");
 }
 
 function isObject(value: unknown): value is Json {
@@ -64,8 +78,8 @@ function withoutOurs(hooks: Json): Json {
   return next;
 }
 
-function hasAll(hooks: Json): boolean {
-  return Object.entries(CLAUDE_ATTENTION_HOOKS).every(([event, wanted]) => {
+function hasAll(hooks: Json, platform: NodeJS.Platform): boolean {
+  return Object.entries(claudeAttentionHooks(platform)).every(([event, wanted]) => {
     const entries = hooks[event];
     return Array.isArray(entries) && wanted.every((entry) => entries.some((existing) => JSON.stringify(existing) === JSON.stringify(entry)));
   });
@@ -73,7 +87,7 @@ function hasAll(hooks: Json): boolean {
 
 async function load(file: string): Promise<{ text: string; root: Json | undefined }> {
   if (!existsSync(file)) return { text: "", root: {} };
-  const text = await readFile(file, "utf8");
+  const text = (await readFile(file, "utf8")).replace(/^\uFEFF/u, "");
   if (text.trim() === "") return { text, root: {} };
   try {
     const parsed = JSON.parse(text) as unknown;
@@ -98,22 +112,29 @@ async function save(file: string, text: string, root: Json): Promise<boolean> {
   return backedUp;
 }
 
-export async function claudeHooksStatus(home: string): Promise<HookReport> {
-  const { root } = await load(claudeSettingsPath(home));
-  if (root === undefined) return { settingsLabel: "[claude-settings]", configured: false, changed: false, applied: false, backup: false, error: "settings_invalid_json" };
-  return { settingsLabel: "[claude-settings]", configured: isObject(root.hooks) && hasAll(root.hooks), changed: false, applied: false, backup: false };
+export interface HookOptions {
+  /** CLAUDE_CONFIG_DIR */
+  configDir?: string;
+  platform?: NodeJS.Platform;
 }
 
-export async function claudeHooksAdd(home: string, apply: boolean): Promise<HookReport> {
-  const file = claudeSettingsPath(home);
+export async function claudeHooksStatus(home: string, options: HookOptions = {}): Promise<HookReport> {
+  const { root } = await load(claudeSettingsPath(home, options.configDir));
+  if (root === undefined) return { settingsLabel: "[claude-settings]", configured: false, changed: false, applied: false, backup: false, error: "settings_invalid_json" };
+  return { settingsLabel: "[claude-settings]", configured: isObject(root.hooks) && hasAll(root.hooks, options.platform ?? process.platform), changed: false, applied: false, backup: false };
+}
+
+export async function claudeHooksAdd(home: string, apply: boolean, options: HookOptions = {}): Promise<HookReport> {
+  const platform = options.platform ?? process.platform;
+  const file = claudeSettingsPath(home, options.configDir);
   const { text, root } = await load(file);
   if (root === undefined) return { settingsLabel: "[claude-settings]", configured: false, changed: false, applied: false, backup: false, error: "settings_invalid_json" };
   if (root.hooks !== undefined && !isObject(root.hooks)) return { settingsLabel: "[claude-settings]", configured: false, changed: false, applied: false, backup: false, error: "settings_hooks_unsupported" };
   const current = isObject(root.hooks) ? root.hooks : {};
-  if (hasAll(current)) return { settingsLabel: "[claude-settings]", configured: true, changed: false, applied: false, backup: false };
+  if (hasAll(current, platform)) return { settingsLabel: "[claude-settings]", configured: true, changed: false, applied: false, backup: false };
   // Replace any older AgentHost entries so upgrades never leave duplicates.
   const hooks = withoutOurs(current);
-  for (const [event, entries] of Object.entries(CLAUDE_ATTENTION_HOOKS)) {
+  for (const [event, entries] of Object.entries(claudeAttentionHooks(platform))) {
     hooks[event] = [...(Array.isArray(hooks[event]) ? hooks[event] as unknown[] : []), ...entries];
   }
   if (!apply) return { settingsLabel: "[claude-settings]", configured: false, changed: true, applied: false, backup: false };
@@ -121,8 +142,8 @@ export async function claudeHooksAdd(home: string, apply: boolean): Promise<Hook
   return { settingsLabel: "[claude-settings]", configured: true, changed: true, applied: true, backup };
 }
 
-export async function claudeHooksRemove(home: string, apply: boolean): Promise<HookReport> {
-  const file = claudeSettingsPath(home);
+export async function claudeHooksRemove(home: string, apply: boolean, options: HookOptions = {}): Promise<HookReport> {
+  const file = claudeSettingsPath(home, options.configDir);
   const { text, root } = await load(file);
   if (root === undefined) return { settingsLabel: "[claude-settings]", configured: false, changed: false, applied: false, backup: false, error: "settings_invalid_json" };
   if (!isObject(root.hooks) || !Object.values(root.hooks).some((entries) => Array.isArray(entries) && entries.some(isOurs))) {

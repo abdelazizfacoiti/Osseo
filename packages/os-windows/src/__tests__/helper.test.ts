@@ -14,6 +14,7 @@ process.stdout.write("not a protocol line\\n");
 readline.createInterface({ input: process.stdin }).on("line", (line) => {
   const { id, method, params } = JSON.parse(line);
   if (method === "ping") return process.stdout.write(JSON.stringify({ id, ok: true, result: { protocol: 1 } }) + "\\n");
+  if (method === "uia.ping") return process.stdout.write(JSON.stringify({ id, ok: true, result: { uia: true } }) + "\\n");
   if (method === "echo") return process.stdout.write(JSON.stringify({ id, ok: true, result: params }) + "\\n");
   if (method === "fail") return process.stdout.write(JSON.stringify({ id, ok: false, error: { code: "elevated_window", message: "no" } }) + "\\n");
   if (method === "die") process.exit(3);
@@ -74,7 +75,7 @@ describe("WindowsHelperProcess", () => {
   it("works end to end under the adapter", async () => {
     const helper = await start();
     const capabilities = await createWindowsDesktop(helper).getDesktopCapabilities();
-    expect(capabilities).toMatchObject({ platform: "win32", displayAvailable: true });
+    expect(capabilities).toMatchObject({ platform: "win32", displayAvailable: true, accessibility: { supported: true, backend: "windows-uia" } });
     expect(new HelperError("x", "y").code).toBe("x");
   });
 });
@@ -94,7 +95,18 @@ describe("helper script", () => {
   it("is a well-formed here-string with the closing marker at the start of a line", () => {
     expect(source).toContain("$source = @'\r\n");
     expect(source).toContain("\r\n'@\r\n");
-    expect(source.match(/^'@$/gm)).toHaveLength(1);
+    expect(source.match(/^'@$/gm)).toHaveLength(2); // the Win32 class and the UI Automation class
+  });
+
+  it("routes uia.* lines to the UI Automation class and keeps it optional", () => {
+    expect(source).toContain("IndexOf('\"method\":\"uia.')");
+    expect(source).toContain("[AgentHostUia.Uia]::Handle($line)");
+    expect(source).toContain("[AgentHostWin.Host]::Handle($line)");
+    // The UI Automation class is compiled on its own, inside try/catch, so a failure cannot take the rest down.
+    const compile = source.indexOf("Add-Type -TypeDefinition $uiaSource");
+    expect(compile).toBeGreaterThan(source.indexOf("try {"));
+    expect(source.slice(source.indexOf("try {", source.indexOf("$uiaError = ''")), compile)).toContain("UIAutomationClient");
+    expect(source).toContain("uia_unavailable");
   });
 
   it("handles every method the adapter sends", async () => {
@@ -128,7 +140,18 @@ describe("helper script", () => {
     await desktop.setClipboard({ text: "x" });
     await desktop.getClipboard();
     await desktop.userIdleMs();
+    // Every UI Automation method the adapter can send.
+    const uia = { pid: 10, query: "Save", role: "push button" };
+    await desktop.getAccessibilityTree({ pid: 10 });
+    await desktop.findAccessibilityElement({ pid: 10, query: "Save" });
+    await desktop.readTextAtPoint({ pid: 10, x: 1, y: 1 });
+    await desktop.inspectAccessibilityElement(uia);
+    await desktop.invokeAccessibilityAction({ ...uia, actionName: "click" });
+    await desktop.setAccessibilityValue({ ...uia, value: "x" });
+    await desktop.focusAccessibilityElement(uia);
+    await desktop.readAccessibilityText(uia);
     expect(seen.size).toBeGreaterThan(10);
+    for (const method of ["uia.ping", "uia.tree", "uia.find", "uia.textAtPoint", "uia.inspect", "uia.activate", "uia.setText", "uia.focus", "uia.getText"]) expect(seen.has(method), `the adapter never sends ${method}`).toBe(true);
     for (const method of seen) expect(source, `the script has no case for ${method}`).toContain(`case "${method}":`);
   });
 });

@@ -14,6 +14,10 @@ import { physicalConsent, pressCheck } from "./phone.js";
 import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
 import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@agenthost/os-linux";
 import { claudeHooksAdd, claudeHooksRemove, claudeHooksStatus } from "./hooks.js";
+import { installLayout } from "./install-layout.js";
+import { rollbackJunctionRelease } from "./junction-release.js";
+import { updateFromZip } from "./update-zip.js";
+import { windowsScheduleAdd, windowsScheduleList, windowsScheduleRemove, type SchtasksRunner } from "./windows-schedule.js";
 import { INTEGRATION_TARGETS, integrationAdd, integrationRemove, integrationStatus, publicIntegrationReport, type IntegrationAction, type IntegrationPaths, type IntegrationTarget } from "./integrations.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -21,6 +25,7 @@ const home = os.homedir();
 const agentHome = path.resolve(process.env.AGENTHOST_HOME ?? defaultAgentHostHome(home));
 const publicConfig = path.resolve(process.env.AGENTHOST_CONFIG ?? defaultPublicConfigPath(home));
 const lockPath = path.join(agentHome, "run", "agenthost.lock.json");
+const layout = installLayout({ platform: process.platform, home, env: process.env });
 
 type Json = Record<string, unknown>;
 type Output = { ok: boolean; command: string; data?: unknown; error?: string; warnings?: string[] };
@@ -527,8 +532,10 @@ async function integrationsCommand(targetArg: string | undefined, args: ReturnTy
     project: path.resolve(args.values.get("project") ?? process.cwd()),
     ...(process.env.XDG_CONFIG_HOME === undefined ? {} : { xdgConfigHome: process.env.XDG_CONFIG_HOME }),
     ...(process.env.CODEX_HOME === undefined ? {} : { codexHome: process.env.CODEX_HOME }),
-    ...(process.env.COPILOT_HOME === undefined ? {} : { copilotHome: process.env.COPILOT_HOME })
+    ...(process.env.COPILOT_HOME === undefined ? {} : { copilotHome: process.env.COPILOT_HOME }),
+    ...(process.env.CLAUDE_CONFIG_DIR === undefined || process.env.CLAUDE_CONFIG_DIR === "" ? {} : { claudeConfigDir: process.env.CLAUDE_CONFIG_DIR })
   };
+  const hookOptions = paths.claudeConfigDir === undefined ? {} : { configDir: paths.claudeConfigDir };
   if (targetArg === undefined || targetArg === "status") {
     const reports = await Promise.all(INTEGRATION_TARGETS.map((target) => integrationStatus(target, paths)));
     return { ok: true, command: "integrations status", data: { targets: reports.map(publicIntegrationReport) } };
@@ -547,10 +554,10 @@ async function integrationsCommand(targetArg: string | undefined, args: ReturnTy
   const hooks = target !== "claude"
     ? undefined
     : action === "add"
-      ? await claudeHooksAdd(home, apply)
+      ? await claudeHooksAdd(home, apply, hookOptions)
       : action === "remove"
-        ? await claudeHooksRemove(home, apply)
-        : await claudeHooksStatus(home);
+        ? await claudeHooksRemove(home, apply, hookOptions)
+        : await claudeHooksStatus(home, hookOptions);
   return {
     ok: true,
     command: `integrations ${target} ${action}`,
@@ -559,24 +566,31 @@ async function integrationsCommand(targetArg: string | undefined, args: ReturnTy
   };
 }
 async function update(args: ReturnType<typeof parseFlags>): Promise<Output> {
-  const current = path.join(home, ".local", "share", "agenthost", "current");
+  const current = layout.current;
   if (args.flags.has("rollback")) {
     const previous = `${current}.previous`;
     if (!existsSync(previous)) return fail("update rollback", "previous_release_missing");
     if (!args.flags.has("apply")) return { ok: true, command: "update rollback", data: { preview: true, rollbackAvailable: true } };
+    if (layout.platform === "win32") { try { await rollbackJunctionRelease(layout); } catch (error) { return fail("update rollback", error instanceof Error ? error.message : "rollback_failed"); } return { ok: true, command: "update rollback", data: { applied: true, healthCheck: "manifest_present" } }; }
     const temporary = `${current}.rollback-${process.pid}`; await rename(current, temporary).catch(() => undefined); await rename(previous, current); await rm(temporary, { recursive: true, force: true }); return { ok: true, command: "update rollback", data: { applied: true, healthCheck: "manifest_present" } };
   }
   const archive = args.values.get("archive"); if (!archive) return fail("update", "archive_required"); if (!existsSync(archive)) return fail("update", "archive_missing");
   const checksum = await verifyArchiveChecksum(archive, args.values.get("sha256"));
+  if (archive.toLowerCase().endsWith(".zip")) {
+    const zipped = await updateFromZip({ archive, checksum, apply: args.flags.has("apply"), layout, tmpDir: os.tmpdir() });
+    if (!zipped.ok) return fail("update", zipped.error);
+    if (args.flags.has("apply")) await safeWrite(`${publicConfig}.update.bak`, existsSync(publicConfig) ? await readFile(publicConfig, "utf8") : "");
+    return { ok: true, command: "update", data: zipped.data };
+  }
   const listing = spawnSync("tar", ["-tzf", archive], { encoding: "utf8" }); if (listing.status !== 0 || listing.stdout.split("\n").some((item) => item.startsWith("/") || item.includes("../"))) return fail("update", "archive_invalid");
   const first = listing.stdout.split("\n").find((item) => item.length > 0)?.split("/")[0]; if (!first) return fail("update", "archive_layout_invalid");
   const version = first.replace(/^agenthost-v/, "").replace(/-linux-x64$/, ""); if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)) return fail("update", "release_version_invalid");
   const preview = { archive: path.basename(archive), version, checksum, checksumVerified: true, backupRequired: true, atomicSwitch: true, rollbackOnHealthFailure: true };
   if (!args.flags.has("apply")) return { ok: true, command: "update", data: { preview: true, ...preview } };
   const extraction = await mkdtemp(path.join(os.tmpdir(), "agenthost-update-")); const extracted = spawnSync("tar", ["-xzf", archive, "-C", extraction], { stdio: "ignore" }); if (extracted.status !== 0) return fail("update", "archive_extract_failed"); const staged = path.join(extraction, first); if (!existsSync(path.join(staged, "version.json")) || !existsSync(path.join(staged, "packages", "mcp-server", "dist", "index.js"))) return fail("update", "archive_health_check_failed");
-  const releases = path.join(home, ".local", "share", "agenthost", "releases"); const manifestVersion = JSON.parse(await readFile(path.join(staged, "version.json"), "utf8")).version as string; if (manifestVersion !== version) return fail("update", "release_version_mismatch"); const destination = path.join(releases, version); await mkdir(releases, { recursive: true, mode: 0o700 }); await rm(destination, { recursive: true, force: true }); await rename(staged, destination); await safeWrite(`${publicConfig}.update.bak`, existsSync(publicConfig) ? await readFile(publicConfig, "utf8") : ""); const previous = `${current}.previous`; await rm(previous, { recursive: true, force: true }); if (existsSync(current)) await rename(current, previous); try { await rename(destination, current); } catch (error) { await rename(previous, current).catch(() => undefined); throw error; } return { ok: true, command: "update", data: { applied: true, version, checksumVerified: true, backup: "[config-backup]", rollbackAvailable: true } };
+  const releases = layout.releases; const manifestVersion = JSON.parse(await readFile(path.join(staged, "version.json"), "utf8")).version as string; if (manifestVersion !== version) return fail("update", "release_version_mismatch"); const destination = path.join(releases, version); await mkdir(releases, { recursive: true, mode: 0o700 }); await rm(destination, { recursive: true, force: true }); await rename(staged, destination); await safeWrite(`${publicConfig}.update.bak`, existsSync(publicConfig) ? await readFile(publicConfig, "utf8") : ""); const previous = `${current}.previous`; await rm(previous, { recursive: true, force: true }); if (existsSync(current)) await rename(current, previous); try { await rename(destination, current); } catch (error) { await rename(previous, current).catch(() => undefined); throw error; } return { ok: true, command: "update", data: { applied: true, version, checksumVerified: true, backup: "[config-backup]", rollbackAvailable: true } };
 }
-async function uninstall(flags: ReturnType<typeof parseFlags>): Promise<Output> { const data = { preview: !flags.flags.has("yes"), removes: ["[installed-release]", "[agenthost-wrapper]"], preserves: flags.flags.has("remove-data") ? [] : ["[agenthost-home]", "[config]"] }; if (!flags.flags.has("yes")) return { ok: true, command: "uninstall", data }; await stop(); await rm(path.join(home, ".local", "share", "agenthost"), { recursive: true, force: true }); await rm(path.join(home, ".local", "bin", "agenthost"), { force: true }); if (flags.flags.has("remove-data")) { await rm(agentHome, { recursive: true, force: true }); await rm(path.dirname(publicConfig), { recursive: true, force: true }); } return { ok: true, command: "uninstall", data: { ...data, preview: false } }; }
+async function uninstall(flags: ReturnType<typeof parseFlags>): Promise<Output> { const data = { preview: !flags.flags.has("yes"), removes: ["[installed-release]", "[agenthost-wrapper]"], preserves: flags.flags.has("remove-data") ? [] : ["[agenthost-home]", "[config]"] }; if (!flags.flags.has("yes")) return { ok: true, command: "uninstall", data }; await stop(); await rm(layout.root, { recursive: true, force: true }); for (const launcher of layout.launchers) await rm(launcher, { force: true }); if (flags.flags.has("remove-data")) { await rm(agentHome, { recursive: true, force: true }); await rm(path.dirname(publicConfig), { recursive: true, force: true }); } return { ok: true, command: "uninstall", data: { ...data, preview: false } }; }
 async function workflowCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output & { exitCode?: number }> {
   const name = args.positional[2];
   if (sub === undefined || sub === "list") {
@@ -636,7 +650,34 @@ async function phoneCommand(sub: string | undefined, args: ReturnType<typeof par
   return { ok: true, command: "phone pair", data: `Paired. Approvals up to ${pairing.maxRisk} risk can now be answered from your phone.\n\nOne-time codes, shown only now. Save them on your phone, then clear this terminal:\n\n${codes.join("\n")}\n\nReply on the channel with: approve <ref> <code>  or  deny <ref> <code>` };
 }
 function systemdUserDir(): string { return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"), "systemd", "user"); }
+const runSchtasks: SchtasksRunner = (schtasksArgs) => {
+  const result = spawnSync("schtasks.exe", schtasksArgs, { encoding: "utf8", windowsHide: true });
+  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr || result.error?.message || "" };
+};
+/** Windows: Task Scheduler through schtasks.exe. Same flags as the systemd version. */
+async function windowsScheduleCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const name = args.positional[2];
+  if (sub === undefined || sub === "list") {
+    const listed = windowsScheduleList(runSchtasks);
+    return listed.ok ? { ok: true, command: "schedule list", data: listed.data } : fail("schedule list", listed.error);
+  }
+  if (name === undefined) return fail(`schedule ${sub}`, `usage: agenthost schedule ${sub} <workflow>`);
+  const apply = args.flags.has("apply");
+  if (sub === "add") {
+    if (await loadWorkflow(agentHome, name) === undefined) return fail("schedule add", "workflow_not_found");
+    // The task runs in the person's normal environment, so a custom home or config cannot be carried into it.
+    if (process.env.AGENTHOST_HOME !== undefined || process.env.AGENTHOST_CONFIG !== undefined) return fail("schedule add", "schedule_env_override_unsupported: unset AGENTHOST_HOME and AGENTHOST_CONFIG first");
+    const added = windowsScheduleAdd({ workflow: name, schedule: parseSchedule(args.values), params: parseParams(process.argv.slice(2)), nodePath: process.execPath, cliPath: path.resolve(process.argv[1] ?? "") }, apply, runSchtasks);
+    return added.ok ? { ok: true, command: "schedule add", data: added.data } : fail("schedule add", added.error);
+  }
+  if (sub === "remove") {
+    const removed = windowsScheduleRemove(name, apply, runSchtasks);
+    return removed.ok ? { ok: true, command: "schedule remove", data: removed.data } : fail("schedule remove", removed.error);
+  }
+  return fail("schedule", "usage: agenthost schedule list|add <workflow> --daily HH:MM|--weekdays HH:MM|--every 30m [--param k=v] [--apply]|remove <workflow> [--apply]");
+}
 async function scheduleCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
+  if (process.platform === "win32") return await windowsScheduleCommand(sub, args);
   const name = args.positional[2];
   const dir = systemdUserDir();
   if (sub === undefined || sub === "list") {

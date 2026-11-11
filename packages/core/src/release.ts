@@ -11,7 +11,13 @@ export function defaultAgentHostHome(homeDir = os.homedir()): string {
   return path.join(homeDir, ".agenthost");
 }
 
-export function defaultPublicConfigPath(homeDir = os.homedir()): string {
+export function defaultPublicConfigPath(homeDir = os.homedir(), options: { platform?: NodeJS.Platform; env?: Record<string, string | undefined> } = {}): string {
+  if ((options.platform ?? process.platform) === "win32") {
+    // Windows keeps per-user settings under %APPDATA% (Roaming); fall back to the standard folder under the home directory.
+    const env = options.env ?? process.env;
+    const appData = env.APPDATA !== undefined && env.APPDATA !== "" ? env.APPDATA : path.win32.join(homeDir, "AppData", "Roaming");
+    return path.win32.join(appData, "agenthost", "config.json");
+  }
   return path.join(homeDir, ".config", "agenthost", "config.json");
 }
 

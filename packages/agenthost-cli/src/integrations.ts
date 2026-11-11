@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { CODEX_NOTIFY_LINE, codexNotifyAdd, codexNotifyRemove, codexNotifyState } from "./codex-notify.js";
+import { codexNotifyLine, codexNotifyAdd, codexNotifyRemove, codexNotifyState } from "./codex-notify.js";
 
 export const INTEGRATION_TARGETS = ["opencode", "claude", "codex", "copilot", "copilot-cli", "cursor"] as const;
 export type IntegrationTarget = (typeof INTEGRATION_TARGETS)[number];
@@ -13,6 +13,18 @@ export interface IntegrationPaths {
   xdgConfigHome?: string;
   codexHome?: string;
   copilotHome?: string;
+  /** Claude Code's CLAUDE_CONFIG_DIR, when set. Holds `.claude.json` and `settings.json` instead of the home folder. */
+  claudeConfigDir?: string;
+  /** Defaults to the host platform. Windows starts the server through `cmd /c agenthost start`. */
+  platform?: NodeJS.Platform;
+}
+
+/**
+ * How a client starts the server. On Windows `agenthost` is a .cmd file, and clients that launch the
+ * program directly (without a shell) cannot run a .cmd by its bare name, so the entry goes through cmd.exe.
+ */
+export function serverCommand(platform: NodeJS.Platform = process.platform): { command: string; args: string[] } {
+  return platform === "win32" ? { command: "cmd", args: ["/c", "agenthost", "start"] } : { command: "agenthost", args: ["start"] };
 }
 
 /** The Codex `notify` key that raises the terminal when a turn ends. */
@@ -50,7 +62,10 @@ const LABELS: Record<IntegrationTarget, string> = {
 };
 
 const CODEX_HEADER = "[mcp_servers.agenthost]";
-const CODEX_ENTRY = `${CODEX_HEADER}\ncommand = "agenthost"\nargs = ["start"]\n`;
+function codexEntry(platform: NodeJS.Platform | undefined): string {
+  const server = serverCommand(platform);
+  return `${CODEX_HEADER}\ncommand = ${JSON.stringify(server.command)}\nargs = [${server.args.map((arg) => JSON.stringify(arg)).join(", ")}]\n`;
+}
 
 function isObject(value: unknown): value is Json {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -143,18 +158,21 @@ function parseJsonConfig(text: string): Json | undefined {
   }
 }
 
+function isStartCommand(command: unknown, args: unknown[]): boolean {
+  if (typeof command !== "string") return false;
+  // path.win32 also splits on "/" and "\\", so it reads a Windows path on any host.
+  const base = path.win32.basename(command).replace(/\.(cmd|exe)$/iu, "");
+  if ((base === "agenthost" || base === "agenthost.mjs") && args.includes("start")) return true;
+  // Windows: cmd /c agenthost start
+  return base.toLowerCase() === "cmd" && args[0]?.toString().toLowerCase() === "/c" && args[1] === "agenthost" && args.includes("start");
+}
+
 function isAgentHostEntry(entry: unknown): boolean {
   if (!isObject(entry) || entry.enabled === false) return false;
-  if (typeof entry.command === "string") {
-    const base = path.basename(entry.command);
-    const args = Array.isArray(entry.args) ? entry.args : [];
-    return (base === "agenthost" || base === "agenthost.mjs") && args.includes("start");
-  }
+  if (typeof entry.command === "string") return isStartCommand(entry.command, Array.isArray(entry.args) ? entry.args : []);
   if (Array.isArray(entry.command)) {
     const [command, ...args] = entry.command;
-    if (typeof command !== "string") return false;
-    const base = path.basename(command);
-    return (base === "agenthost" || base === "agenthost.mjs") && args.includes("start");
+    return isStartCommand(command, args);
   }
   return false;
 }
@@ -166,7 +184,7 @@ export function integrationConfigPath(target: IntegrationTarget, paths: Integrat
       const jsonc = path.join(directory, "opencode.jsonc");
       return existsSync(jsonc) ? jsonc : path.join(directory, "opencode.json");
     }
-    case "claude": return path.join(paths.home, ".claude.json");
+    case "claude": return path.join(paths.claudeConfigDir ?? paths.home, ".claude.json");
     case "codex": return path.join(paths.codexHome ?? path.join(paths.home, ".codex"), "config.toml");
     case "copilot": return path.join(paths.project, ".vscode", "mcp.json");
     case "copilot-cli": return path.join(paths.copilotHome ?? path.join(paths.home, ".copilot"), "mcp-config.json");
@@ -189,27 +207,29 @@ async function backup(file: string, content: string): Promise<boolean> {
   return true;
 }
 
-function jsonContainer(root: Json, target: IntegrationTarget): { container: Json; entry: Json } | undefined {
+function jsonContainer(root: Json, target: IntegrationTarget, paths: IntegrationPaths): { container: Json; entry: Json } | undefined {
   if (target === "opencode") {
     if (root.mcp !== undefined && !isObject(root.mcp)) return undefined;
     const mcp = isObject(root.mcp) ? root.mcp : {};
     root.mcp = mcp;
-    return { container: mcp, entry: { type: "local", command: ["agenthost", "start"] } };
+    const server = serverCommand(paths.platform);
+    return { container: mcp, entry: { type: "local", command: [server.command, ...server.args] } };
   }
   const key = target === "copilot" ? "servers" : "mcpServers";
   if (root[key] !== undefined && !isObject(root[key])) return undefined;
   const container = isObject(root[key]) ? root[key] as Json : {};
   root[key] = container;
+  const server = serverCommand(paths.platform);
   const entry = target === "copilot"
-    ? { type: "stdio", command: "agenthost", args: ["start"] }
+    ? { type: "stdio", command: server.command, args: server.args }
     : target === "copilot-cli"
-      ? { type: "local", command: "agenthost", args: ["start"], tools: ["*"] }
-      : { command: "agenthost", args: ["start"] };
+      ? { type: "local", command: server.command, args: server.args, tools: ["*"] }
+      : { command: server.command, args: server.args };
   return { container, entry };
 }
 
 function codexBlock(text: string): { start: number; end: number } | undefined {
-  const match = /^\[mcp_servers\.agenthost\][ \t]*$/m.exec(text);
+  const match = /^\[mcp_servers\.agenthost\][ \t\r]*$/m.exec(text);
   if (match === null) return undefined;
   const start = match.index;
   const next = text.indexOf("\n[", start + match[0].length);
@@ -222,11 +242,13 @@ function codexUnsupported(text: string): boolean {
     || text.split("\n").some((line) => line.trimStart().startsWith("[") && !line.trim().endsWith("]"));
 }
 
-function codexMatches(text: string): boolean {
+function codexMatches(text: string, platform: NodeJS.Platform | undefined): boolean {
   const block = codexBlock(text);
   if (block === undefined) return false;
   const section = text.slice(block.start, block.end);
-  return /^command\s*=\s*"agenthost"\s*$/m.test(section) && /^args\s*=\s*\["start"\]\s*$/m.test(section);
+  const linux = /^command\s*=\s*"agenthost"\s*$/m.test(section) && /^args\s*=\s*\["start"\]\s*$/m.test(section);
+  const windows = /^command\s*=\s*"cmd"\s*$/m.test(section) && /^args\s*=\s*\["\/c",\s*"agenthost",\s*"start"\]\s*$/m.test(section);
+  return (platform ?? process.platform) === "win32" ? windows : linux;
 }
 
 function report(target: IntegrationTarget, configPath: string, values: Omit<IntegrationReport, "target" | "configPath" | "configLabel">): IntegrationReport {
@@ -241,7 +263,8 @@ function report(target: IntegrationTarget, configPath: string, values: Omit<Inte
 
 async function readConfig(file: string): Promise<{ text: string; existed: boolean }> {
   if (!existsSync(file)) return { text: "", existed: false };
-  return { text: await readFile(file, "utf8"), existed: true };
+  // Windows editors often save a byte order mark; JSON.parse rejects it.
+  return { text: (await readFile(file, "utf8")).replace(/^\uFEFF/u, ""), existed: true };
 }
 
 async function jsonStatus(target: IntegrationTarget, paths: IntegrationPaths): Promise<IntegrationReport> {
@@ -249,7 +272,7 @@ async function jsonStatus(target: IntegrationTarget, paths: IntegrationPaths): P
   const { text } = await readConfig(file);
   const root = text.trim() === "" ? {} : parseJsonConfig(text);
   if (root === undefined) return report(target, file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_invalid_json" });
-  const container = jsonContainer(root, target);
+  const container = jsonContainer(root, target, paths);
   if (container === undefined) return report(target, file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_unsupported" });
   const existing = container.container.agenthost;
   return report(target, file, { configured: existing !== undefined, matches: isAgentHostEntry(existing), changed: false, applied: false, backup: false });
@@ -260,7 +283,7 @@ async function jsonAdd(target: IntegrationTarget, paths: IntegrationPaths, apply
   const { text } = await readConfig(file);
   const root = text.trim() === "" ? {} : parseJsonConfig(text);
   if (root === undefined) return report(target, file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_invalid_json" });
-  const container = jsonContainer(root, target);
+  const container = jsonContainer(root, target, paths);
   if (container === undefined) return report(target, file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_unsupported" });
   const existing = container.container.agenthost;
   if (isAgentHostEntry(existing)) return report(target, file, { configured: true, matches: true, changed: false, applied: false, backup: false });
@@ -279,7 +302,7 @@ async function jsonRemove(target: IntegrationTarget, paths: IntegrationPaths, ap
   const { text } = await readConfig(file);
   const root = text.trim() === "" ? {} : parseJsonConfig(text);
   if (root === undefined) return report(target, file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_invalid_json" });
-  const container = jsonContainer(root, target);
+  const container = jsonContainer(root, target, paths);
   if (container === undefined) return report(target, file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_unsupported" });
   const existing = container.container.agenthost;
   if (existing === undefined) return report(target, file, { configured: false, matches: false, changed: false, applied: false, backup: false });
@@ -312,7 +335,7 @@ async function codexStatus(paths: IntegrationPaths): Promise<IntegrationReport> 
   if (text !== "" && codexUnsupported(text)) return report("codex", file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_unsupported_or_invalid" });
   const state = codexNotifyState(text);
   const codexNotify: CodexNotifyReport = { configured: state.matches, changed: false, applied: false, ...(state.present && !state.ours ? { reason: FOREIGN_NOTIFY } : {}) };
-  return report("codex", file, { configured: codexBlock(text) !== undefined, matches: codexMatches(text), changed: false, applied: false, backup: false, codexNotify });
+  return report("codex", file, { configured: codexBlock(text) !== undefined, matches: codexMatches(text, paths.platform), changed: false, applied: false, backup: false, codexNotify });
 }
 
 async function codexAdd(paths: IntegrationPaths, apply: boolean): Promise<IntegrationReport> {
@@ -321,17 +344,17 @@ async function codexAdd(paths: IntegrationPaths, apply: boolean): Promise<Integr
   if (text !== "" && codexUnsupported(text)) return report("codex", file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_unsupported_or_invalid" });
   const block = codexBlock(text);
   // One read, one write: the MCP entry and the notify key share a single backup of the original file.
-  const withEntry = codexMatches(text)
+  const withEntry = codexMatches(text, paths.platform)
     ? text
     : block === undefined
-      ? `${text.trimEnd()}${text.trim().length > 0 ? "\n\n" : ""}${CODEX_ENTRY}`
-      : `${text.slice(0, block.start)}${CODEX_ENTRY}${text.slice(block.end).replace(/^\n+/, "\n")}`;
-  const updated = codexNotifyAdd(withEntry).text;
+      ? `${text.trimEnd()}${text.trim().length > 0 ? "\n\n" : ""}${codexEntry(paths.platform)}`
+      : `${text.slice(0, block.start)}${codexEntry(paths.platform)}${text.slice(block.end).replace(/^\n+/, "\n")}`;
+  const updated = codexNotifyAdd(withEntry, paths.platform).text;
   const codexNotify = notifyReport(withEntry, updated, apply, "add");
-  const proposed = { command: "agenthost", args: ["start"], notify: CODEX_NOTIFY_LINE };
+  const proposed = { ...serverCommand(paths.platform), notify: codexNotifyLine(paths.platform) };
   const changed = updated !== text;
   if (!changed) return report("codex", file, { configured: true, matches: true, changed: false, applied: false, backup: false, codexNotify });
-  if (!apply) return report("codex", file, { configured: block !== undefined, matches: codexMatches(text), changed: true, applied: false, backup: false, proposed, codexNotify });
+  if (!apply) return report("codex", file, { configured: block !== undefined, matches: codexMatches(text, paths.platform), changed: true, applied: false, backup: false, proposed, codexNotify });
   const backedUp = await backup(file, text);
   await writePrivate(file, updated);
   return report("codex", file, { configured: true, matches: true, changed: true, applied: true, backup: backedUp, proposed, codexNotify });
@@ -346,7 +369,7 @@ async function codexRemove(paths: IntegrationPaths, apply: boolean): Promise<Int
   const updated = codexNotifyRemove(withoutEntry).text;
   const codexNotify = notifyReport(withoutEntry, updated, apply, "remove");
   if (updated === text) return report("codex", file, { configured: false, matches: false, changed: false, applied: false, backup: false, codexNotify });
-  if (!apply) return report("codex", file, { configured: block !== undefined, matches: codexMatches(text), changed: true, applied: false, backup: false, codexNotify });
+  if (!apply) return report("codex", file, { configured: block !== undefined, matches: codexMatches(text, paths.platform), changed: true, applied: false, backup: false, codexNotify });
   const backedUp = await backup(file, text);
   await writePrivate(file, updated);
   return report("codex", file, { configured: false, matches: false, changed: true, applied: true, backup: backedUp, codexNotify });

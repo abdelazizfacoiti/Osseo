@@ -9,6 +9,14 @@
 export const CODEX_NOTIFY_ARGS = ["agenthost", "attention", "request", "--source", "codex", "--reason", "done"] as const;
 export const CODEX_NOTIFY_LINE = `notify = [${CODEX_NOTIFY_ARGS.map((arg) => JSON.stringify(arg)).join(", ")}]`;
 
+/** Windows runs `agenthost` (a .cmd file) through cmd.exe: Codex starts the program without a shell. */
+export function codexNotifyArgs(platform: NodeJS.Platform = process.platform): readonly string[] {
+  return platform === "win32" ? ["cmd", "/c", ...CODEX_NOTIFY_ARGS] : CODEX_NOTIFY_ARGS;
+}
+export function codexNotifyLine(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? `notify = [${codexNotifyArgs(platform).map((arg) => JSON.stringify(arg)).join(", ")}]` : CODEX_NOTIFY_LINE;
+}
+
 export interface CodexNotifyState {
   /** A top-level notify key exists. */
   present: boolean;
@@ -135,8 +143,11 @@ export function codexNotifyState(text: string): CodexNotifyState {
   const { notify } = scan(text);
   if (notify === undefined) return { present: false, ours: false, matches: false };
   const items = notify.items;
-  const ours = items !== undefined && items[0] === CODEX_NOTIFY_ARGS[0] && items[1] === CODEX_NOTIFY_ARGS[1];
-  return { present: true, ours, matches: ours && items!.length === CODEX_NOTIFY_ARGS.length && items!.every((item, index) => item === CODEX_NOTIFY_ARGS[index]) };
+  const viaCmd = items !== undefined && items[0] === "cmd" && items[1] === "/c";
+  const own = viaCmd ? items!.slice(2) : items;
+  const ours = own !== undefined && own[0] === CODEX_NOTIFY_ARGS[0] && own[1] === CODEX_NOTIFY_ARGS[1];
+  const wanted = viaCmd ? codexNotifyArgs("win32") : CODEX_NOTIFY_ARGS;
+  return { present: true, ours, matches: ours && items!.length === wanted.length && items!.every((item, index) => item === wanted[index]) };
 }
 
 function eolOf(text: string): string {
@@ -144,22 +155,25 @@ function eolOf(text: string): string {
 }
 
 /** Adds our notify key above the first table; leaves a foreign notify and an exact match alone. */
-export function codexNotifyAdd(text: string): { text: string; state: CodexNotifyState } {
+export function codexNotifyAdd(text: string, platform: NodeJS.Platform = process.platform): { text: string; state: CodexNotifyState } {
   const state = codexNotifyState(text);
+  const line = codexNotifyLine(platform);
   if (state.present && !state.ours) return { text, state };
-  if (state.matches) return { text, state };
+  const wanted = codexNotifyArgs(platform);
+  const items = scan(text).notify?.items;
+  if (state.matches && items !== undefined && items.length === wanted.length && items.every((item, index) => item === wanted[index])) return { text, state };
   const found = scan(text);
   const eol = eolOf(text);
   if (found.notify !== undefined) {
     const hadNewline = text.slice(found.notify.start, found.notify.end).endsWith("\n");
-    const updated = `${text.slice(0, found.notify.start)}${CODEX_NOTIFY_LINE}${hadNewline ? eol : ""}${text.slice(found.notify.end)}`;
+    const updated = `${text.slice(0, found.notify.start)}${line}${hadNewline ? eol : ""}${text.slice(found.notify.end)}`;
     return { text: updated, state: { present: true, ours: true, matches: true } };
   }
   let before = text.slice(0, found.insertAt);
   const after = text.slice(found.insertAt);
   if (before !== "" && !before.endsWith("\n")) before += eol;
   const blankAfter = !found.hasKeyLines && after !== "" ? eol : "";
-  return { text: `${before}${CODEX_NOTIFY_LINE}${eol}${blankAfter}${after}`, state: { present: true, ours: true, matches: true } };
+  return { text: `${before}${line}${eol}${blankAfter}${after}`, state: { present: true, ours: true, matches: true } };
 }
 
 /** Removes the notify key only when it is ours. */

@@ -12,6 +12,10 @@
  *
  * Do not touch the mouse or keyboard while it runs (about 20 seconds). It never sends input outside
  * its own test window.
+ *
+ * It also checks Windows UI Automation (the accessibility tools) against that window: the tree lists the
+ * Save button, find returns its bounds, activate invokes a Probe button (which writes a file), set-text
+ * fills the Name box and reads it back, and the password box is flagged and never read or written.
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -46,16 +50,29 @@ Add-Type -AssemblyName System.Drawing
 Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class Dpi { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }'
 [void][Dpi]::SetProcessDPIAware()
 $out = $env:AH_CHECK_OUT
+$probe = $env:AH_CHECK_PROBE
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'AgentHost Check Window'
 $form.FormBorderStyle = 'None'
 $form.StartPosition = 'Manual'
 $form.Location = New-Object System.Drawing.Point(200, 200)
-$form.Size = New-Object System.Drawing.Size(400, 140)
+$form.Size = New-Object System.Drawing.Size(400, 180)
 $form.TopMost = $true
 $box = New-Object System.Windows.Forms.TextBox
 $box.Location = New-Object System.Drawing.Point(20, 20)
 $box.Size = New-Object System.Drawing.Size(360, 24)
+$box.AccessibleName = 'Name'
+$pw = New-Object System.Windows.Forms.TextBox
+$pw.Location = New-Object System.Drawing.Point(20, 120)
+$pw.Size = New-Object System.Drawing.Size(360, 24)
+$pw.UseSystemPasswordChar = $true
+$pw.AccessibleName = 'Password'
+$pw.Text = 'hunter2-secret'
+$probeButton = New-Object System.Windows.Forms.Button
+$probeButton.Text = 'Probe'
+$probeButton.Location = New-Object System.Drawing.Point(160, 70)
+$probeButton.Size = New-Object System.Drawing.Size(120, 40)
+$probeButton.Add_Click({ [System.IO.File]::WriteAllText($probe, 'invoked', (New-Object System.Text.UTF8Encoding($false))) })
 $save = New-Object System.Windows.Forms.Button
 $save.Text = 'Save'
 $save.Location = New-Object System.Drawing.Point(20, 70)
@@ -63,6 +80,8 @@ $save.Size = New-Object System.Drawing.Size(120, 40)
 $save.Add_Click({ [System.IO.File]::WriteAllText($out, $box.Text, (New-Object System.Text.UTF8Encoding($false))); $form.Close() })
 $form.Controls.Add($box)
 $form.Controls.Add($save)
+$form.Controls.Add($probeButton)
+$form.Controls.Add($pw)
 [void]$form.ShowDialog()
 `;
 
@@ -107,9 +126,10 @@ try {
     record("SKIP", "input checks", "--no-input");
   } else {
     const outFile = path.join(home, "result.txt");
+    const probeFile = path.join(home, "probe.txt");
     const formFile = path.join(home, "form.ps1");
     writeFileSync(formFile, FORM);
-    formProcess = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", formFile], { env: { ...process.env, AH_CHECK_OUT: outFile }, stdio: "ignore", windowsHide: false });
+    formProcess = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", formFile], { env: { ...process.env, AH_CHECK_OUT: outFile, AH_CHECK_PROBE: probeFile }, stdio: "ignore", windowsHide: false });
     let form;
     for (let i = 0; i < 60 && form === undefined; i += 1) {
       await sleep(500);
@@ -122,6 +142,44 @@ try {
       const focus = await desktop.focusWindow({ windowId: form.windowId });
       check("the test window is focused by id", focus.focused === true, focus.reason);
       const scale = form.bounds.width / 400;
+
+      // ---- UI Automation: runs first, because the Save button closes the form. ----
+      check("the helper reports UI Automation as available", capabilities.accessibility.supported === true, capabilities.accessibility.reason);
+      const inside = (b) => b !== undefined && b.x >= form.bounds.x && b.y >= form.bounds.y && b.x + b.width <= form.bounds.x + form.bounds.width + 2 && b.y + b.height <= form.bounds.y + form.bounds.height + 2;
+      const flat = (node) => (node === undefined ? [] : [node, ...(node.children ?? []).flatMap(flat)]);
+      const tree = await desktop.getAccessibilityTree({ windowId: form.windowId, maxDepth: 8, maxNodes: 200, includeText: true });
+      const nodes = flat(tree.root);
+      check("uia.tree lists the Save button", tree.supported && nodes.some((n) => n.role === "push button" && n.name === "Save" && n.enabled === true), tree.reason);
+      const pwNode = nodes.find((n) => n.name === "Password");
+      check("uia.tree marks the password box sensitive and carries no text for it", pwNode?.sensitive === true && pwNode.text === undefined && !JSON.stringify(tree).includes("hunter2"), JSON.stringify(pwNode));
+      const treeByPid = await desktop.getAccessibilityTree({ pid: form.pid, maxDepth: 8, maxNodes: 200 });
+      check("uia.tree also works by process id", treeByPid.supported && flat(treeByPid.root).some((n) => n.name === "Save"), treeByPid.reason);
+
+      const found = await desktop.findAccessibilityElement({ windowId: form.windowId, query: "Save", role: "push button" });
+      const saveHit = found.candidates?.find((c) => c.name === "Save");
+      check("uia.find finds Save with bounds inside the window", found.supported && saveHit !== undefined && inside(saveHit.bounds), JSON.stringify(found));
+      const byPid = await desktop.findAccessibilityElement({ pid: form.pid, query: "Probe" });
+      check("uia.find by pid finds the Probe button", byPid.supported && byPid.candidates?.some((c) => c.name === "Probe" && c.role === "push button"), JSON.stringify(byPid));
+
+      const probe = await desktop.invokeAccessibilityAction({ windowId: form.windowId, query: "Probe", role: "push button", actionName: "click", requireExactMatch: true });
+      check("uia.activate invokes the Probe button", probe.supported && probe.performed === true, probe.reason);
+      for (let i = 0; i < 20 && !existsSync(probeFile); i += 1) await sleep(250);
+      check("the form shows that Probe was invoked (it wrote its file)", existsSync(probeFile) && readFileSync(probeFile, "utf8") === "invoked", "no probe file");
+
+      const filled = await desktop.setAccessibilityValue({ windowId: form.windowId, query: "Name", role: "entry", value: "uia text éè" });
+      check("uia.setText fills the Name box", filled.supported && filled.changed === true, filled.reason);
+      const readBack = await desktop.readAccessibilityText({ windowId: form.windowId, query: "Name", role: "entry" });
+      check("uia.getText reads it back exactly", readBack.readable === true && readBack.text === "uia text éè", JSON.stringify(readBack));
+      const atPoint = await desktop.readTextAtPoint({ pid: form.pid, x: Math.round(form.bounds.x + 200 * scale), y: Math.round(form.bounds.y + 32 * scale) });
+      check("the field read-back used by set_field sees the same text", atPoint.found === true && atPoint.text === "uia text éè", JSON.stringify({ ...atPoint, text: undefined }));
+
+      const refused = await desktop.setAccessibilityValue({ windowId: form.windowId, query: "Password", value: "overwritten" });
+      check("uia.setText refuses the password box", refused.supported && refused.changed === false, refused.reason);
+      const secret = await desktop.readAccessibilityText({ windowId: form.windowId, query: "Password" });
+      check("uia.getText never returns the password", secret.readable === false && secret.text === undefined && secret.sensitive === true, JSON.stringify({ ...secret, text: undefined }));
+      const missing = await desktop.invokeAccessibilityAction({ windowId: form.windowId, query: "No such control", actionName: "click" });
+      check("an unknown control is reported as not found, not as an error", missing.supported === true && missing.matched === false && missing.performed === false, missing.reason);
+
       const at = (dx, dy) => ({ x: Math.round(form.bounds.x + dx * scale), y: Math.round(form.bounds.y + dy * scale) });
 
       const box = at(200, 32);

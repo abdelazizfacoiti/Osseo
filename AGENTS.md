@@ -23,7 +23,7 @@ GUI clicking/typing is fallback only. Use guide mode for unsupported or sensitiv
 
 ## Current milestone
 
-**Accuracy, cost, and Windows** (plan: AgentHost accuracy, cost, and Windows). Milestones 1–3 are done: verified actions, label and screenshot-id targeting, set_field with read-back, file dialogs, lean results, `screen.read`, plan expectations, and the form benchmark gate. Milestone 4 (Windows) is in progress: W1 (headless: paths, shell rules, process trees, browser discovery, access lists, start-up guards) and the first part of W2 (desktop adapter: PowerShell helper, windows, screenshots, SendInput, clipboard; no UI Automation yet) are implemented and wait for runs on Windows (`scripts\windows-check.ps1`, `scripts\windows-desktop-check.ps1`); then UI Automation, overlay and approvals (W3), and packaging (W4). Keep the P0 rules: previews and confirmation tokens for consequential actions, stop/takeover, audit, and truthful manifests. Verify source, tests, build, and smoke before claiming completion.
+**Accuracy, cost, and Windows** (plan: AgentHost accuracy, cost, and Windows). Milestones 1–3 are done: verified actions, label and screenshot-id targeting, set_field with read-back, file dialogs, lean results, `screen.read`, plan expectations, and the form benchmark gate. Milestone 4 (Windows) is in progress: W1 (headless: paths, shell rules, process trees, browser discovery, access lists, start-up guards) and W2 (desktop adapter: PowerShell helper, windows, screenshots, SendInput, clipboard, and UI Automation behind `ui.*`, `screen.read`, label clicks and `set_field` read-back; no OCR on Windows) are implemented and wait for runs on Windows (`scripts\windows-check.ps1`, `scripts\windows-desktop-check.ps1`); W4 packaging is added and untested (`scripts/install.ps1`, `npm run release:build:windows`, zip updates by junction, `cmd /c` client entries, Task Scheduler schedules; checked by `scripts\windows-check.ps1`); still to do: overlay and approvals (W3). Keep the P0 rules: previews and confirmation tokens for consequential actions, stop/takeover, audit, and truthful manifests. Verify source, tests, build, and smoke before claiming completion.
 
 ## Architecture rules
 
@@ -53,6 +53,7 @@ packages/
 | `npm start:mcp` | Run MCP server |
 | `npm run smoke:mcp` | Smoke test |
 | `npm run check:live` | End-to-end check of this build (80 checks): CLI help and resume, verified clicks, typing, labels, set_field and screenshot ids on a nested display, self-pause, headless-Chrome forms with an iframe, session end (cards close when the client disconnects), file dialogs, and plan expectations. Opens a small window on your screen for about a minute. |
+| `npm run release:build:windows` | Build `release/agenthost-v<version>-win-x64.zip` (+ fixed-name copy) from the Linux release stage with Node only; run after `release:build` |
 | `npm run test:windows` | The unit tests that do not assume Linux (run in the `windows-headless` CI job and by `scripts\windows-check.ps1`) |
 | `node scripts/windows-smoke.mjs` | The built server over stdio on any OS: tools, files, protected paths, shell classification, browser, tasks |
 | `npm run benchmark:form` | One form task three ways (pixel before, pixel after, browser) with the gate: 50% fewer calls, 40% fewer bytes, no unverified successes. The pixel routes need headed Chrome, Xephyr, and GTK. |

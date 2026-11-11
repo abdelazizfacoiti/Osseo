@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Windows accessibility through UI Automation (`packages/os-windows`): `ui.tree`, `ui.find`, `ui.activate`, `ui.set_text`, `screen.read`, label clicks, `set_field` read-back and `guide.show` labels now work on Windows with the same results as on Linux. Password fields are never read or written, administrator windows are refused, a hung app returns a partial result instead of hanging, and there is no OCR fallback on Windows. Not yet run on a Windows machine: `scripts\windows-desktop-check.ps1`.
+- Windows packaging (W4, untested on Windows): `scripts/install.ps1` installs the release under `%LOCALAPPDATA%\AgentHost` with SHA-256 check, a `current` junction, an `agenthost.cmd` launcher and a user `Path` entry; no administrator rights. `npm run release:build:windows` builds `agenthost-v<version>-win-x64.zip` (and `agenthost-win-x64.zip`) with Node only.
+- `agenthost update --archive <file>.zip` unpacks a Windows release with a built-in zip reader (no external tool) and switches it by junction; `--rollback` swaps the junctions back.
+- Windows config lives in `%APPDATA%\agenthost\config.json`. Linux paths are unchanged.
+- Client integrations on Windows write `cmd /c agenthost start` (also for Codex `notify`), accept a byte order mark and CRLF files, and Claude Code's `CLAUDE_CONFIG_DIR`. The Claude `PostToolUse` hook on Windows is a plain `agenthost attention clear --restore` instead of a POSIX shell guard.
+- `agenthost schedule add|list|remove` use Task Scheduler (`schtasks.exe`) on Windows, with the same flags, preview by default, and validated names.
 - Guide mode can wait for the person's click: `guide.show` takes `waitForClick` and `waitSeconds`, blocks until a press inside a box, clears the marks and reports which step was clicked, so the agent keeps its turn. Stop now removes the guide marks, and the stopped task card has a Resume button that clears the stop flag.
 - Removed the Blender and SSH adapter packages, the `adapter.list` and `adapter.get` tools, and the adapter registry, because no tool was ever registered for them. An `optionalAdapters` key in an existing config file is still accepted and ignored.
 - `agenthost integrations codex add` now also sets Codex's top-level `notify` so the terminal is raised when a turn ends. It never replaces a different `notify` program that is already set, and `remove` deletes only AgentHost's entry.
@@ -18,7 +24,7 @@
 - `browser.open` joins a Chrome that already owns the agent profile (an orphan from a killed server, or another session) in a new tab instead of failing after 15 s. Closing leaves that browser running.
 - `screenChanged` is `null` (reason `window_still_changing`) when the window never settles (animation, video, blinking caret), instead of reporting a change that may be noise.
 - `benchmark:form` closes its servers through stdin so Chrome does not outlive the run.
-- Windows desktop adapter (`packages/os-windows`, W2 part 1): windows, screenshots, mouse, keyboard, clipboard and idle time through a PowerShell helper; focus drift re-activation; administrator windows refused as `elevated_window`. Accessibility tools are not available on Windows yet. Not yet run on a Windows machine: `scripts\windows-desktop-check.ps1`.
+- Windows desktop adapter (`packages/os-windows`, W2 part 1): windows, screenshots, mouse, keyboard, clipboard and idle time through a PowerShell helper; focus drift re-activation; administrator windows refused as `elevated_window`. Accessibility tools came in a later entry. Not yet run on a Windows machine: `scripts\windows-desktop-check.ps1`.
 - `package-lock.json` lists the current packages again (it still named removed ones, so `npm ci` would have failed), and the release archive includes `os-windows`.
 - Clipboard paste (`desktop.type_text`, `desktop.set_field`, `desktop.file_dialog_select`) restores the old clipboard only after the window stops changing, after a 350 ms minimum and capped at 1.5 s. The old fixed wait could restore too early in a slow app.
 - Stop: an MCP server exits when its client closes stdin (or on SIGHUP), after closing its overlay cards. Before, a card renderer held the process open, so cards stayed on screen after the session ended.

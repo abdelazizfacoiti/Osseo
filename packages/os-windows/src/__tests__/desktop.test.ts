@@ -167,10 +167,10 @@ describe("Windows desktop adapter", () => {
     }
   });
 
-  it("says accessibility is not available instead of guessing", async () => {
+  it("says accessibility is unavailable when the helper cannot do UI Automation, instead of guessing", async () => {
     const { helper } = fakeHelper({});
     const desktop = createWindowsDesktop(helper);
-    expect(await desktop.getAccessibilityTree()).toMatchObject({ supported: false });
-    expect(await desktop.readTextAtPoint()).toMatchObject({ supported: false, found: false });
+    expect(await desktop.getAccessibilityTree({ pid: 10 })).toMatchObject({ supported: false });
+    expect(await desktop.readTextAtPoint({ pid: 10, x: 1, y: 1 })).toMatchObject({ supported: false, found: false });
   });
 });

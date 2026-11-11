@@ -11,6 +11,8 @@
  * Not yet run on a real Windows machine: scripts\windows-desktop-check.ps1 is the first test.
  */
 
+import { UIA_CSHARP } from "./uia-script.js";
+
 export const HELPER_PROTOCOL_VERSION = 1;
 
 const CSHARP = String.raw`
@@ -618,22 +620,67 @@ namespace AgentHostWin
 }
 `;
 
+const POWERSHELL_HEAD = String.raw`
+$ErrorActionPreference = 'Stop'
+try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
+$source = @'
+`;
+
+const POWERSHELL_MID = String.raw`
+'@
+Add-Type -TypeDefinition $source -ReferencedAssemblies 'System.Drawing','System.Windows.Forms','System.Web.Extensions'
+$uiaSource = @'
+`;
+
+// UI Automation is compiled on its own and inside try/catch: if it fails to load, only uia.* is
+// unavailable (with the reason in the reply), and windows, input and screenshots keep working.
+const POWERSHELL_TAIL = String.raw`
+'@
+$uiaError = ''
+try {
+  Add-Type -AssemblyName UIAutomationClient
+  Add-Type -AssemblyName UIAutomationTypes
+  Add-Type -AssemblyName WindowsBase
+  $uiaRefs = @('System.Web.Extensions')
+  foreach ($uiaType in @([System.Windows.Automation.AutomationElement], [System.Windows.Automation.ControlType], [System.Windows.Rect])) { $uiaRefs += $uiaType.Assembly.Location }
+  Add-Type -TypeDefinition $uiaSource -ReferencedAssemblies $uiaRefs
+} catch {
+  $uiaError = ($_.Exception.Message -replace '\s+', ' ')
+  if ($uiaError.Length -gt 600) { $uiaError = $uiaError.Substring(0, 600) }
+}
+function Write-UiaError([string]$line, [string]$code, [string]$message) {
+  $idMatch = [regex]::Match($line, '"id":(-?\d+)')
+  $idText = 'null'
+  if ($idMatch.Success) { $idText = $idMatch.Groups[1].Value }
+  $clean = ($message -replace '\s+', ' ') -replace '[\\"]', ' '
+  [Console]::Out.WriteLine('{"id":' + $idText + ',"ok":false,"error":{"code":"' + $code + '","message":"' + $clean + '"}}')
+}
+$reader = [Console]::In
+while ($true) {
+  $line = $reader.ReadLine()
+  if ($null -eq $line) { break }
+  if ($line.Length -eq 0) { continue }
+  if ($line.IndexOf('"method":"uia.') -ge 0) {
+    if ($uiaError -ne '') {
+      Write-UiaError $line 'uia_unavailable' ('UI Automation could not be loaded: ' + $uiaError)
+    } else {
+      try { [Console]::Out.WriteLine([AgentHostUia.Uia]::Handle($line)) }
+      catch { Write-UiaError $line 'helper_exception' $_.Exception.Message }
+    }
+    [Console]::Out.Flush()
+    continue
+  }
+  [Console]::Out.WriteLine([AgentHostWin.Host]::Handle($line))
+  [Console]::Out.Flush()
+}
+`;
+
 /** The whole script, written to a file and started with `powershell.exe -STA -File`. */
 export const HELPER_SCRIPT = [
-  "$ErrorActionPreference = 'Stop'",
-  "try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }",
-  "try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }",
-  "$source = @'",
+  POWERSHELL_HEAD.replace(/^\n/, "").replace(/\n$/, ""),
   CSHARP,
-  "'@",
-  "Add-Type -TypeDefinition $source -ReferencedAssemblies 'System.Drawing','System.Windows.Forms','System.Web.Extensions'",
-  "$reader = [Console]::In",
-  "while ($true) {",
-  "  $line = $reader.ReadLine()",
-  "  if ($null -eq $line) { break }",
-  "  if ($line.Length -eq 0) { continue }",
-  "  [Console]::Out.WriteLine([AgentHostWin.Host]::Handle($line))",
-  "  [Console]::Out.Flush()",
-  "}",
-  ""
-].join("\r\n");
+  POWERSHELL_MID.replace(/^\n/, "").replace(/\n$/, ""),
+  UIA_CSHARP,
+  POWERSHELL_TAIL.replace(/^\n/, "")
+].join("\r\n").replace(/\r?\n/g, "\r\n");

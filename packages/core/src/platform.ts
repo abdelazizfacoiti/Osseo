@@ -25,8 +25,8 @@ export function describeDesktopPlatform(input: { platform?: NodeJS.Platform; env
     return {
       os: "windows", session: "native-windows", control: "full",
       guidance: [
-        "Windows desktop control (windows, mouse, keyboard, screenshots, clipboard) runs through a PowerShell helper. It has not been verified on a real Windows machine yet: run scripts\\windows-desktop-check.ps1.",
-        "Accessibility tools (ui.*) are not available on Windows yet; windows that run as administrator reject input and are refused; UAC prompts and the lock screen cannot be automated."
+        "Windows desktop control (windows, mouse, keyboard, screenshots, clipboard) and accessibility (ui.*, screen.read, label clicks, set_field read-back, through Windows UI Automation) run through a PowerShell helper. None of it has been verified on a real Windows machine yet: run scripts\\windows-desktop-check.ps1.",
+        "Windows that run as administrator reject input and UI Automation and are refused; UAC prompts and the lock screen cannot be automated; there is no OCR fallback for label clicks on Windows, so a control that exposes no UI Automation name needs a screenshot and coordinates."
       ]
     };
   }

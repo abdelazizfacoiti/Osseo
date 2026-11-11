@@ -63,6 +63,19 @@ is safe to run again. Then run `agenthost doctor` and `agenthost setup`.
 `doctor` checks your machine and lists missing desktop packages. Nothing runs
 as root and nothing is installed silently.
 
+**Windows (packaging added, untested).** You need 64-bit Windows and Node 20 or
+newer. Download `install.ps1` from the repository, read it, then run it. Do not
+pipe a web page into `iex`: you would run code you have not seen.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+It checks the SHA-256, installs under `%LOCALAPPDATA%\AgentHost` without
+administrator rights, and adds `%LOCALAPPDATA%\AgentHost\bin` to your user
+`Path`. Open a new terminal, then run `agenthost doctor`. `-DryRun` shows the
+plan and changes nothing. See [docs/13_PLATFORMS.md](docs/13_PLATFORMS.md).
+
 <details>
 <summary>Manual install</summary>
 
@@ -142,7 +155,7 @@ Each approval covers one action and expires after 15 minutes.
 | Platform | Status |
 |---|---|
 | Linux x86_64 (X11, Wayland through XWayland) | Supported |
-| Windows | In progress, untested |
+| Windows | Packaging added, untested |
 | macOS | Not started |
 
 See [docs/13_PLATFORMS.md](docs/13_PLATFORMS.md) for what works in each session type.
@@ -165,7 +178,8 @@ See [docs/13_PLATFORMS.md](docs/13_PLATFORMS.md) for what works in each session 
 ## Status
 
 AgentHost is early software with a single maintainer. It runs on Linux only
-today. Windows work is in progress and has not been tested. The tool names and
+today. Windows work (desktop control and packaging) is in progress and has not
+been tested on a real Windows machine. The tool names and
 configuration may change between releases. Bug reports and run reports
 (`agenthost task export <id>`) are welcome as issues.
 

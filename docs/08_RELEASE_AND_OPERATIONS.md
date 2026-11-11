@@ -50,7 +50,62 @@ missing or wrong. It unpacks in a temporary directory, runs the release's own
 launcher as `release:install`. A second run with the same version reports
 that it is already installed. `--dry-run` prints the plan and changes nothing.
 
+### Windows install (untested)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-DryRun] [-Help]
+```
+
+`scripts/install.ps1` runs on Windows PowerShell 5.1 or newer. It needs 64-bit
+Windows and Node 20 or newer, and no administrator rights. The archive comes
+from `AGENTHOST_ARCHIVE` (a local `.zip`), then `AGENTHOST_ARCHIVE_URL`, then
+the latest GitHub release asset `agenthost-win-x64.zip`. The SHA-256 is always
+checked against the `.sha256` file next to the archive. The script unpacks to a
+short temporary folder (removed in `finally`), then runs the release's own
+`update --archive <zip> --apply`, which reads the zip with Node only and
+switches the release.
+
 Install writes only AgentHost-owned locations:
+
+```text
+%LOCALAPPDATA%\AgentHost\releases\<version>\   the unpacked release
+%LOCALAPPDATA%\AgentHost\current                 junction to the active release
+%LOCALAPPDATA%\AgentHost\current.previous        junction to the one before (rollback)
+%LOCALAPPDATA%\AgentHost\bin\agenthost.cmd       launcher for cmd and PowerShell
+%LOCALAPPDATA%\AgentHost\bin\agenthost           launcher for Git Bash
+%APPDATA%\agenthost\config.json                  public config
+%USERPROFILE%\.agenthost\                         runtime data (as on Linux)
+```
+
+`current` is a directory junction: it needs no administrator rights, and it can
+be replaced while programs run from the old release, which renaming a folder
+cannot do. The switch is two steps (remove the old link, create the new one), so
+it is not atomic; a failure puts the old link back. Only `current` and
+`current.previous` releases are kept. The script adds `bin` to the user `Path`
+(registry `HKCU\Environment`, never the machine `Path`) only when it is missing;
+open a new terminal afterwards. A second run with the same version changes
+nothing. `agenthost uninstall --yes` removes the install folder but not the
+`Path` entry.
+
+The Windows archive is built on Linux after the Linux one, with Node only:
+
+```bash
+npm run build && npm run release:build && npm run release:build:windows
+```
+
+It writes `release/agenthost-v<version>-win-x64.zip`, its `.sha256`, and the
+fixed-name copy `agenthost-win-x64.zip` (+ `.sha256`) that the installer fetches
+from the latest release. It holds the packages including `os-windows`, no Python
+overlay files and no native binaries (the build fails if one appears), and a
+`bin\agenthost.mjs` entry. Workspace links under `node_modules/@agenthost` are
+copied as real folders because a zip cannot carry links. `release/SHA256SUMS`
+still lists only the Linux archive.
+
+Scheduled workflows on Windows use Task Scheduler (`schtasks.exe`), one task
+`AgentHost\wf-<name>` per workflow, per user, without elevation. The task runs
+only while you are logged on. Preview by default; `--apply` writes.
+
+Install writes only AgentHost-owned locations (Linux):
 
 ```text
 ~/.local/share/agenthost/
@@ -107,7 +162,15 @@ untouched, and an existing file is backed up before changes. Supported clients:
 
 The entry uses the installed `agenthost start`, never a repository path.
 `--project DIR` selects the project for Copilot and Cursor. `XDG_CONFIG_HOME`,
-`CODEX_HOME`, and `COPILOT_HOME` override the default user config roots.
+`CODEX_HOME`, `COPILOT_HOME`, and `CLAUDE_CONFIG_DIR` override the default user
+config roots.
+
+On Windows the same files are used, relative to `%USERPROFILE%`, and the entry
+starts the server as `cmd /c agenthost start` (`agenthost` is a `.cmd` file, and
+clients that start a program without a shell cannot run a `.cmd` by its bare
+name). Codex's `notify` uses the same `cmd /c` form. Claude Code's attention
+hooks use plain `agenthost attention ...` calls with no shell syntax; the
+Linux `[ -f ... ] && ... || true` guard is not written on Windows.
 Invalid JSON/TOML, ambiguous TOML, and unsupported layouts are rejected
 without writing.
 A JSONC write may normalize formatting and drop comments; the backup retains

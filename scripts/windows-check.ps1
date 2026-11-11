@@ -47,6 +47,7 @@ Invoke-Step "npm run build" { npm.cmd run build }
 Invoke-Step "npm run lint" { npm.cmd run lint }
 Invoke-Step "npm run test:windows (unit tests for the Windows path)" { npm.cmd run test:windows }
 Invoke-Step "node scripts/windows-smoke.mjs (server over stdio, files, shell, browser, tasks)" { node scripts/windows-smoke.mjs }
+Invoke-Step "scripts\install.ps1 -DryRun (Windows PowerShell 5.1; changes nothing)" { powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1 -DryRun }
 
 Write-Host ""
 if ($script:failures -eq 0) {

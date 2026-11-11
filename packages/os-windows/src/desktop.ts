@@ -3,6 +3,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   classifyAppSensitivity,
+  redactSensitiveText,
+  type AccessibilityElementCandidate,
+  type AccessibilityElementTarget,
+  type AccessibilityElementDetails,
+  type AccessibilityTreeNode,
   type AccessibilityFieldAtPointResult,
   type AccessibilityFindElementResult,
   type AccessibilityFocusElementResult,
@@ -11,6 +16,7 @@ import {
   type AccessibilitySetValueResult,
   type AccessibilityTreeResult,
   type DesktopCapabilitiesResult,
+  type DesktopCapabilitySupport,
   type DesktopClickResult,
   type DesktopGetActiveWindowResult,
   type DesktopHotkeyResult,
@@ -29,7 +35,12 @@ import { HelperError, type HelperTransport } from "./helper.js";
 import { parseHotkey } from "./keys.js";
 
 const BACKEND = "windows-helper";
-const UIA_PENDING = "Windows UI Automation is not implemented yet, so accessibility tools are unavailable here. Use screenshots with desktop.click, or browser.* for web pages.";
+const UIA_BACKEND = "windows-uia";
+/** How long the helper may spend on one UI Automation request; the transport waits a little longer. */
+const UIA_TIMEOUT_MS = 8_000;
+const UIA_REQUEST_MS = UIA_TIMEOUT_MS + 6_000;
+/** Web pages sit deep below the browser chrome; the helper allows 14 levels. */
+const UIA_MAX_DEPTH = 14;
 /** The minimum wait before the old clipboard returns after a paste (same rule as the Linux adapter). */
 export const PASTE_SETTLE_MS = 350;
 
@@ -43,6 +54,153 @@ interface HelperWindow {
   width: number;
   height: number;
   minimized: boolean;
+}
+
+/** One element as the helper sends it (tree node or find candidate). */
+interface UiaNode {
+  id: string;
+  role?: string;
+  name?: string;
+  text?: string;
+  description?: string;
+  bounds?: DesktopWindowBounds | null;
+  enabled?: boolean;
+  sensitive?: boolean;
+  hidden?: boolean;
+  confidence?: number;
+  reason?: string;
+  children?: UiaNode[];
+}
+
+interface UiaTreeReply {
+  root?: UiaNode | null;
+  nodeCount?: number;
+  truncated?: boolean;
+  redacted?: boolean;
+  timedOut?: boolean;
+  found?: boolean;
+}
+
+interface UiaFieldReply {
+  found?: boolean;
+  role?: string;
+  focused?: boolean;
+  sensitive?: boolean;
+  text?: string;
+  length?: number;
+  reason?: string;
+}
+
+interface UiaDetails {
+  id: string;
+  role?: string;
+  name?: string;
+  description?: string;
+  states?: string[];
+  availableActions?: string[];
+  bounds?: DesktopWindowBounds | null;
+  valueMetadata?: { supportsText?: boolean; supportsValue?: boolean; editable?: boolean; readOnly?: boolean; textLength?: number };
+  appName?: string;
+  windowId?: string;
+  windowTitle?: string;
+  pid?: number;
+  sensitive?: boolean;
+  hidden?: boolean;
+}
+
+interface UiaElementReply {
+  matched?: boolean;
+  ambiguous?: boolean;
+  performed?: boolean;
+  changed?: boolean;
+  focused?: boolean;
+  action?: string;
+  reason?: string;
+  element?: UiaDetails;
+}
+
+function clipText(value: string | undefined, limit: number): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  const redacted = redactSensitiveText(String(value)).trim();
+  if (redacted.length === 0) return undefined;
+  return redacted.length > limit ? `${redacted.slice(0, limit)}...` : redacted;
+}
+
+function boundsOrUndefined(bounds: DesktopWindowBounds | null | undefined): DesktopWindowBounds | undefined {
+  return bounds === null || bounds === undefined ? undefined : bounds;
+}
+
+/** The same shape and redaction rules as the Linux tree: sensitive and hidden nodes carry no text. */
+function treeNode(node: UiaNode): AccessibilityTreeNode {
+  const result: AccessibilityTreeNode = { id: node.id, role: node.role ?? "unknown" };
+  const name = clipText(node.name, 300);
+  const description = clipText(node.description, 300);
+  const text = node.sensitive === true || node.hidden === true ? undefined : clipText(node.text, 200);
+  const bounds = boundsOrUndefined(node.bounds);
+  if (name !== undefined) result.name = name;
+  if (description !== undefined) result.description = description;
+  if (text !== undefined) result.text = text;
+  if (bounds !== undefined) result.bounds = bounds;
+  if (typeof node.enabled === "boolean") result.enabled = node.enabled;
+  if (node.sensitive === true) result.sensitive = true;
+  if (node.hidden === true) result.hidden = true;
+  if (node.children !== undefined && node.children.length > 0) result.children = node.children.map(treeNode);
+  return result;
+}
+
+function candidateOf(node: UiaNode): AccessibilityElementCandidate {
+  const result: AccessibilityElementCandidate = {
+    id: node.id,
+    role: clipText(node.role, 100) ?? "unknown",
+    confidence: typeof node.confidence === "number" ? node.confidence : 0.5,
+    reason: clipText(node.reason, 200) ?? "Matched accessibility query."
+  };
+  const name = clipText(node.name, 300);
+  const text = node.sensitive === true || node.hidden === true ? undefined : clipText(node.text, 200);
+  const bounds = boundsOrUndefined(node.bounds);
+  if (name !== undefined) result.name = name;
+  if (text !== undefined) result.text = text;
+  if (bounds !== undefined) result.bounds = bounds;
+  if (typeof node.enabled === "boolean") result.enabled = node.enabled;
+  return result;
+}
+
+function detailsOf(element: UiaDetails): AccessibilityElementDetails {
+  const secret = element.sensitive === true || element.hidden === true;
+  const result: AccessibilityElementDetails = {
+    elementId: element.id,
+    role: clipText(element.role, 100) ?? "unknown",
+    states: (element.states ?? []).map((state) => state.slice(0, 100)).slice(0, 20),
+    availableActions: (element.availableActions ?? []).map((action) => action.slice(0, 100)).slice(0, 20),
+    dataSensitivity: secret ? "secret" : element.valueMetadata === undefined ? "none" : "low"
+  };
+  const name = clipText(element.name, 300);
+  const description = secret ? undefined : clipText(element.description, 300);
+  const appName = clipText(element.appName, 120);
+  const bounds = boundsOrUndefined(element.bounds);
+  if (name !== undefined) result.name = name;
+  if (description !== undefined) result.description = description;
+  if (bounds !== undefined) result.bounds = bounds;
+  if (element.valueMetadata !== undefined) {
+    result.valueMetadata = {
+      supportsText: element.valueMetadata.supportsText === true,
+      supportsValue: element.valueMetadata.supportsValue === true,
+      editable: element.valueMetadata.editable === true,
+      readOnly: element.valueMetadata.readOnly === true,
+      ...(secret || typeof element.valueMetadata.textLength !== "number" ? {} : { textLength: element.valueMetadata.textLength })
+    };
+  }
+  if (appName !== undefined) {
+    result.appName = appName;
+    result.appSensitivity = classifyAppSensitivity({ appName });
+  }
+  const windowId = clipText(element.windowId, 120);
+  const windowTitle = clipText(element.windowTitle, 160);
+  if (windowId !== undefined) result.windowId = windowId;
+  if (windowTitle !== undefined) result.windowTitle = windowTitle;
+  if (typeof element.pid === "number") result.pid = element.pid;
+  if (element.hidden === true) result.hidden = true;
+  return result;
 }
 
 export interface WindowsDesktopOptions {
@@ -88,7 +246,8 @@ function failure(error: unknown): string {
 
 /**
  * The Windows desktop adapter: the same contract as the Linux one, backed by the PowerShell helper.
- * Windows UI Automation is a later step: the accessibility methods say so instead of guessing.
+ * Accessibility goes through the helper's uia.* methods (Windows UI Automation) with the same result
+ * shapes as the Linux AT-SPI layer, so the ui.* tools, screen.read, label clicks and set_field need no changes.
  */
 export function createWindowsDesktop(helper: HelperTransport, options: WindowsDesktopOptions = {}) {
   const sleep = options.sleep ?? sleepFor;
@@ -113,6 +272,40 @@ export function createWindowsDesktop(helper: HelperTransport, options: WindowsDe
     return { ok: true, active };
   }
 
+  /** A process name from the agent ("notepad", "Notepad.exe") to the pid of one of its windows. */
+  async function pidOfApp(appName: string): Promise<number | undefined> {
+    const wanted = appName.toLowerCase().replace(/\.exe$/, "");
+    const listed = await helper.request<{ windows: HelperWindow[] }>("windows.list", { limit: 200 });
+    return listed.windows.find((window) => window.process.toLowerCase() === wanted)?.pid;
+  }
+
+  /** The helper finds a window by handle or by pid; an app name becomes a pid first. */
+  async function uiaScope(input: { appName?: string; windowId?: string; pid?: number }): Promise<{ ok: true; params: { hwnd?: string; pid?: number } } | { ok: false; reason: string }> {
+    const hwnd = normalizeHwnd(input.windowId);
+    if (hwnd !== undefined) return { ok: true, params: { hwnd } };
+    if (input.pid !== undefined) return { ok: true, params: { pid: input.pid } };
+    if (input.appName !== undefined) {
+      const pid = await pidOfApp(input.appName);
+      if (pid === undefined) return { ok: false, reason: `No open window belongs to ${input.appName}.` };
+      return { ok: true, params: { pid } };
+    }
+    return { ok: false, reason: "A window id, a pid or an app name is needed to find the element." };
+  }
+
+  /** One element action: scope (not needed with an element id, which carries its window), name and role, plus the method's own fields. */
+  async function elementRequest<T>(method: string, input: AccessibilityElementTarget, extra: Record<string, unknown>): Promise<{ ok: true; value: T } | { ok: false; reason: string }> {
+    let params: Record<string, unknown>;
+    if (input.elementId !== undefined) {
+      params = { elementId: input.elementId };
+    } else {
+      const scope = await uiaScope(input);
+      if (!scope.ok) return { ok: false, reason: scope.reason };
+      params = { ...scope.params, ...(input.query === undefined ? {} : { query: input.query }), ...(input.role === undefined ? {} : { role: input.role }) };
+    }
+    const value = await helper.request<T>(method, { ...params, ...extra, timeoutMs: UIA_TIMEOUT_MS }, UIA_REQUEST_MS);
+    return { ok: true, value };
+  }
+
   async function guarded<T>(run: () => Promise<T>, fallback: (reason: string) => T): Promise<T> {
     try {
       return await run();
@@ -124,6 +317,13 @@ export function createWindowsDesktop(helper: HelperTransport, options: WindowsDe
   return {
     async getDesktopCapabilities(): Promise<DesktopCapabilitiesResult> {
       const reachable = await helper.request("ping").then(() => undefined, (error: unknown) => failure(error));
+      const uiaCapability = async (down: string | undefined): Promise<DesktopCapabilitySupport> => {
+        if (down !== undefined) return { supported: false, backend: UIA_BACKEND, reason: down };
+        return helper.request("uia.ping").then(
+          (): DesktopCapabilitySupport => ({ supported: true, backend: UIA_BACKEND, reason: "Reads and operates controls through Windows UI Automation. Windows running as administrator are refused." }),
+          (error: unknown): DesktopCapabilitySupport => ({ supported: false, backend: UIA_BACKEND, reason: failure(error) })
+        );
+      };
       const yes = (reason: string) => ({ supported: reachable === undefined, backend: BACKEND, reason: reachable ?? reason });
       return {
         platform: "win32",
@@ -134,7 +334,7 @@ export function createWindowsDesktop(helper: HelperTransport, options: WindowsDe
         screenshot: yes("Copies the screen with GDI."),
         windowList: yes("Lists visible top-level windows."),
         windowFocus: yes("Brings a window to the front."),
-        accessibility: { supported: false, backend: "windows-uia", reason: UIA_PENDING },
+        accessibility: await uiaCapability(reachable),
         guiInput: yes("Sends mouse and keyboard input with SendInput. Windows running as administrator are refused.")
       };
     },
@@ -357,28 +557,170 @@ export function createWindowsDesktop(helper: HelperTransport, options: WindowsDe
       return helper.request<{ idleMs: number }>("idle").then((result) => result.idleMs, () => undefined);
     },
 
-    // ---- Accessibility: Windows UI Automation comes next. Say so instead of guessing. ----
+    // ---- Accessibility: Windows UI Automation through the helper's uia.* methods. ----
 
-    async getAccessibilityTree(): Promise<AccessibilityTreeResult> {
-      return { supported: false, backend: "windows-uia", nodeCount: 0, truncated: false, redacted: false, reason: UIA_PENDING };
+    async getAccessibilityTree(input: { appName?: string; windowId?: string; pid?: number; maxDepth?: number; maxNodes?: number; includeText?: boolean }): Promise<AccessibilityTreeResult> {
+      const none = (reason: string): AccessibilityTreeResult => ({ supported: false, backend: UIA_BACKEND, nodeCount: 0, truncated: false, redacted: false, reason });
+      return guarded<AccessibilityTreeResult>(async () => {
+        const scope = await uiaScope(input);
+        if (!scope.ok) return none(scope.reason);
+        const reply = await helper.request<UiaTreeReply>("uia.tree", {
+          ...scope.params,
+          maxDepth: Math.min(Math.max(input.maxDepth ?? 3, 1), UIA_MAX_DEPTH),
+          maxNodes: Math.min(Math.max(input.maxNodes ?? 200, 1), 1000),
+          includeText: input.includeText ?? false,
+          timeoutMs: UIA_TIMEOUT_MS
+        }, UIA_REQUEST_MS);
+        const root = reply.root === null || reply.root === undefined ? undefined : treeNode(reply.root);
+        const base = { supported: true, backend: UIA_BACKEND, nodeCount: reply.nodeCount ?? 0, truncated: reply.truncated === true, redacted: reply.redacted === true };
+        if (root === undefined) return { ...base, reason: reply.found === false ? "No window of that app is open." : "UI Automation returned no elements for that window." };
+        return { ...base, root, reason: reply.timedOut === true ? "The app answered too slowly, so the tree is partial." : reply.truncated === true ? "Read part of the UI Automation tree." : "Read the UI Automation tree." };
+      }, none);
     },
-    async findAccessibilityElement(): Promise<AccessibilityFindElementResult> {
-      return { supported: false, backend: "windows-uia", candidates: [], reason: UIA_PENDING };
+
+    async findAccessibilityElement(input: { appName?: string; windowId?: string; pid?: number; query: string; role?: string; limit?: number }): Promise<AccessibilityFindElementResult> {
+      const none = (reason: string): AccessibilityFindElementResult => ({ supported: false, backend: UIA_BACKEND, candidates: [], reason });
+      return guarded<AccessibilityFindElementResult>(async () => {
+        const scope = await uiaScope(input);
+        if (!scope.ok) return none(scope.reason);
+        const reply = await helper.request<{ candidates?: UiaNode[]; truncated?: boolean; timedOut?: boolean }>("uia.find", {
+          ...scope.params,
+          query: input.query,
+          ...(input.role === undefined ? {} : { role: input.role }),
+          limit: Math.min(Math.max(input.limit ?? 10, 1), 50),
+          timeoutMs: UIA_TIMEOUT_MS
+        }, UIA_REQUEST_MS);
+        const candidates = (reply.candidates ?? []).map(candidateOf);
+        const partial = reply.timedOut === true ? " The app answered too slowly, so the search is partial." : reply.truncated === true ? " The search stopped at its limit." : "";
+        return { supported: true, backend: UIA_BACKEND, candidates, reason: `Found ${candidates.length} UI Automation match(es).${partial}` };
+      }, none);
     },
-    async readTextAtPoint(): Promise<AccessibilityFieldAtPointResult> {
-      return { supported: false, backend: "windows-uia", found: false, reason: UIA_PENDING };
+
+    async readTextAtPoint(input: { appName?: string; pid?: number; x: number; y: number }): Promise<AccessibilityFieldAtPointResult> {
+      const none = (reason: string): AccessibilityFieldAtPointResult => ({ supported: false, backend: UIA_BACKEND, found: false, reason });
+      return guarded<AccessibilityFieldAtPointResult>(async () => {
+        const pid = input.pid ?? (input.appName === undefined ? undefined : await pidOfApp(input.appName));
+        const reply = await helper.request<UiaFieldReply>("uia.textAtPoint", {
+          x: Math.round(input.x),
+          y: Math.round(input.y),
+          ...(pid === undefined ? {} : { pid }),
+          timeoutMs: UIA_TIMEOUT_MS
+        }, UIA_REQUEST_MS);
+        if (reply.found !== true) return { supported: true, backend: UIA_BACKEND, found: false, reason: reply.reason ?? "No editable text field at that point." };
+        const sensitive = reply.sensitive === true || reply.role === "password text";
+        return {
+          supported: true,
+          backend: UIA_BACKEND,
+          found: true,
+          reason: reply.reason ?? "Read the editable text field at that point.",
+          ...(typeof reply.role === "string" ? { role: reply.role } : {}),
+          focused: reply.focused === true,
+          sensitive,
+          // Read-back only. A sensitive field never carries its text, whatever the helper sent.
+          ...(sensitive || typeof reply.text !== "string" ? {} : { text: reply.text }),
+          ...(sensitive || typeof reply.length !== "number" ? {} : { length: reply.length })
+        };
+      }, none);
     },
-    async inspectAccessibilityElement(): Promise<AccessibilityInspectElementResult> {
-      return { supported: false, backend: "windows-uia", matched: false, ambiguous: false, redacted: false, reason: UIA_PENDING };
+
+    async inspectAccessibilityElement(input: AccessibilityElementTarget): Promise<AccessibilityInspectElementResult> {
+      const none = (reason: string): AccessibilityInspectElementResult => ({ supported: false, backend: UIA_BACKEND, matched: false, ambiguous: false, redacted: false, reason });
+      return guarded<AccessibilityInspectElementResult>(async () => {
+        const reply = await elementRequest<UiaElementReply>("uia.inspect", input, {});
+        if (!reply.ok) return none(reply.reason);
+        const element = reply.value.element === undefined ? undefined : detailsOf(reply.value.element);
+        return {
+          supported: true,
+          backend: UIA_BACKEND,
+          matched: reply.value.matched === true,
+          ambiguous: reply.value.ambiguous === true,
+          redacted: element?.dataSensitivity === "secret",
+          reason: reply.value.reason || (reply.value.matched === true ? "Read the element." : "No matching element was found."),
+          ...(element === undefined ? {} : { element })
+        };
+      }, none);
     },
-    async invokeAccessibilityAction(): Promise<AccessibilityInvokeActionResult> {
-      return { supported: false, backend: "windows-uia", matched: false, ambiguous: false, performed: false, redacted: false, reason: UIA_PENDING };
+
+    async invokeAccessibilityAction(input: AccessibilityElementTarget & { actionName: string; requireExactMatch?: boolean }): Promise<AccessibilityInvokeActionResult> {
+      const none = (reason: string): AccessibilityInvokeActionResult => ({ supported: false, backend: UIA_BACKEND, matched: false, ambiguous: false, performed: false, redacted: false, actionName: input.actionName, reason });
+      return guarded<AccessibilityInvokeActionResult>(async () => {
+        const reply = await elementRequest<UiaElementReply>("uia.activate", input, { action: input.actionName, requireExactMatch: input.requireExactMatch ?? false });
+        if (!reply.ok) return none(reply.reason);
+        const target = reply.value.element === undefined ? undefined : detailsOf(reply.value.element);
+        return {
+          supported: true,
+          backend: UIA_BACKEND,
+          matched: reply.value.matched === true,
+          ambiguous: reply.value.ambiguous === true,
+          performed: reply.value.performed === true,
+          redacted: target?.dataSensitivity === "secret",
+          actionName: reply.value.action ?? input.actionName,
+          reason: reply.value.reason || (reply.value.performed === true ? "Performed the action." : "Nothing was done."),
+          ...(target === undefined ? {} : { target })
+        };
+      }, none);
     },
-    async setAccessibilityValue(): Promise<AccessibilitySetValueResult> {
-      return { supported: false, backend: "windows-uia", matched: false, ambiguous: false, changed: false, redacted: false, redactedValue: false, reason: UIA_PENDING };
+
+    async setAccessibilityValue(input: AccessibilityElementTarget & { value: string; dataSensitivity?: "none" | "low" | "sensitive" | "secret" }): Promise<AccessibilitySetValueResult> {
+      const none = (reason: string): AccessibilitySetValueResult => ({ supported: false, backend: UIA_BACKEND, matched: false, ambiguous: false, changed: false, redacted: true, redactedValue: true, reason });
+      return guarded<AccessibilitySetValueResult>(async () => {
+        const reply = await elementRequest<UiaElementReply>("uia.setText", input, { value: input.value });
+        if (!reply.ok) return none(reply.reason);
+        const target = reply.value.element === undefined ? undefined : detailsOf(reply.value.element);
+        return {
+          supported: true,
+          backend: UIA_BACKEND,
+          matched: reply.value.matched === true,
+          ambiguous: reply.value.ambiguous === true,
+          changed: reply.value.changed === true,
+          redacted: true,
+          redactedValue: true,
+          reason: reply.value.reason || (reply.value.changed === true ? "Set the field value." : "The value was not set."),
+          ...(target === undefined ? {} : { target })
+        };
+      }, none);
     },
-    async focusAccessibilityElement(): Promise<AccessibilityFocusElementResult> {
-      return { supported: false, backend: "windows-uia", matched: false, ambiguous: false, focused: false, redacted: false, reason: UIA_PENDING };
+
+    async focusAccessibilityElement(input: AccessibilityElementTarget): Promise<AccessibilityFocusElementResult> {
+      const none = (reason: string): AccessibilityFocusElementResult => ({ supported: false, backend: UIA_BACKEND, matched: false, ambiguous: false, focused: false, redacted: false, reason });
+      return guarded<AccessibilityFocusElementResult>(async () => {
+        const reply = await elementRequest<UiaElementReply>("uia.focus", input, {});
+        if (!reply.ok) return none(reply.reason);
+        const target = reply.value.element === undefined ? undefined : detailsOf(reply.value.element);
+        return {
+          supported: true,
+          backend: UIA_BACKEND,
+          matched: reply.value.matched === true,
+          ambiguous: reply.value.ambiguous === true,
+          focused: reply.value.focused === true,
+          redacted: target?.dataSensitivity === "secret",
+          reason: reply.value.reason || (reply.value.focused === true ? "Moved focus to the element." : "Focus did not move."),
+          ...(target === undefined ? {} : { target })
+        };
+      }, none);
+    },
+
+    /**
+     * The text of one element, for read-back after ui.set_text. Not part of the Linux interface: it is
+     * used by the Windows check script. Password, credential-looking and hidden elements never return text.
+     */
+    async readAccessibilityText(input: AccessibilityElementTarget): Promise<{ supported: boolean; backend: string; matched: boolean; readable: boolean; sensitive: boolean; text?: string; length?: number; reason: string }> {
+      const none = (reason: string) => ({ supported: false, backend: UIA_BACKEND, matched: false, readable: false, sensitive: false, reason });
+      return guarded(async () => {
+        const reply = await elementRequest<{ matched?: boolean; readable?: boolean; sensitive?: boolean; text?: string; length?: number; reason?: string }>("uia.getText", input, {});
+        if (!reply.ok) return none(reply.reason);
+        const sensitive = reply.value.sensitive === true;
+        const readable = reply.value.readable === true && !sensitive && typeof reply.value.text === "string";
+        return {
+          supported: true,
+          backend: UIA_BACKEND,
+          matched: reply.value.matched === true,
+          readable,
+          sensitive,
+          ...(readable ? { text: reply.value.text!, length: reply.value.text!.length } : {}),
+          reason: reply.value.reason ?? ""
+        };
+      }, none);
     }
   };
 }
