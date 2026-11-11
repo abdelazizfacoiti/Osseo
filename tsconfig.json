@@ -2,13 +2,7 @@
   "files": [],
   "references": [
     {
-      "path": "./packages/app-blender"
-    },
-    {
       "path": "./packages/app-overlay"
-    },
-    {
-      "path": "./packages/app-ssh"
     },
     {
       "path": "./packages/core"

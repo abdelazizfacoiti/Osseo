@@ -490,18 +490,6 @@ export interface ActionVerificationSummary {
   independent: boolean;
 }
 
-export interface OptionalAdapterExecutionPolicy {
-  enabledByDefault: false;
-  stability: "experimental" | "stable";
-  execution: ToolExecutionMetadata;
-  fingerprinting: "required" | "not_applicable";
-  subprocess: { required: boolean; shell: false; commandAllowlist: string[] };
-  environment: { allowlist: string[]; inherit: false };
-  limits: { maxRuntimeMs: number; maxOutputBytes: number };
-  filesystem: { allowedOutputRoots: string[]; broadFilesystem: false };
-  audit: { redacted: true; rawInput: false; rawOutput: false };
-}
-
 export interface AppCapability {
   id: string;
   adapterId?: string;
@@ -701,7 +689,6 @@ export interface AgentHostConfig {
   approvals?: { chat?: boolean };
   autoInstallDependencies?: boolean;
   speech?: SpeechConfig;
-  optionalAdapters?: Record<string, { enabled: boolean }>;
   policy: RuntimePolicy;
 }
 
@@ -797,76 +784,6 @@ export interface ToolContext {
   config: AgentHostConfig;
   policy: RuntimePolicy;
   registry: CapabilityRegistrySnapshot;
-}
-
-export interface AdapterActionRequest {
-  adapterId: string;
-  capabilityId: string;
-  appId?: string;
-  input: unknown;
-}
-
-export interface AppAdapter {
-  id: string;
-  displayName: string;
-  appIds: string[];
-  supportedPlatforms: string[];
-  optionalExecutionPolicy?: OptionalAdapterExecutionPolicy;
-  matchesApp?(input: { appId?: string; appName?: string }): boolean;
-  getCapabilities(): AppCapability[];
-  execute(action: AdapterActionRequest, context: ToolContext): Promise<ToolResult>;
-}
-
-export interface AdapterSummary {
-  id: string;
-  displayName: string;
-  appIds: string[];
-  supportedPlatforms: string[];
-  capabilityCount: number;
-}
-
-export interface AdapterRegistrationResult {
-  registered: boolean;
-  skipped: boolean;
-  adapterId: string;
-  reason: string;
-}
-
-export interface AdapterCapabilityFilter {
-  adapterId?: string;
-  appId?: string;
-}
-
-export interface AdapterDetectionInput {
-  appName: string;
-  appId?: string;
-}
-
-export interface AdapterDetectionResult {
-  appName: string;
-  appId?: string;
-  adapterAvailable: boolean;
-  adapters: AdapterSummary[];
-  capabilities: AppCapability[];
-  recommendedStrategy: AutomationStrategy;
-  reason: string;
-}
-
-export interface AdapterListResult {
-  adapters: AdapterSummary[];
-}
-
-export interface AdapterCapabilitiesResult {
-  adapterId?: string;
-  appId?: string;
-  capabilities: AppCapability[];
-}
-
-export interface AdapterRegistrySnapshot {
-  get(adapterId: string): AppAdapter | undefined;
-  listAdapters(): AdapterSummary[];
-  listCapabilities(filter?: AdapterCapabilityFilter): AppCapability[];
-  detectForApp(input: AdapterDetectionInput): AdapterDetectionResult;
 }
 
 export const GUIDE_WORKFLOW_KINDS = [

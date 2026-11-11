@@ -10,9 +10,9 @@ is provider-agnostic and uses MCP over stdio.
 - Node.js 20+; Python 3 and GTK3/PyGObject are needed for the visible overlay.
 - X11 is the verified visible-overlay path. Wayland reports limited or
   unavailable global-overlay features.
-- The live MCP surface is the 38 tools and 3 resources documented in
+- The live MCP surface is the 70 tools and 3 resources documented in
   `docs/03_MCP_TOOLS_AND_ADAPTERS.md`.
-- Optional adapters are not registered unless explicitly enabled; this tree
+- This tree
   registers no browser bridge, speech, scheduler, Forge, or Control Room
   surface.
 
@@ -33,6 +33,22 @@ npm run release:install -- release/agenthost-v0.1.0-linux-x64.tar.gz
 When consuming a downloaded archive directly, verify its sidecar checksum,
 extract it, and run `./bin/agenthost.mjs doctor` from the extracted directory.
 The wrapper is self-contained and does not require `sudo`.
+
+### One-line install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/abdelazizfacoiti/AgentHost/main/scripts/install.sh | sh
+```
+
+`scripts/install.sh` is POSIX `sh`. It needs Linux x86_64, Node 20 or newer,
+`tar`, `sha256sum`, and `curl` or `wget`. It takes the archive from
+`AGENTHOST_ARCHIVE` (a local path), then `AGENTHOST_ARCHIVE_URL`, then the
+latest GitHub release asset `agenthost-linux-x64.tar.gz`. It always checks the
+SHA-256 against the `.sha256` file next to the archive and stops when it is
+missing or wrong. It unpacks in a temporary directory, runs the release's own
+`update --archive --apply`, and writes the same `~/.local/bin/agenthost`
+launcher as `release:install`. A second run with the same version reports
+that it is already installed. `--dry-run` prints the plan and changes nothing.
 
 Install writes only AgentHost-owned locations:
 

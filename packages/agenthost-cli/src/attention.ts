@@ -78,3 +78,26 @@ export async function attentionStatus(agentHome: string): Promise<AttentionComma
   const record = await readAttention(agentHome);
   return { ok: true, data: record === undefined ? { pending: false } : { pending: true, source: record.source, reason: record.reason, requestedAt: record.requestedAt } };
 }
+
+export interface AttentionArgs {
+  positional: string[];
+  flags: Set<string>;
+  values: Map<string, string>;
+}
+
+/**
+ * Runs `agenthost attention <action> ...`. Codex appends one JSON argument
+ * (its notify payload) after our own arguments. It lands in `positional` after
+ * the action and is ignored: only the action and the flags are read.
+ */
+export async function attentionCli(agentHome: string, args: AttentionArgs): Promise<{ action: string; result: AttentionCommandResult }> {
+  const action = args.positional[1] ?? "status";
+  const result = action === "request"
+    ? await attentionRequest(agentHome, args.values.get("source"), args.values.get("reason"))
+    : action === "clear"
+      ? await attentionClear(agentHome, args.flags.has("restore"))
+      : action === "status"
+        ? await attentionStatus(agentHome)
+        : { ok: false, error: "usage: agenthost attention request --source <client> --reason <permission|confirmation|idle|done> | clear [--restore] | status" };
+  return { action, result };
+}

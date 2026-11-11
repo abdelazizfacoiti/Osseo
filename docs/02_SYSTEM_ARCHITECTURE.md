@@ -114,27 +114,6 @@ Placement changes visibility, never permission.
 
 `execution.placement` (`foreground` default, `background` opt-in via config or `AGENTHOST_EXECUTION_PLACEMENT`) declares where desktop work runs. Background starts a nested Xephyr display; see the V2 guide section 12b. Live progress never requires watching the app: `GET /api/v1/activity` exposes the bounded redacted runtime-activity feed (same 50-default/100-max pagination as other Control Room queries, rendered in the “Live background work” panel), and `agenthost task watch <id> [--follow] [--notify]` tails the redacted task event log with an optional desktop notification on terminal state. Background work passes the identical safety pipeline and stop/takeover gates; placement changes visibility, never permission.
 
-### Optional adapters
-
-`packages/app-blender` is the current experimental reference adapter. Optional external-process adapters are loaded only when explicitly enabled and must declare the generic execution policy.
-
-### Device mesh boundary
-
-`packages/app-ssh` is the second adapter and the first *device* adapter:
-same `AppAdapter` interface, same policy validation, same dry-run +
-confirmation-token flow, but the capability (`ssh.run_command`) executes on
-another machine over OpenSSH instead of a local app. Device targeting is
-strict argv (no shell metacharacters reach the local command line), key
-authentication only (`BatchMode=yes`, never password prompts), blocked remote
-patterns stay blocked via the shared shell classifier, and output is bounded
-(64 KB). Enable with `optionalAdapters.ssh.enabled`; pair with
-`ssh.run_command` dry-run envelopes exactly like `blender.run_python`. A
-device is therefore just an adapter behind identical capability families —
-adding a phone or VM later means a new package implementing the same
-interface, not a new safety model. The MCP tool deliberately passes no local
-app identity to the safety classifier (no local app is automated); the remote
-device is bound in the confirmation target and adapter bindings instead.
-
 ### Episodic memory boundary
 
 `episodic-memory-store.ts` persists bounded redacted learning episodes
@@ -155,7 +134,7 @@ remains advisory only.
 
 ## Live tool assembly and capability parity
 
-Server startup loads base tool factories, conditionally loads explicitly enabled optional adapters, removes unavailable definitions, validates duplicate names and execution metadata, and materializes one `loadedTools` set. MCP `tools/list` and `system.list_capabilities` both derive from that set. `createBaseCapabilityRegistry()` is only bootstrap/test fallback after synchronization.
+Server startup loads base tool factories, removes unavailable definitions, validates duplicate names and execution metadata, and materializes one `loadedTools` set. MCP `tools/list` and `system.list_capabilities` both derive from that set. `createBaseCapabilityRegistry()` is only bootstrap/test fallback after synchronization.
 
 Generated Forge tool names never enter this set. Only the fixed Forge control tools are live.
 
@@ -262,4 +241,4 @@ The unpacked browser bundle is prepared separately under `~/.local/share/agentho
 
 ## Platform and trust limitations
 
-Linux/X11 is primary. Wayland reports limitations rather than making unsafe global-coordinate claims. Optional adapters are separate trust boundaries. No public HTTP endpoint, remote access, sudo, package installation, hidden persistence, or autonomous background operation is enabled.
+Linux/X11 is primary. Wayland reports limitations rather than making unsafe global-coordinate claims. No public HTTP endpoint, remote access, sudo, package installation, hidden persistence, or autonomous background operation is enabled.

@@ -1,6 +1,5 @@
 export * from "./capability-manifest.js";
 export * from "./capability-permissions.js";
-export * from "./adapters.js";
 export * from "./capabilities.js";
 export * from "./config.js";
 export * from "./activity-status.js";

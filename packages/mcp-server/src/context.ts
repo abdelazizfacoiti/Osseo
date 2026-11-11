@@ -4,7 +4,6 @@ import type {
   AppOpenResult,
   AppStrategyResult,
   AppStrategyTaskType,
-  AdapterRegistrySnapshot,
   AuditLogger,
   ToolTraceLogger,
   AccessibilityFindElementResult,
@@ -177,7 +176,6 @@ export interface AgentHostMcpContext {
   /** Called when a guard pauses the agent, with the exact command that resumes it. */
   notifySelfPause?: (reason: string) => void;
   registry: CapabilityRegistrySnapshot;
-  adapters: AdapterRegistrySnapshot;
   logger: AuditLogger;
   /** Optional timestamped phase trace, enabled with AGENTHOST_TRACE=1. */
   trace?: ToolTraceLogger;

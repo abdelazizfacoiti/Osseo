@@ -153,7 +153,7 @@ describe("loadAgentHostConfig", () => {
     await mkdir(agentHostDir, { recursive: true });
     const configPath = path.join(agentHostDir, "config.json");
     await writeFile(configPath, JSON.stringify({
-      optionalAdapters: { blender: { enabled: false } },
+      optionalAdapters: { ssh: { enabled: true } },
       grants: [{
         id: "runtime-full",
         scope: "persistent",
@@ -186,7 +186,8 @@ describe("loadAgentHostConfig", () => {
     }), "utf8");
 
     const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
-    expect(config.optionalAdapters).toEqual({ blender: { enabled: false } });
+    // optionalAdapters from an old config file loads and does nothing.
+    expect("optionalAdapters" in config).toBe(false);
     expect(config.policy.grants.find((grant) => grant.id === "runtime-full")).toMatchObject({
       match: {
         generatedToolIds: ["artifact-1"],

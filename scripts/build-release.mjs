@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chmod, cp, mkdir, readdir, readFile, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readdir, readFile, readlink, rm, stat, symlink, writeFile, copyFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import os from "node:os";
@@ -37,7 +37,7 @@ const stage = path.join(releaseRoot, `agenthost-v${version}-linux-x64`);
 await rm(stage, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
 await mkdir(stage, { recursive: true, mode: 0o755 });
 async function copy(source, destination, options = {}) { await mkdir(path.dirname(destination), { recursive: true }); await cp(source, destination, { recursive: true, force: true, verbatimSymlinks: true, ...options }); }
-for (const packageName of ["core", "mcp-server", "os-linux", "os-windows", "app-overlay", "app-blender", "app-ssh", "agenthost-cli"]) {
+for (const packageName of ["core", "mcp-server", "os-linux", "os-windows", "app-overlay", "agenthost-cli"]) {
   await copy(path.join(root, "packages", packageName, "dist"), path.join(stage, "packages", packageName, "dist"));
   await copy(path.join(root, "packages", packageName, "package.json"), path.join(stage, "packages", packageName, "package.json"));
 }
@@ -55,7 +55,7 @@ for (const legalFile of LEGAL_FILES) {
 }
 if (await stat(path.join(root, "node_modules")).then(() => true).catch(() => false)) await copy(path.join(root, "node_modules"), path.join(stage, "node_modules"));
 await mkdir(path.join(stage, "node_modules", "@agenthost"), { recursive: true });
-for (const packageName of ["core", "os-linux", "os-windows", "app-overlay", "app-blender", "app-ssh", "mcp-server"]) {
+for (const packageName of ["core", "os-linux", "os-windows", "app-overlay", "mcp-server"]) {
   const link = path.join(stage, "node_modules", "@agenthost", packageName);
   await rm(link, { recursive: true, force: true }).catch(() => undefined);
   await symlink(path.join("..", "..", "packages", packageName), link, "junction");
@@ -80,7 +80,7 @@ await removeDanglingSymlinks(stage);
 const wrapper = `#!/usr/bin/env node\nimport { fileURLToPath } from "node:url";\nprocess.env.AGENTHOST_RELEASE_ROOT = fileURLToPath(new URL("..", import.meta.url));\nawait import(new URL("../packages/agenthost-cli/dist/index.js", import.meta.url));\n`;
 await mkdir(path.join(stage, "bin"), { recursive: true });
 await writeFile(path.join(stage, "bin", "agenthost.mjs"), wrapper, { mode: 0o755 }); await chmod(path.join(stage, "bin", "agenthost.mjs"), 0o755);
-for (const packageName of ["core", "mcp-server", "os-linux", "os-windows", "app-overlay", "app-blender", "app-ssh", "agenthost-cli"]) {
+for (const packageName of ["core", "mcp-server", "os-linux", "os-windows", "app-overlay", "agenthost-cli"]) {
   const packageManifest = JSON.parse(await readFile(path.join(stage, "packages", packageName, "package.json"), "utf8"));
   if (packageManifest.license !== PROJECT_LICENSE) {
     throw new Error(`release_package_license_invalid:${packageName}`);
@@ -126,4 +126,9 @@ if (tar.status !== 0) throw new Error("release_archive_failed");
 const archiveHash = createHash("sha256").update(await readFile(archive)).digest("hex");
 await writeFile(`${archive}.sha256`, `${archiveHash}  ${path.basename(archive)}\n`, { mode: 0o644 });
 await writeFile(path.join(releaseRoot, "SHA256SUMS"), `${archiveHash}  ${path.basename(archive)}\n`, { mode: 0o644 });
+// A copy under a fixed name: scripts/install.sh fetches releases/latest/download/<fixed name>,
+// and that URL cannot carry a version.
+const latest = path.join(releaseRoot, "agenthost-linux-x64.tar.gz");
+await copyFile(archive, latest);
+await writeFile(`${latest}.sha256`, `${archiveHash}  ${path.basename(latest)}\n`, { mode: 0o644 });
 console.log(JSON.stringify({ stage, archive, version, fileCount: inventory.files.length }, null, 2));

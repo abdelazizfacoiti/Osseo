@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { CODEX_NOTIFY_LINE, codexNotifyAdd, codexNotifyRemove, codexNotifyState } from "./codex-notify.js";
 
 export const INTEGRATION_TARGETS = ["opencode", "claude", "codex", "copilot", "copilot-cli", "cursor"] as const;
 export type IntegrationTarget = (typeof INTEGRATION_TARGETS)[number];
@@ -14,6 +15,15 @@ export interface IntegrationPaths {
   copilotHome?: string;
 }
 
+/** The Codex `notify` key that raises the terminal when a turn ends. */
+export interface CodexNotifyReport {
+  /** Our notify command is the one set. */
+  configured: boolean;
+  changed: boolean;
+  applied: boolean;
+  reason?: string;
+}
+
 export interface IntegrationReport {
   target: IntegrationTarget;
   configPath: string;
@@ -24,6 +34,7 @@ export interface IntegrationReport {
   applied: boolean;
   backup: boolean;
   proposed?: unknown;
+  codexNotify?: CodexNotifyReport;
   error?: string;
 }
 
@@ -280,26 +291,50 @@ async function jsonRemove(target: IntegrationTarget, paths: IntegrationPaths, ap
   return report(target, file, { configured: false, matches: false, changed: true, applied: true, backup: backedUp });
 }
 
+const FOREIGN_NOTIFY = "A different notify program is already set in the Codex config; it was left unchanged.";
+
+function notifyReport(text: string, updated: string, apply: boolean, action: "add" | "remove"): CodexNotifyReport {
+  const before = codexNotifyState(text);
+  const after = codexNotifyState(updated);
+  const changed = updated !== text;
+  const foreign = before.present && !before.ours;
+  return {
+    configured: after.matches,
+    changed,
+    applied: apply && changed,
+    ...(foreign && action === "add" ? { reason: FOREIGN_NOTIFY } : {})
+  };
+}
+
 async function codexStatus(paths: IntegrationPaths): Promise<IntegrationReport> {
   const file = integrationConfigPath("codex", paths);
   const { text } = await readConfig(file);
   if (text !== "" && codexUnsupported(text)) return report("codex", file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_unsupported_or_invalid" });
-  return report("codex", file, { configured: codexBlock(text) !== undefined, matches: codexMatches(text), changed: false, applied: false, backup: false });
+  const state = codexNotifyState(text);
+  const codexNotify: CodexNotifyReport = { configured: state.matches, changed: false, applied: false, ...(state.present && !state.ours ? { reason: FOREIGN_NOTIFY } : {}) };
+  return report("codex", file, { configured: codexBlock(text) !== undefined, matches: codexMatches(text), changed: false, applied: false, backup: false, codexNotify });
 }
 
 async function codexAdd(paths: IntegrationPaths, apply: boolean): Promise<IntegrationReport> {
   const file = integrationConfigPath("codex", paths);
   const { text } = await readConfig(file);
   if (text !== "" && codexUnsupported(text)) return report("codex", file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_unsupported_or_invalid" });
-  if (codexMatches(text)) return report("codex", file, { configured: true, matches: true, changed: false, applied: false, backup: false });
   const block = codexBlock(text);
-  const updated = block === undefined
-    ? `${text.trimEnd()}${text.trim().length > 0 ? "\n\n" : ""}${CODEX_ENTRY}`
-    : `${text.slice(0, block.start)}${CODEX_ENTRY}${text.slice(block.end).replace(/^\n+/, "\n")}`;
-  if (!apply) return report("codex", file, { configured: block !== undefined, matches: false, changed: true, applied: false, backup: false, proposed: { command: "agenthost", args: ["start"] } });
+  // One read, one write: the MCP entry and the notify key share a single backup of the original file.
+  const withEntry = codexMatches(text)
+    ? text
+    : block === undefined
+      ? `${text.trimEnd()}${text.trim().length > 0 ? "\n\n" : ""}${CODEX_ENTRY}`
+      : `${text.slice(0, block.start)}${CODEX_ENTRY}${text.slice(block.end).replace(/^\n+/, "\n")}`;
+  const updated = codexNotifyAdd(withEntry).text;
+  const codexNotify = notifyReport(withEntry, updated, apply, "add");
+  const proposed = { command: "agenthost", args: ["start"], notify: CODEX_NOTIFY_LINE };
+  const changed = updated !== text;
+  if (!changed) return report("codex", file, { configured: true, matches: true, changed: false, applied: false, backup: false, codexNotify });
+  if (!apply) return report("codex", file, { configured: block !== undefined, matches: codexMatches(text), changed: true, applied: false, backup: false, proposed, codexNotify });
   const backedUp = await backup(file, text);
   await writePrivate(file, updated);
-  return report("codex", file, { configured: true, matches: true, changed: true, applied: true, backup: backedUp, proposed: { command: "agenthost", args: ["start"] } });
+  return report("codex", file, { configured: true, matches: true, changed: true, applied: true, backup: backedUp, proposed, codexNotify });
 }
 
 async function codexRemove(paths: IntegrationPaths, apply: boolean): Promise<IntegrationReport> {
@@ -307,12 +342,14 @@ async function codexRemove(paths: IntegrationPaths, apply: boolean): Promise<Int
   const { text } = await readConfig(file);
   if (text !== "" && codexUnsupported(text)) return report("codex", file, { configured: false, matches: false, changed: false, applied: false, backup: false, error: "config_unsupported_or_invalid" });
   const block = codexBlock(text);
-  if (block === undefined) return report("codex", file, { configured: false, matches: false, changed: false, applied: false, backup: false });
-  if (!apply) return report("codex", file, { configured: true, matches: codexMatches(text), changed: true, applied: false, backup: false });
-  const updated = `${text.slice(0, block.start)}${text.slice(block.end).replace(/^\n+/, "\n")}`.trimEnd() + "\n";
+  const withoutEntry = block === undefined ? text : `${text.slice(0, block.start)}${text.slice(block.end).replace(/^\n+/, "\n")}`.trimEnd() + "\n";
+  const updated = codexNotifyRemove(withoutEntry).text;
+  const codexNotify = notifyReport(withoutEntry, updated, apply, "remove");
+  if (updated === text) return report("codex", file, { configured: false, matches: false, changed: false, applied: false, backup: false, codexNotify });
+  if (!apply) return report("codex", file, { configured: block !== undefined, matches: codexMatches(text), changed: true, applied: false, backup: false, codexNotify });
   const backedUp = await backup(file, text);
   await writePrivate(file, updated);
-  return report("codex", file, { configured: false, matches: false, changed: true, applied: true, backup: backedUp });
+  return report("codex", file, { configured: false, matches: false, changed: true, applied: true, backup: backedUp, codexNotify });
 }
 
 export async function integrationStatus(target: IntegrationTarget, paths: IntegrationPaths): Promise<IntegrationReport> {

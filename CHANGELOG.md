@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Removed the Blender and SSH adapter packages, the `adapter.list` and `adapter.get` tools, and the adapter registry, because no tool was ever registered for them. An `optionalAdapters` key in an existing config file is still accepted and ignored.
+- `agenthost integrations codex add` now also sets Codex's top-level `notify` so the terminal is raised when a turn ends. It never replaces a different `notify` program that is already set, and `remove` deletes only AgentHost's entry.
+- The release build also writes `agenthost-linux-x64.tar.gz` (fixed name) with its checksum, which is the file `scripts/install.sh` downloads.
+- One-line install: `curl -fsSL <url>/scripts/install.sh | sh` checks the SHA-256, installs the release archive under `~/.local` without `sudo`, and is safe to run twice. `--dry-run` changes nothing; `AGENTHOST_ARCHIVE` installs from a local file.
 - Guide mode: `guide.show` draws highlight boxes with a text label (`Step 1 of 3`) on each place the person should click, placed by screen bounds, a screenshot rectangle, or a control label; `guide.clear` removes them. The agent never clicks. For apps it must not drive, or when the person asks to be shown how.
 - Tooltip cards sit beside their target (right, left, below, then above) instead of in a screen corner, so a label can point at the place it describes. Other cards keep avoiding their target. Nothing in the product shows tooltips yet; this is the base for guide-mode steps.
 - Claude Code raises the assistant's window when a turn ends (`Stop`), when Claude asks a question (`AskUserQuestion`), and when it sits idle waiting for you (`Notification` idle prompt). Re-run `agenthost integrations claude add --apply` to install the new hooks. `done` and `idle` do not pull focus back on the next tool call. Codex is not covered yet.

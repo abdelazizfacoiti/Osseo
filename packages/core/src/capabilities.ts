@@ -738,21 +738,6 @@ export function createBaseCapabilityRegistry(): CapabilityRegistry {
       description: "Explains why guide mode is recommended and suggests structured guide steps."
     },
     {
-      name: "adapter.list",
-      riskLevel: "observe" as const,
-      description: "Lists registered optional app adapters."
-    },
-    {
-      name: "adapter.get_capabilities",
-      riskLevel: "low" as const,
-      description: "Lists capabilities exposed by registered app adapters."
-    },
-    {
-      name: "adapter.detect_for_app",
-      riskLevel: "low" as const,
-      description: "Detects whether registered app adapters can support a given app."
-    },
-    {
       name: "computer.observe_state",
       riskLevel: "observe" as const,
       description: "Observes active window, capabilities, geometry, and optionally windows and browser tabs."

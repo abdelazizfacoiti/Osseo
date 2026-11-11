@@ -12,9 +12,9 @@ npm run smoke:mcp
 git diff --check
 ```
 
-Do not add hidden persistence, public listeners, arbitrary generated-code execution, credential extraction, CAPTCHA/MFA bypass, silent send/submit/upload/delete/pay actions, scheduler workers, or autonomous loops. Optional adapters stay explicitly opt-in. Do not include private content, secrets, screenshots, OCR text, or runtime tokens in tests, fixtures, logs, or release artifacts.
+Do not add hidden persistence, public listeners, arbitrary generated-code execution, credential extraction, CAPTCHA/MFA bypass, silent send/submit/upload/delete/pay actions, scheduler workers, or autonomous loops. Do not include private content, secrets, screenshots, OCR text, or runtime tokens in tests, fixtures, logs, or release artifacts.
 
-New optional adapters and product surfaces require explicit execution metadata,
+New adapters and product surfaces require explicit execution metadata,
 bounded tests, and the same preview/token/stop/audit path as existing tools.
 The public artifact is the Linux archive/CLI; the root npm package is
 intentionally private.

@@ -9,10 +9,10 @@ import { createWindowTools } from "../tools/window.js";
 
 describe("overlay activity classification", () => {
   it("recognizes computer-action families and excludes control-plane metadata", () => {
-    for (const tool of ["computer.observe_state", "desktop.screenshot", "window.list", "vision.find_text", "file.read", "shell.run", "browser.navigate", "blender.run_python", "ssh.run_command"]) {
+    for (const tool of ["computer.observe_state", "desktop.screenshot", "window.list", "vision.find_text", "file.read", "shell.run", "browser.navigate"]) {
       expect(classifyComputerAction(tool).computerAction).toBe(true);
     }
-    for (const tool of ["task.create", "agent.stop", "system.get_info", "adapter.list", "policy.list", "unknown"]) {
+    for (const tool of ["task.create", "agent.stop", "system.get_info", "policy.list", "unknown"]) {
       expect(classifyComputerAction(tool).computerAction).toBe(false);
     }
   });

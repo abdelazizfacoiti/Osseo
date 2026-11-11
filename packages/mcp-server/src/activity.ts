@@ -9,9 +9,7 @@ export const COMPUTER_ACTION_FAMILIES = [
   "vision",
   "window",
   "app",
-  "ui",
-  "blender",
-  "ssh"
+  "ui"
 ] as const;
 
 const COMPUTER_FAMILIES = new Set<string>(COMPUTER_ACTION_FAMILIES);

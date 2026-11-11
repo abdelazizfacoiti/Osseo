@@ -25,8 +25,6 @@ present before the call. Missing backend data is omitted rather than guessed.
 | `system.get_info` | observe | read_only |
 | `system.list_capabilities` | observe | read_only |
 | `system.check_dependency` | low | diagnostic |
-| `adapter.list` | observe | read_only |
-| `adapter.get` | observe | read_only |
 | `computer.observe_state` | observe | read_only |
 | `computer.wait_for` | observe | read_only |
 | `computer.wait` | observe | read_only (fixed 50-10000 ms settle delay) |
@@ -336,17 +334,6 @@ on disk by `npm run skill:install`; they are not served over MCP.
 For static config files (`AGENTS.md`, `CLAUDE.md`), paste
 `agenthost capabilities --markdown`.
 
-## Optional adapters
-
-`packages/app-blender` and `packages/app-ssh` provide reviewed app/device
-adapters. Enabling `optionalAdapters.blender.enabled` or
-`optionalAdapters.ssh.enabled` registers adapter capabilities in
-`system.list_capabilities`, but this minimal-v2 server does not currently
-register a base MCP tool factory for `blender.run_python` or
-`ssh.run_command`. They therefore do not appear in `tools/list` in this tree.
-Any future tool factory must carry state-changing metadata and use the same
-central runner, dry-run, confirmation, stop/takeover, and audit path.
-
 ## Removed product surfaces
 
 Control Room, the Browser Bridge (paired browser extension), the extension-based
@@ -362,8 +349,7 @@ Overlay is not exposed as MCP tools in minimal-v2. The server owns a
 `VisualSurfaceCoordinator`; automatic action cards are selected by
 `overlay.mode` (default `always`). `always` opens one public, click-through
 card for computer-action tool families (`computer.*`, `desktop.*`, `window.*`,
-`vision.*`, `file.*`, `shell.*`, plus optional `browser.*`, `blender.*`, and
-`ssh.*`) and for every state-changing tool. `on_change` keeps the older
+`vision.*`, `file.*`, `shell.*`, plus `browser.*`) and for every state-changing tool. `on_change` keeps the older
 behavior of state-changing cards plus confirmation fallback. `off` disables
 automatic cards. Mode only changes feedback; schema, risk, policy, stop,
 preview/confirmation, execution, and audit enforcement stay identical.

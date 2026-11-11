@@ -22,9 +22,9 @@ Release support is documented in `SUPPORT.md`; security reports belong in
 
 ## Support states
 
-The safe fallback order is app adapter, CLI/script, local OCR/vision, governed
-desktop input, then guide mode. Missing GTK/PyGObject, X11 support, OCR, or
-optional adapters produce explicit diagnostics; AgentHost does not silently
+The safe fallback order is CLI/script, local OCR/vision, governed
+desktop input, then guide mode. Missing GTK/PyGObject, X11 support, or OCR
+produce explicit diagnostics; AgentHost does not silently
 switch to an unsafe route.
 
 ## Manual checks before a public release

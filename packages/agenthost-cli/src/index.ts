@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, describeDesktopPlatform, acceptConfirmation, createPhonePairing, readPhonePairing, removePhonePairing, isValidChannelUrl, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
 import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
 import { COMMAND_USAGE, TOP_USAGE, wantsHelp } from "./help.js";
-import { attentionClear, attentionRequest, attentionStatus } from "./attention.js";
+import { attentionCli } from "./attention.js";
+import { parseFlags } from "./flags.js";
 import { physicalConsent, pressCheck } from "./phone.js";
 import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
 import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@agenthost/os-linux";
@@ -72,11 +73,6 @@ function mcpEntry(): string {
   const root = runtimeRoot();
   const candidates = [path.join(root, "packages/mcp-server/dist/index.js"), path.join(root, "dist/mcp-server/index.js"), path.join(root, "mcp-server/index.js")];
   return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
-}
-function parseFlags(args: string[]): { positional: string[]; flags: Set<string>; values: Map<string, string> } {
-  const positional: string[] = [], flags = new Set<string>(), values = new Map<string, string>();
-  for (let i = 0; i < args.length; i += 1) { const item = args[i]!; if (!item.startsWith("--")) { positional.push(item); continue; } const [key, inline] = item.slice(2).split("=", 2); if (inline !== undefined) values.set(key!, inline); else if (args[i + 1] !== undefined && !args[i + 1]!.startsWith("--")) { values.set(key!, args[++i]!); } else flags.add(key!); }
-  return { positional, flags, values };
 }
 async function verifyArchiveChecksum(archive: string, supplied: string | undefined): Promise<string> {
   const expected = supplied === undefined ? await readSha256Sidecar(archive) : normalizeSha256(supplied);
@@ -472,14 +468,7 @@ async function sessionsCommand(): Promise<Output> {
   return { ok: true, command: "sessions", data: { background: lock ?? null, tasksDir: "[agenthost-home]/tasks", stopRequested: existsSync(path.join(agentHome, "run", "stop.requested")), takeoverActive: existsSync(path.join(agentHome, "run", "takeover.active")) } };
 }
 async function attentionCommand(args: ReturnType<typeof parseFlags>): Promise<Output> {
-  const action = args.positional[1] ?? "status";
-  const result = action === "request"
-    ? await attentionRequest(agentHome, args.values.get("source"), args.values.get("reason"))
-    : action === "clear"
-      ? await attentionClear(agentHome, args.flags.has("restore"))
-      : action === "status"
-        ? await attentionStatus(agentHome)
-        : { ok: false, error: "usage: agenthost attention request --source <client> --reason <permission|confirmation|idle|done> | clear [--restore] | status" };
+  const { action, result } = await attentionCli(agentHome, args);
   return result.ok ? { ok: true, command: `attention ${action}`, data: result.data } : fail("attention", result.error ?? "attention_failed");
 }
 async function overlayCommand(sub: string | undefined, flags: ReturnType<typeof parseFlags>): Promise<Output> {
@@ -554,6 +543,7 @@ async function integrationsCommand(targetArg: string | undefined, args: ReturnTy
       : await integrationStatus(target, paths);
   if (value.error !== undefined) return fail(`integrations ${target} ${action}`, value.error);
   // Claude Code also gets attention hooks so its own permission prompts raise the terminal.
+  // Codex gets a turn-end `notify` entry inside its config (reported as codexNotify).
   const hooks = target !== "claude"
     ? undefined
     : action === "add"

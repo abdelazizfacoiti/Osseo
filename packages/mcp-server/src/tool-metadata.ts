@@ -15,7 +15,7 @@ const TOOL_EXECUTION_DECLARATIONS: Record<string, ToolExecutionMetadata> = {};
 const declare = (names: string[], metadata: ToolExecutionMetadata): void => { for (const name of names) TOOL_EXECUTION_DECLARATIONS[name] = metadata; };
 
 declare([
-  "adapter.list", "adapter.get", "computer.observe_state", "computer.wait", "computer.wait_for", "file.exists", "file.list", "file.read", "file.read_many", "file.search", "system.get_info", "system.list_capabilities", "vision.analyze_image", "vision.find_target", "vision.find_text", "vision.find_text_on_screen", "window.list", "ui.tree", "ui.find", "clipboard.get", "browser.snapshot", "browser.wait_for", "browser.screenshot"
+  "computer.observe_state", "computer.wait", "computer.wait_for", "file.exists", "file.list", "file.read", "file.read_many", "file.search", "system.get_info", "system.list_capabilities", "vision.analyze_image", "vision.find_target", "vision.find_text", "vision.find_text_on_screen", "window.list", "ui.tree", "ui.find", "clipboard.get", "browser.snapshot", "browser.wait_for", "browser.screenshot"
 ], readOnly());
 declare(["system.check_dependency"], diagnostic());
 declare(["agent.status", "screen.read"], readOnly());
@@ -26,8 +26,6 @@ declare([
 ], directStateChanging());
 declare(["file.delete"], confirmedStateChanging());
 declare(["browser.upload"], confirmedStateChanging());
-declare(["blender.run_python"], confirmedStateChanging("optional_adapter"));
-declare(["ssh.run_command"], confirmedStateChanging("optional_adapter"));
 
 export function applyProductionExecutionMetadata(tools: AnyAgentHostToolDefinition[]): AnyAgentHostToolDefinition[] {
   return tools.map((definition) => {

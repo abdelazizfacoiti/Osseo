@@ -48,7 +48,25 @@ benchmark's pass gate (`scripts/benchmark-form.mjs`). The test suite has over
 ## Quick start
 
 You need Linux x86_64 with an X11 session (Wayland works through XWayland) and
-Node 20 or newer. Download a release archive, then:
+Node 20 or newer. Install with one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/abdelazizfacoiti/AgentHost/main/scripts/install.sh | sh
+```
+
+This works once the repository is public. Until then, run the script from a
+checkout with a local archive:
+`AGENTHOST_ARCHIVE=/path/to/archive sh scripts/install.sh`.
+
+The script checks the SHA-256, installs under `~/.local` without `sudo`, and
+is safe to run again. Then run `agenthost doctor` and `agenthost setup`.
+`doctor` checks your machine and lists missing desktop packages. Nothing runs
+as root and nothing is installed silently.
+
+<details>
+<summary>Manual install</summary>
+
+Download a release archive, then:
 
 ```bash
 sha256sum -c agenthost-v0.1.0-linux-x64.tar.gz.sha256
@@ -58,8 +76,7 @@ cd agenthost-v0.1.0-linux-x64
 ./bin/agenthost.mjs setup
 ```
 
-`doctor` checks your machine and lists missing desktop packages. Nothing runs
-as root and nothing is installed silently.
+</details>
 
 Register the server with your agent. The command previews first; `--apply`
 writes one entry and backs up an existing config:

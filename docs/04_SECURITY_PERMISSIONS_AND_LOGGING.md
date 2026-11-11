@@ -128,7 +128,7 @@ blocked or high risk.
 ## Policy and grants
 
 AgentHost has one autonomous runtime policy. It permits routine local shell,
-file, GUI input, screenshot, and optional adapter discovery directly.
+file, GUI input, and screenshot directly.
 Communication, private-data, external, destructive, and financial effects are
 gated as `approval_required`; credential/security apps, secret data, protected
 system paths, and the AgentHost control plane stay blocked. No policy bypasses
@@ -205,14 +205,6 @@ started/visible/error state. A failed card reports
 `overlay: "unavailable:<reason>"` and sends one rate-limited best-effort
 notification without failing the action. Headless/Wayland fallback reports
 limitations instead of claiming unsupported coordinates or visible success.
-
-## Optional adapters
-
-`packages/app-ssh` and `packages/app-blender` can be enabled in the adapter
-registry (key authentication only for SSH). This minimal-v2 server does not
-register an MCP tool factory for those adapters, so `ssh.run_command` and
-`blender.run_python` do not appear in `tools/list`. Any future factory must use
-the same central runner, metadata, preview/token, stop/takeover, and audit path.
 
 ## Removed product surfaces
 

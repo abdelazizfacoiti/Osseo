@@ -6,7 +6,6 @@ import {
   readActivityStatus,
   readRunState,
   type AgentHostConfig,
-  type AdapterRegistrySnapshot,
   type CapabilityRegistrySnapshot,
   type ToolCapability
 } from "@agenthost/core";
@@ -44,7 +43,7 @@ export function listResourceEntries(): Array<{ uri: string; name: string; mimeTy
 }
 
 export async function readResource(
-  context: { registry: CapabilityRegistrySnapshot; adapters: AdapterRegistrySnapshot; config: AgentHostConfig },
+  context: { registry: CapabilityRegistrySnapshot; config: AgentHostConfig },
   uri: string
 ): Promise<{ mimeType: string; text: string }> {
   const input = capabilityInput(context.registry, context.config);

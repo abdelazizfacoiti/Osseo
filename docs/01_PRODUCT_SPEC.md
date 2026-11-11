@@ -48,7 +48,7 @@ V2-B adds `strategy.route_preview`, an advisory action-level router over loaded 
 
 R5 adds an honest Linux x86_64 release-candidate surface around general-purpose computer-use capabilities: rootless archive installation, `agenthost` CLI, resumable setup, redacted doctor diagnostics, Codex MCP integration with preview/backup/rollback, controlled lifecycle, browser/overlay/Control Room/speech onboarding, and deterministic release scans. Packaging adds no execution capability and keeps host dependencies explicit.
 
-The default loaded registry currently contains 247 tools with validated explicit execution metadata (optional adapters are conditional):
+The default loaded registry currently contains 247 tools with validated explicit execution metadata:
 
 - 62 `read_only`
 - 7 `diagnostic`
@@ -110,7 +110,7 @@ no schedule is registered with the operating system and no job is executed.
 
 ### Optional and experimental
 
-Application adapters are optional. Blender is the current reference adapter: disabled by default, explicitly enabled only through configuration, experimental, reviewed, bounded, and not core product direction. Other adapters must follow the same generic optional-adapter policy.
+App-specific adapters are not part of this tree. The Blender and SSH adapters were removed because no tool was ever registered for them; a future adapter would need a registered tool, execution metadata, and the same preview and confirmation path.
 
 ### Unsupported or future
 

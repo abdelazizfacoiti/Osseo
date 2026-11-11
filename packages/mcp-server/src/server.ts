@@ -12,7 +12,6 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import {
   ACTION_CARD_PAUSE_PREFIX,
-  createAdapterRegistry,
   createBaseCapabilityRegistry,
   createSessionId,
   JsonlAuditLogger,
@@ -21,7 +20,6 @@ import {
   describeDesktopPlatform,
   setUserBlockedApps,
   summarizeForLog,
-  validateOptionalAdapterExecutionPolicy,
   readRunState,
   readAttention,
   requestPause,
@@ -31,7 +29,6 @@ import {
   writeActivityStatus,
   AGENTHOST_VERSION,
   type ActivityStatusOutcome,
-  type AdapterRegistry,
   type AgentHostConfig,
   type AuditLogger,
   type CapabilityRegistry,
@@ -87,7 +84,6 @@ import { WindowsHelperProcess, createWindowsDesktop } from "@agenthost/os-window
 import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator } from "@agenthost/app-overlay";
 import type { AgentHostMcpContext, LinuxAutomation } from "./context.js";
 import { GrantStore } from "./grants.js";
-import { createAdapterTools } from "./tools/adapter.js";
 import { createDesktopTools } from "./tools/desktop.js";
 import { createAppTools } from "./tools/app.js";
 import { createUiTools } from "./tools/ui.js";
@@ -226,65 +222,10 @@ function signalSelfPause(reason: string): void {
   }
 }
 
-function blenderModuleSpecifier(): string {
-  const currentDir = path.dirname(fileURLToPath(import.meta.url));
-  const isSource = currentDir.includes(`${path.sep}src`);
-  const target = isSource ? "../../app-blender/src/index.js" : "../../app-blender/dist/index.js";
-
-  return pathToFileURL(path.resolve(currentDir, target)).href;
-}
-
-function sshModuleSpecifier(): string {
-  const currentDir = path.dirname(fileURLToPath(import.meta.url));
-  const isSource = currentDir.includes(`${path.sep}src`);
-  const target = isSource ? "../../app-ssh/src/index.js" : "../../app-ssh/dist/index.js";
-
-  return pathToFileURL(path.resolve(currentDir, target)).href;
-}
-
-async function registerOptionalSshRuntime(config: AgentHostConfig, adapters: AdapterRegistry): Promise<boolean> {
-  if (config.optionalAdapters?.ssh?.enabled !== true) {
-    return false;
-  }
-
-  if (adapters.get("ssh") === undefined) {
-    const sshModule = (await import(sshModuleSpecifier())) as {
-      createSshAdapter?: () => { id: string; optionalExecutionPolicy?: unknown };
-    };
-
-    if (typeof sshModule.createSshAdapter === "function") {
-      const adapter = sshModule.createSshAdapter();
-      validateOptionalAdapterExecutionPolicy(adapter as never);
-      adapters.register(adapter as never);
-    }
-  }
-  return adapters.get("ssh") !== undefined;
-}
-
-async function registerOptionalBlenderRuntime(config: AgentHostConfig, adapters: AdapterRegistry): Promise<boolean> {
-  if (config.optionalAdapters?.blender?.enabled !== true) {
-    return false;
-  }
-
-  if (adapters.get("blender") === undefined) {
-    const blenderModule = (await import(blenderModuleSpecifier())) as {
-      createBlenderAdapter?: () => { id: string; optionalExecutionPolicy?: unknown };
-    };
-
-    if (typeof blenderModule.createBlenderAdapter === "function") {
-      const adapter = blenderModule.createBlenderAdapter();
-      validateOptionalAdapterExecutionPolicy(adapter as never);
-      adapters.register(adapter as never);
-    }
-  }
-  return adapters.get("blender") !== undefined;
-}
-
 export interface AgentHostServerOptions {
   config?: AgentHostConfig;
   policy?: RuntimePolicy;
   registry?: CapabilityRegistry;
-  adapters?: AdapterRegistry;
   logger?: AuditLogger;
   trace?: import("@agenthost/core").ToolTraceLogger;
   sessionId?: string;
@@ -334,9 +275,6 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const desktopContext = { agentHostDir: config.agentHostDir, ...(backgroundDisplay === undefined ? {} : { env: backgroundDisplay.env }) };
   const sessionId = options.sessionId ?? createSessionId();
   const registry = options.registry ?? createBaseCapabilityRegistry();
-  const adapters = options.adapters ?? createAdapterRegistry();
-  const blenderEnabled = await registerOptionalBlenderRuntime(config, adapters);
-  const sshEnabled = await registerOptionalSshRuntime(config, adapters);
   const logger = options.logger ?? new JsonlAuditLogger(config.logFile);
   const trace = options.trace ?? (process.env.AGENTHOST_TRACE === "1"
     ? new JsonlTraceLogger(path.join(
@@ -517,7 +455,6 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     config,
     policy,
     registry,
-    adapters,
     logger,
     ...(trace === undefined ? {} : { trace }),
     grants,
@@ -543,9 +480,6 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const tools = [
     ...createSystemTools(),
     ...createVisionTools(),
-    ...createAdapterTools(),
-    ...(blenderEnabled ? [] : []),
-    ...(sshEnabled ? [] : []),
     ...createShellTools(),
     ...createFileTools(),
     ...createDesktopTools(),
@@ -588,7 +522,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     try {
       const { mimeType, text } = await readResource(
-        { registry: context.registry, adapters: context.adapters, config: context.config },
+        { registry: context.registry, config: context.config },
         request.params.uri
       );
       return { contents: [{ uri: request.params.uri, mimeType, text }] };

@@ -48,7 +48,6 @@ function context(home: string, overlay?: { mode: "always" | "on_change" | "off" 
   } as unknown as CapabilityRegistrySnapshot;
   return {
     registry,
-    adapters: {} as never,
     config: { agentHostDir: home, ...(overlay === undefined ? {} : { overlay }) } as never
   };
 }

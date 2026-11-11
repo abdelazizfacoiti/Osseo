@@ -18,8 +18,6 @@ The MCP server uses local stdio transport only. Grants, dry-run, exact
 confirmation, target binding, stop/takeover gates, and redacted audit logging
 remain mandatory. There is no public listener, scheduler execution, or hidden
 background work. Visual overlays do not control target applications. Do not
-weaken these boundaries in a bug fix or adapter.
+weaken these boundaries in a bug fix.
 
-Supported releases are Linux-first archives. Optional adapters are disabled
-unless explicitly enabled and must retain their bounded subprocess and
-environment policies.
+Supported releases are Linux-first archives.

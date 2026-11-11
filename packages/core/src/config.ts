@@ -164,7 +164,8 @@ const configFileSchema = z
     approvals: z.object({ chat: z.boolean().optional() }).strict().optional(),
     autoInstallDependencies: z.boolean().optional(),
     speech: speechSchema.optional(),
-    optionalAdapters: z.record(z.object({ enabled: z.boolean() }).strict()).optional(),
+    // Accepted for old config files; it does nothing.
+    optionalAdapters: z.unknown().optional(),
     grants: z.array(capabilityGrantSchema).max(500).optional()
   })
   .strict();
@@ -356,7 +357,6 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     ...(fileConfig.approvals?.chat === undefined ? {} : { approvals: { chat: fileConfig.approvals.chat } }),
     autoInstallDependencies: fileConfig.autoInstallDependencies ?? true,
     speech,
-    optionalAdapters: fileConfig.optionalAdapters ?? {},
     policy: getDefaultPolicy({ grants })
   };
 }

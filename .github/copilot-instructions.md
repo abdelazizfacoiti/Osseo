@@ -74,7 +74,6 @@ coding tools directly.
 | Shell | `shell.run` |
 | Vision / OCR | `vision.find_text`, `vision.find_target`, `vision.analyze_image` |
 | Tasks / progress | `task.create`, `task.status`, `task.update`, `task.add_event`, `task.list` |
-| Apps / adapters | `adapter.list`, `adapter.get` |
 | Safety / system | `system.get_info`, `system.list_capabilities`, `system.check_dependency` |
 
 MCP clients may prefix tool names (for example `mcp__agenthost__desktop_click` or

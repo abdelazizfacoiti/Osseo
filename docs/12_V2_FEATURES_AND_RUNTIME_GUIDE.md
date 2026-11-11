@@ -37,7 +37,7 @@ Primary design goals:
 - Exact confirmation for consequential actions.
 - Honest failure reporting rather than false success.
 - Operator control independent of the model.
-- Application-agnostic core with optional adapters outside it.
+- Application-agnostic core; app-specific code stays outside it.
 
 ## 2. Runtime architecture
 
@@ -48,15 +48,13 @@ packages/
   agenthost-cli/ Operator CLI
   app-overlay/   GTK3 renderer, overlay manager, task progress card
   os-linux/      Linux desktop, filesystem, shell, window, OCR backends
-  app-blender/   Optional adapter; no live MCP tool factory in this tree
-  app-ssh/       Optional device adapter; no live MCP tool factory in this tree
 ```
 
 Architecture rules:
 
 - `packages/core` stays application-agnostic.
 - `packages/core` does not import Linux-specific implementations.
-- Optional adapters live outside core and require explicit enablement.
+- App-specific adapters, if any are added, live outside core.
 - Every tool passes through one central execution runner.
 - `tools/list`, `system.list_capabilities`, and capability resources are
   projected from the same loaded tool set.
@@ -91,7 +89,6 @@ source is always:
 | Family | Tools | Behavior |
 |---|---|---|
 | System | `system.get_info`, `system.list_capabilities`, `system.check_dependency` | Runtime/system information, live capability inventory, dependency availability |
-| Adapters | `adapter.list`, `adapter.get` | Inspect registered optional adapters |
 | Computer observation | `computer.observe_state`, `computer.wait`, `computer.wait_for` | Active window snapshot, bounded sleep, and window-appears, title, file, and screen condition waits with state snapshots |
 | Browser | `browser.open`, `browser.snapshot`, `browser.click`, `browser.type`, `browser.navigate`, `browser.close` | Dedicated Chrome profile over the DevTools Protocol: element refs, no coordinates; security pages blocked, sensitive fields refused, consequential clicks confirmed |
 | Apps | `app.open`, `app.open_url` | Launch an application or open a URL in a browser |
@@ -567,7 +564,7 @@ Computer-action families:
 - `vision.*`
 - `file.*`
 - `shell.*`
-- optional `browser.*`, `blender.*`, `ssh.*`
+- `browser.*`
 
 ### Action card and ambient layers
 
@@ -783,6 +780,16 @@ Preview is the default. `--apply` writes one entry, preserves unrelated config,
 and backs up existing files. Reload or restart the client afterward so it
 spawns AgentHost.
 
+Two clients also get attention hooks that raise the agent's terminal through
+`agenthost attention request`: `claude` gets Claude Code hooks in
+`~/.claude/settings.json` (permission prompts, questions, turn end), and
+`codex` gets a top-level `notify = ["agenthost", "attention", "request",
+"--source", "codex", "--reason", "done"]` in `~/.codex/config.toml`, which Codex
+runs when a turn ends. Codex allows one `notify` program, so an existing one
+that is not AgentHost's is left unchanged and reported in `codexNotify`
+(`configured: false` with a reason). `status` reports whether AgentHost's is
+present and `remove` deletes only that one.
+
 ### Update and uninstall
 
 ```bash
@@ -848,7 +855,7 @@ Main fields:
 | `output` | `verbosity`: `lean` (default: compact results without server provenance, an empty approval block, or null fields; the state is sent once and then `stateUnchanged`) or `full` (every field, pretty-printed) |
 | `blockedApps` | Apps the operator never wants automated (substring match) |
 | `grants` | Capability-scoped allow/deny/guide-only rules |
-| `optionalAdapters` | Explicit enablement map for optional adapters |
+| `optionalAdapters` | Ignored. Old config files that still contain it load without error |
 
 Overlay fields include:
 
@@ -1136,13 +1143,7 @@ Do not treat these as available features:
 - Background daemon or autonomous scheduling.
 - Recursive directory deletion.
 - MCP-side resume/clear of stop, takeover, or pause.
-- Live `blender.run_python` or `ssh.run_command` MCP tools, even if adapters are
-  enabled.
-
-Optional adapters can appear in adapter discovery and capability metadata, but
-this tree registers no base MCP tool factory for their execution tools.
-Enabling them does not add `blender.run_python` or `ssh.run_command` to
-`tools/list`.
+- App-specific adapters (the Blender and SSH adapters were removed).
 
 ## 17. Typical agent operating loop
 
