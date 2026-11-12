@@ -8,7 +8,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { FrameDecoder, encodeFrame, checkRequest, validateResponse, REFUSALS } from "../src/protocol.mjs";
+import { FrameDecoder, encodeFrame, checkRequest, filterTabsForAllowedHosts, validateResponse, REFUSALS } from "../src/protocol.mjs";
 
 const log = (...args) => process.stderr.write(args.join(" ") + "\n");
 
@@ -36,7 +36,7 @@ export function createRelay({ getAllowedHosts, toExtension }) {
       const clientId = message && typeof message === "object" ? message.id : undefined;
       if (!checked.ok) return reply({ id: clientId, ok: false, reason: checked.reason });
       const internal = "r" + ++counter;
-      pending.set(internal, { reply, clientId });
+      pending.set(internal, { reply, clientId, type: checked.request.type });
       try {
         toExtension(encodeFrame({ ...checked.request, id: internal }));
       } catch (error) {
@@ -49,6 +49,11 @@ export function createRelay({ getAllowedHosts, toExtension }) {
       const entry = pending.get(message.id);
       if (!entry) return log("dropped response with unknown id");
       pending.delete(message.id);
+      if (entry.type === "tabs") {
+        // The allow-list file is the second check: only allowed hosts, only tabId, host and title.
+        if (!message.ok) return entry.reply({ id: entry.clientId, ok: false, reason: typeof message.reason === "string" ? message.reason : "extension_error" });
+        return entry.reply({ id: entry.clientId, ok: true, tabs: filterTabsForAllowedHosts(message.tabs, getAllowedHosts()) });
+      }
       entry.reply({ ...message, id: entry.clientId });
     },
     failAll(reason) {

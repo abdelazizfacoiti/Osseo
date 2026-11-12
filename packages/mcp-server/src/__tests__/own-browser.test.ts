@@ -169,12 +169,37 @@ describe("own browser tools", () => {
     expect(ask.received).toEqual([]);
   });
 
-  it("returns unsupported for tab listing", async () => {
-    const env = await setup(allow("example.com"));
+  it("lists tabs from the extension, only on allowed hosts and only three fields", async () => {
+    const env = await setup(allow("example.com"), () => ({ ok: true, tabs: [
+      { tabId: 1, host: "example.com", title: "Home", url: "https://example.com/secret?x=1" },
+      { tabId: 2, host: "shop.example.com", title: "t".repeat(200) },
+      { tabId: 3, host: "other.org", title: "Not allowed" },
+      { tabId: 4, host: "evil-example.com", title: "Lookalike" }
+    ] }));
     const result = await runTool(tool("browser.own_tabs"), {}, env.ctx);
-    expect(result.error?.code).toBe("unsupported");
-    expect(env.received).toEqual([]);
+    expect(result.ok).toBe(true);
+    const data = result.data as { ok: boolean; tabs: Array<Record<string, unknown>> };
+    expect(data.ok).toBe(true);
+    expect(data.tabs.map((t) => t.tabId)).toEqual([1, 2]);
+    expect(data.tabs.every((t) => Object.keys(t).sort().join() === "host,tabId,title")).toBe(true);
+    expect((data.tabs[1]!.title as string).length).toBe(80);
+    expect(JSON.stringify(result)).not.toContain("secret");
+    expect(env.received[0]).toMatchObject({ type: "tabs" });
   });
+
+  it("returns extension_not_running when there is no socket", async () => {
+    const env = await setup(allow("example.com"));
+    process.env.AGENTHOST_BROWSER_SOCKET = path.join(env.home, "run", "missing.sock");
+    const result = await runTool(tool("browser.own_tabs"), {}, env.ctx);
+    expect(result.ok).toBe(false);
+    expect(result.error?.code).toBe("extension_not_running");
+  });
+
+  it("passes on the extension's reason", async () => {
+    const env = await setup(allow("example.com"), () => ({ ok: false, reason: "timeout" }));
+    expect((await runTool(tool("browser.own_tabs"), {}, env.ctx)).error?.code).toBe("timeout");
+  });
+
 });
 
 describe("allowed-hosts file", () => {

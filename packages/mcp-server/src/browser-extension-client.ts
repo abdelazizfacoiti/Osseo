@@ -53,12 +53,12 @@ export function allowedHostsFilePath(agentHostDir: string): string {
   return process.env.AGENTHOST_BROWSER_ALLOWED_HOSTS_FILE || path.join(agentHostDir, "browser-extension", "allowed-hosts.json");
 }
 
-export type ExtensionRequestType = "snapshot" | "click" | "type" | "select" | "navigate" | "read";
+export type ExtensionRequestType = "snapshot" | "click" | "type" | "select" | "navigate" | "read" | "tabs";
 
 export interface ExtensionRequest {
   type: ExtensionRequestType;
-  tabId: number;
-  host: string;
+  tabId?: number;
+  host?: string;
   ref?: string;
   text?: string;
   value?: string;

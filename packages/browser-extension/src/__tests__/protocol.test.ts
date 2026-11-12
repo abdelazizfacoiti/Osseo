@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 // @ts-expect-error plain .mjs module
-import { FrameDecoder, MAX_MESSAGE_BYTES, checkRequest, encodeFrame, hostAllowed, isPlainHostname, validateRequest } from "../protocol.mjs";
+import { FrameDecoder, MAX_MESSAGE_BYTES, checkRequest, encodeFrame, filterTabsForAllowedHosts, hostAllowed, isPlainHostname, validateRequest } from "../protocol.mjs";
 // @ts-expect-error plain .mjs module
 import { createRelay } from "../../host/native-host.mjs";
 
@@ -44,6 +44,10 @@ describe("validation", () => {
     expect(validateRequest({ ...base, type: "select", ref: "s1-e0", value: "a" }).ok).toBe(true);
     expect(validateRequest({ ...base, type: "navigate", url: "https://example.com/x" }).ok).toBe(true);
   });
+  it("accepts tabs without a tabId or host", () => {
+    expect(validateRequest({ id: "1", type: "tabs" })).toEqual({ ok: true, request: { id: "1", type: "tabs" } });
+    expect(checkRequest({ id: "1", type: "tabs" }, [])).toEqual({ ok: true, request: { id: "1", type: "tabs" } });
+  });
   it("refuses an unknown type", () => {
     expect(validateRequest({ ...base, type: "cookies" })).toEqual({ ok: false, reason: "unknown_type" });
   });
@@ -76,7 +80,43 @@ describe("allowed hosts", () => {
   });
 });
 
+describe("filterTabsForAllowedHosts", () => {
+  const allowed = ["example.com"];
+  it("keeps exact and subdomain hosts, drops look-alikes and other hosts", () => {
+    const out = filterTabsForAllowedHosts([
+      { tabId: 1, host: "example.com", title: "a" },
+      { tabId: 2, host: "shop.example.com", title: "b" },
+      { tabId: 3, host: "evil-example.com", title: "c" },
+      { tabId: 4, host: "example.com.evil.io", title: "d" },
+      { tabId: 5, host: "other.org", title: "e" }
+    ], allowed);
+    expect(out.map((t: { tabId: number }) => t.tabId)).toEqual([1, 2]);
+  });
+  it("cuts titles to 80 characters and never outputs a url", () => {
+    const out = filterTabsForAllowedHosts([{ tabId: 1, host: "example.com", title: "x".repeat(300), url: "https://example.com/p?q=1" }], allowed);
+    expect(out[0].title).toHaveLength(80);
+    expect(Object.keys(out[0]).sort()).toEqual(["host", "tabId", "title"]);
+    expect(JSON.stringify(out)).not.toContain("https://");
+  });
+  it("returns nothing for a bad input or an empty allow list", () => {
+    expect(filterTabsForAllowedHosts("nope", allowed)).toEqual([]);
+    expect(filterTabsForAllowedHosts([{ tabId: 1, host: "example.com", title: "a" }], [])).toEqual([]);
+    expect(filterTabsForAllowedHosts([{ tabId: -1, host: "example.com", title: "a" }, null, { host: "example.com" }], allowed)).toEqual([]);
+  });
+});
+
 describe("native host relay", () => {
+  it("filters a tabs reply by the allow list and strips other fields", () => {
+    const sent: Buffer[] = [];
+    const replies: any[] = [];
+    const relay = createRelay({ getAllowedHosts: () => ["example.com"], toExtension: (f: Buffer) => sent.push(f) });
+    relay.fromClient({ id: "7", type: "tabs" }, (r: unknown) => replies.push(r));
+    expect(sent).toHaveLength(1);
+    const forwarded = new FrameDecoder().push(sent[0])[0];
+    expect(forwarded).toMatchObject({ type: "tabs" });
+    relay.fromExtension({ id: forwarded.id, ok: true, tabs: [{ tabId: 1, host: "example.com", title: "A", url: "https://example.com/x" }, { tabId: 2, host: "other.org", title: "B" }] });
+    expect(replies[0]).toEqual({ id: "7", ok: true, tabs: [{ tabId: 1, host: "example.com", title: "A" }] });
+  });
   it("rejects a disallowed host without contacting the extension, and relays an allowed one", () => {
     const sent: Buffer[] = [];
     const replies: unknown[] = [];

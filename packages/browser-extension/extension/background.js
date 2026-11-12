@@ -2,7 +2,7 @@
 // The allowed-host list is read from storage on every request, so popup changes apply at once.
 
 const HOST_NAME = "dev.agenthost.browser";
-const REQUEST_TYPES = ["snapshot", "click", "type", "select", "navigate", "read"];
+const REQUEST_TYPES = ["snapshot", "click", "type", "select", "navigate", "read", "tabs"];
 
 // BEGIN hostAllowed
 const HOST_PATTERN = /^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/;
@@ -37,9 +37,27 @@ async function allowedHosts() {
   return Array.isArray(stored.allowedHosts) ? stored.allowedHosts : [];
 }
 
+// Tabs on allowed hosts only, as { tabId, host, title }. Never a url, page content, cookies or storage.
+async function listTabs(id) {
+  const allowed = await allowedHosts();
+  let tabs;
+  try { tabs = await chrome.tabs.query({}); } catch { return reply(id, { ok: false, reason: "tabs_unavailable" }); }
+  const out = [];
+  for (const tab of tabs) {
+    if (out.length >= 200) break;
+    if (!Number.isSafeInteger(tab.id) || tab.id < 0) continue;
+    let host = "";
+    try { host = new URL(tab.url || "").hostname.toLowerCase(); } catch { continue; }
+    if (!hostAllowed(host, allowed)) continue;
+    out.push({ tabId: tab.id, host, title: Array.from(typeof tab.title === "string" ? tab.title : "").slice(0, 80).join("") });
+  }
+  reply(id, { ok: true, tabs: out });
+}
+
 async function handle(message) {
   const id = message && message.id;
   if (!message || !REQUEST_TYPES.includes(message.type)) return reply(id, { ok: false, reason: "unknown_type" });
+  if (message.type === "tabs") return listTabs(id);
   if (!Number.isSafeInteger(message.tabId)) return reply(id, { ok: false, reason: "bad_tab_id" });
   if (!isPlainHostname(message.host)) return reply(id, { ok: false, reason: "bad_host" });
   const allowed = await allowedHosts();
