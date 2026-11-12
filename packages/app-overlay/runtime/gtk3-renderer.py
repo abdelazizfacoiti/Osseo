@@ -57,7 +57,8 @@ TIMELINE_ID_PREFIX = "agenthost-timeline-"
 # Presses that grant something. Stop and Pause only ever halt the agent, so a
 # failed hardware check must never get in the way of them.
 TRUST_EVENTS = {"accepted", "always", "continue", "resume"}
-CONTROL_EVENTS = {"pause", "resume", "continue", "accepted", "always", "rejected", "emergency_stop_requested", "cancel", "cancelled"}
+# next and back drive Teach-mode cards: pointer-only like Stop, but they grant nothing, so they are not TRUST_EVENTS.
+CONTROL_EVENTS = {"pause", "resume", "continue", "accepted", "always", "rejected", "emergency_stop_requested", "cancel", "cancelled", "next", "back"}
 INPUT_GUARD_SECONDS = 1.0
 DOCK_RELEASE_GRACE_MS = 1500
 STATUS_CAIRO = {
@@ -738,6 +739,14 @@ class Renderer:
         values = interaction.get("allowedEvents") if isinstance(interaction, dict) else None
         return set(value for value in values if isinstance(value, str) and value in EVENTS) if isinstance(values, list) else set()
 
+    def is_teach_card(self, record):
+        """A Teach-mode step card: an interactive widget with Next or Back that points at a box."""
+        if not isinstance(record, dict) or record.get("type") != "widget" or not self.is_interactive(record):
+            return False
+        target = (record.get("payload") or {}).get("target")
+        has_box = isinstance(target, dict) and isinstance(target.get("bounds"), dict)
+        return bool(self.allowed_events(record) & {"next", "back"}) and has_box
+
     def dismiss_event(self, record):
         payload = record.get("payload") if isinstance(record, dict) else {}
         interaction = payload.get("interaction") if isinstance(payload, dict) else {}
@@ -1206,7 +1215,7 @@ class Renderer:
             button.set_relief(Gtk.ReliefStyle.NONE)
             button.set_focus_on_click(False)
             button.get_style_context().add_class("ah-button")
-            if event in {"resume", "continue", "accepted", "always"}:
+            if event in {"resume", "continue", "accepted", "always", "next"}:
                 button.get_style_context().add_class("ah-primary")
             elif event in {"emergency_stop_requested", "cancel", "cancelled"}:
                 button.get_style_context().add_class("ah-stop")
@@ -1414,7 +1423,7 @@ class Renderer:
         point = target.get("point") if isinstance(target, dict) else None
         user_position = card.get("user_position")
         # A tooltip labels its target, so it sits beside the target instead of in a corner.
-        attach = "beside" if record.get("type") == "tooltip" else None
+        attach = "beside" if record.get("type") == "tooltip" or self.is_teach_card(record) else None
         x, y = card_position(
             (area.x, area.y, area.width, area.height),
             width,

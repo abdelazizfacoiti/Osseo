@@ -187,10 +187,106 @@ async function waitForPress(context: AgentHostMcpContext, regions: Bounds[], tim
   }
 }
 
+type TeachOutcome = PressOutcome | { kind: "done"; index: number };
+
+const TEACH_POLL_MS = 80;
+
+type TeachDraw = {
+  state: GuideState;
+  total: number;
+  boxes: Bounds[];
+  showBox: (index: number) => Promise<boolean>;
+  showCard: (index: number) => Promise<boolean>;
+  cardId: (index: number) => string;
+  boxId: (index: number) => string;
+};
+
+/**
+ * Teach loop: one card (Back, Next or Done) beside the current step's box. Presses reach this process as
+ * overlay events from the card's own poll (the renderer accepts them only from a real pointer, never within
+ * 1 s of an agent input). A press inside a box also moves on. The loop ends at Done, at the last box press,
+ * on timeout, on guide.clear and on Stop.
+ */
+async function teachLoop(context: AgentHostMcpContext, draw: TeachDraw, wait: GuideWait, timeoutMs: number): Promise<TeachOutcome> {
+  const overlay = context.overlay!;
+  const deadline = Date.now() + timeoutMs;
+  let current = 0;
+  const forget = async (id: string) => {
+    const at = draw.state.ids.indexOf(id);
+    if (at >= 0) draw.state.ids.splice(at, 1);
+    await overlay.dismiss(id).catch(() => undefined);
+  };
+  const goTo = async (next: number) => {
+    await forget(draw.cardId(current));
+    current = next;
+    // Re-draw the new step's box, then its card.
+    await forget(draw.boxId(current));
+    await draw.showBox(current);
+    await draw.showCard(current);
+    // guide.clear or Stop may have landed while redrawing: take the new marks down again.
+    if (wait.controller.signal.aborted) for (const id of [draw.boxId(current), draw.cardId(current)]) await forget(id);
+  };
+  for (;;) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return { kind: "timeout" };
+    const inner: GuideWait = { controller: new AbortController() };
+    const onAbort = () => { if (wait.reason !== undefined) inner.reason = wait.reason; inner.controller.abort(); };
+    if (wait.controller.signal.aborted) onAbort(); else wait.controller.signal.addEventListener("abort", onAbort, { once: true });
+    let nav: "next" | "back" | undefined;
+    let busy = false;
+    const watchedCard = draw.cardId(current);
+    const poll = setInterval(() => {
+      if (busy || nav !== undefined || inner.controller.signal.aborted) return;
+      busy = true;
+      // Only this card's events: pollEvents(overlayId) leaves every other overlay's events alone.
+      void overlay.pollEvents(watchedCard).then((events) => {
+        const hit = events.find((event) => event.overlayId === watchedCard && (event.event === "next" || event.event === "back"));
+        if (hit !== undefined && nav === undefined) {
+          nav = hit.event as "next" | "back";
+          inner.controller.abort();
+        }
+      }).catch(() => undefined).finally(() => { busy = false; });
+    }, TEACH_POLL_MS);
+    let outcome: PressOutcome;
+    try {
+      outcome = await waitForPress(context, draw.boxes, remaining, inner);
+      if (outcome.kind === "unavailable" && nav === undefined) {
+        // No pointer watcher: the card buttons still work. Wait for one of them, the clock or an abort.
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, Math.max(0, deadline - Date.now()));
+          timer.unref();
+          const finish = () => { clearTimeout(timer); resolve(); };
+          if (inner.controller.signal.aborted) finish(); else inner.controller.signal.addEventListener("abort", finish, { once: true });
+        });
+        outcome = { kind: "timeout" };
+      }
+    } finally {
+      clearInterval(poll);
+      wait.controller.signal.removeEventListener("abort", onAbort);
+    }
+    if (wait.controller.signal.aborted) return { kind: wait.reason === "stopped" ? "stopped" : "cleared" };
+    if (nav === "next") {
+      if (current >= draw.total - 1) return { kind: "done", index: current };
+      await goTo(current + 1);
+      continue;
+    }
+    if (nav === "back") {
+      if (current > 0) await goTo(current - 1);
+      continue;
+    }
+    if (outcome.kind === "clicked") {
+      if (outcome.index >= draw.total - 1) return outcome;
+      await goTo(outcome.index + 1);
+      continue;
+    }
+    return outcome;
+  }
+}
+
 export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
   const show: AgentHostToolDefinition<ShowInput, unknown, AgentHostMcpContext> = {
     name: "guide.show",
-    description: "Guide mode: draws a highlight box and a text label on each place the person should click. It never clicks; the person does. Use it when the person asks to be shown how, or when the app is sensitive or blocked for automation. Place each step by screen bounds, by a rectangle in a desktop.screenshot picture (screenshotId + imageX/imageY/imageWidth/imageHeight), or by the visible name of a control (label, optional role). Replaces any guide already shown. Screenshots taken by desktop.screenshot do not show the guide marks. For a step-by-step guide, show one step at a time with waitForClick: true. The call then waits until the person clicks inside the box and returns which step was clicked, so you stay in the same turn: wait about a second, take a new desktop.screenshot, and call guide.show again for the next place. Do not end your turn between steps. If the wait times out, ask the person. Call guide.clear when done.",
+    description: "Guide mode: draws a highlight box and a text label on each place the person should click. It never clicks; the person does. Use it when the person asks to be shown how, or when the app is sensitive or blocked for automation. Place each step by screen bounds, by a rectangle in a desktop.screenshot picture (screenshotId + imageX/imageY/imageWidth/imageHeight), or by the visible name of a control (label, optional role). Replaces any guide already shown. Screenshots taken by desktop.screenshot do not show the guide marks. For a step-by-step guide, show one step at a time with waitForClick: true. The call then waits until the person clicks inside the box and returns which step was clicked, so you stay in the same turn: wait about a second, take a new desktop.screenshot, and call guide.show again for the next place. Do not end your turn between steps. With several steps and waitForClick the person gets a Teach card (Step n of m, Back, Next/Done) beside the box and the call runs the whole walkthrough, ending at Done, at a click in the last box, on timeout, or on guide.clear; the result then has finished: true. If the wait times out, ask the person. Call guide.clear when done.",
     riskLevel: "low",
     inputSchema: showInput,
     mcpInputSchema: {
@@ -282,12 +378,43 @@ export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpConte
       const ids: string[] = [];
       const total = placed.length;
       let failures = 0;
-      for (const [index, item] of placed.entries()) {
-        const target: OverlayTargetBinding = { kind: "window_region", windowId, bounds: item.bounds, expiresAt };
-        const boxId = `guide-${run}-${index}-box`;
+      // Teach mode: with waitForClick and a renderer that can draw widgets, one card with Back/Next/Done
+      // replaces the tooltips. Without waitForClick the guide is exactly the plain one.
+      let teach = input.waitForClick === true && typeof overlay.showWidget === "function" && typeof overlay.pollEvents === "function";
+      const targetFor = (index: number): OverlayTargetBinding => ({ kind: "window_region", windowId, bounds: placed[index]!.bounds, expiresAt });
+      const boxId = (index: number) => `guide-${run}-${index}-box`;
+      const cardId = (index: number) => `guide-${run}-${index}-card`;
+      const showBox = async (index: number) => {
+        const result = await overlay.showPrimitive({ overlayId: boxId(index), type: "highlight", target: targetFor(index), style: { semantic: "info" }, sensitivity: "public", ttlMs }, resolver).catch(() => ({ ok: false, errors: ["threw"] }));
+        if (result.ok && !ids.includes(boxId(index))) ids.push(boxId(index));
+        return result.ok;
+      };
+      const showCard = async (index: number) => {
+        const events: Array<"back" | "next"> = index > 0 ? ["back", "next"] : ["next"];
+        const result = await overlay.showWidget!({
+          widgetId: cardId(index),
+          title: `Step ${index + 1} of ${total}`,
+          components: [
+            { type: "text", text: input.steps[index]!.text },
+            ...(index > 0 ? [{ type: "button" as const, label: "Back", event: "back" as const }] : []),
+            // Done is the same pointer-only "next" event on the last step; the loop knows it is the last.
+            { type: "button" as const, label: index === total - 1 ? "Done" : "Next", event: "next" as const }
+          ],
+          target: targetFor(index),
+          placement: "top_right",
+          style: { semantic: "info" },
+          interaction: { interactive: true, focus: "never", dismissible: false, allowedEvents: events },
+          sensitivity: "public",
+          ttlMs
+        }, resolver).catch(() => ({ ok: false, errors: ["threw"] }));
+        if (result.ok && !ids.includes(cardId(index))) ids.push(cardId(index));
+        return result.ok;
+      };
+      for (const index of placed.keys()) {
+        if (!(await showBox(index))) failures += 1;
+        if (teach) continue;
+        const target = targetFor(index);
         const tipId = `guide-${run}-${index}-tip`;
-        const box = await overlay.showPrimitive({ overlayId: boxId, type: "highlight", target, style: { semantic: "info" }, sensitivity: "public", ttlMs }, resolver).catch(() => ({ ok: false, errors: ["threw"] }));
-        if (box.ok) ids.push(boxId); else failures += 1;
         const tip = await overlay.showPrimitive({
           overlayId: tipId,
           type: "tooltip",
@@ -299,6 +426,15 @@ export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpConte
           ttlMs
         }, resolver).catch(() => ({ ok: false, errors: ["threw"] }));
         if (tip.ok) ids.push(tipId); else failures += 1;
+      }
+      if (teach && !(await showCard(0))) {
+        // No card could be drawn: fall back to the plain guide with tooltips.
+        teach = false;
+        for (const index of placed.keys()) {
+          const tipId = `guide-${run}-${index}-tip`;
+          const tip = await overlay.showPrimitive({ overlayId: tipId, type: "tooltip", target: targetFor(index), label: total === 1 ? "Tip" : `Step ${index + 1} of ${total}`, text: input.steps[index]!.text, style: { semantic: "info" }, sensitivity: "public", ttlMs }, resolver).catch(() => ({ ok: false, errors: ["threw"] }));
+          if (tip.ok) ids.push(tipId); else failures += 1;
+        }
       }
       if (ids.length === 0) return fail("overlay_unavailable", "The overlay refused every mark.", ["Tell the person the steps in text instead."]);
 
@@ -319,12 +455,23 @@ export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpConte
       if (input.waitForClick === true) {
         const wait: GuideWait = { controller: new AbortController() };
         waits.set(context, wait);
-        const outcome = await waitForPress(context, placed.map((item) => item.bounds), (input.waitSeconds ?? DEFAULT_WAIT_SECONDS) * 1000, wait);
+        const timeoutMs = (input.waitSeconds ?? DEFAULT_WAIT_SECONDS) * 1000;
+        const boxes = placed.map((item) => item.bounds);
+        const outcome: TeachOutcome = teach
+          ? await teachLoop(context, { state, total, boxes, showBox, showCard, cardId, boxId }, wait, timeoutMs)
+          : await waitForPress(context, boxes, timeoutMs, wait);
         if (waits.get(context) === wait) waits.delete(context);
         const done = (data: Record<string, unknown>, observations: string[]) => toolSuccess({ tool: "guide.show", riskLevel: "low", strategy: "gui_control", data: { ...base, ...data }, observations });
+        if (outcome.kind === "done") {
+          await clearGuide(context);
+          return done({ clicked: { index: outcome.index + 1, via: "done" }, finished: true }, [
+            "The person pressed Done on the last step. The marks are cleared.",
+            "Tell the person in one line that the walkthrough is finished."
+          ]);
+        }
         if (outcome.kind === "clicked") {
           await clearGuide(context);
-          return done({ clicked: { index: outcome.index + 1, x: outcome.x, y: outcome.y } }, [
+          return done({ clicked: { index: outcome.index + 1, x: outcome.x, y: outcome.y }, ...(teach && outcome.index === total - 1 ? { finished: true } : {}) }, [
             `The person clicked step ${outcome.index + 1}. The marks are cleared.`,
             "Wait about a second for the app to react, take a new desktop.screenshot, then call guide.show with waitForClick: true for the next place.",
             "Do not end the turn between steps.",

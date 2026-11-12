@@ -277,3 +277,163 @@ describe("guide.show and Stop", () => {
     expect(dismiss).toHaveBeenCalledTimes(4);
   });
 });
+
+describe("guide.show Teach mode (waitForClick with cards)", () => {
+  const three = [
+    { text: "one", bounds: { x: 0, y: 0, width: 50, height: 50 } },
+    { text: "two", bounds: { x: 100, y: 100, width: 50, height: 50 } },
+    { text: "three", bounds: { x: 200, y: 200, width: 50, height: 50 } }
+  ];
+  const original = guideHooks.readRunState;
+  afterEach(() => { guideHooks.readRunState = original; vi.useRealTimers(); });
+
+  // A watcher that never sees a press unless the test queues one, and ends on abort.
+  function teachFake(options: { dir?: string; presses?: Array<{ index: number }> } = {}) {
+    const base = fake({
+      ...(options.dir === undefined ? {} : { dir: options.dir }),
+      wait: (input: any) => new Promise<any>((resolve) => {
+        const queued = options.presses?.shift();
+        if (queued !== undefined) { setTimeout(() => resolve({ pressed: true, index: queued.index, x: 1, y: 2 }), 30); return; }
+        input.signal.addEventListener("abort", () => resolve({ pressed: false, reason: "aborted" }));
+      })
+    });
+    const queue: Array<{ overlayId: string; event: string }> = [];
+    const showWidget = vi.fn(async (_w: any, _r?: any) => ({ ok: true, errors: [] as string[] }));
+    const pollEvents = vi.fn(async (overlayId?: string) => {
+      const mine = queue.filter((e) => e.overlayId === overlayId);
+      for (const e of mine) queue.splice(queue.indexOf(e), 1);
+      return mine;
+    });
+    Object.assign((base.context as any).overlay, { showWidget, pollEvents });
+    const cardIds = () => showWidget.mock.calls.map((c) => c[0].widgetId as string);
+    const press = (event: string, index?: number) => {
+      const ids = cardIds();
+      const id = index === undefined ? ids[ids.length - 1]! : ids.filter((x) => x.includes(`-${index}-card`)).pop()!;
+      queue.push({ overlayId: id, event });
+    };
+    return { ...base, showWidget, pollEvents, queue, press, cardIds };
+  }
+  const settle = (ms = 250) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("draws every box and one card with Step n of m, text and buttons; no tooltips", async () => {
+    const t = teachFake();
+    const pending = run(t.context, { steps: three, waitForClick: true });
+    await settle(50);
+    const prims = t.showPrimitive.mock.calls.map((c) => c[0]);
+    expect(prims.filter((p) => p.type === "highlight")).toHaveLength(3);
+    expect(prims.filter((p) => p.type === "tooltip")).toHaveLength(0);
+    expect(t.showWidget).toHaveBeenCalledTimes(1);
+    const card = t.showWidget.mock.calls[0]![0];
+    expect(card.title).toBe("Step 1 of 3");
+    expect(card.components.map((c: any) => c.type === "button" ? c.label : c.text)).toEqual(["one", "Next"]);
+    expect(card.interaction).toEqual({ interactive: true, focus: "never", dismissible: false, allowedEvents: ["next"] });
+    expect(card.target).toMatchObject({ kind: "window_region", bounds: three[0]!.bounds });
+    await clear!.handler({}, t.context);
+    await pending;
+  });
+
+  it("Next advances, Back goes back and re-draws the box and card, Done clears and finishes", async () => {
+    const t = teachFake();
+    const pending = run(t.context, { steps: three, waitForClick: true, waitSeconds: 30 });
+    await settle(50);
+    t.press("next"); await settle();
+    expect(t.showWidget.mock.calls.at(-1)![0].title).toBe("Step 2 of 3");
+    expect(t.showWidget.mock.calls.at(-1)![0].components.map((c: any) => c.label ?? c.text)).toEqual(["two", "Back", "Next"]);
+    expect(t.dismiss).toHaveBeenCalledWith(t.cardIds()[0]);
+    const boxCalls = t.showPrimitive.mock.calls.filter((c) => c[0].type === "highlight").length;
+    t.press("back"); await settle();
+    expect(t.showWidget.mock.calls.at(-1)![0].title).toBe("Step 1 of 3");
+    expect(t.showPrimitive.mock.calls.filter((c) => c[0].type === "highlight").length).toBe(boxCalls + 1);
+    t.press("next"); await settle();
+    t.press("next"); await settle();
+    const last = t.showWidget.mock.calls.at(-1)![0];
+    expect(last.title).toBe("Step 3 of 3");
+    expect(last.components.map((c: any) => c.label ?? c.text)).toEqual(["three", "Back", "Done"]);
+    t.dismiss.mockClear();
+    t.press("next");
+    const result = await pending;
+    expect(result.ok).toBe(true);
+    expect(result.data).toMatchObject({ clicked: { index: 3, via: "done" }, finished: true, shown: 3 });
+    expect(t.dismiss).toHaveBeenCalled();
+    expect(guideActive(t.context)).toBe(false);
+  });
+
+  it("a press inside a box moves to the next step; a press in the last box finishes", async () => {
+    const t = teachFake({ presses: [{ index: 0 }, { index: 2 }] });
+    const result = await run(t.context, { steps: three, waitForClick: true, waitSeconds: 30 });
+    expect(t.showWidget.mock.calls.map((c) => c[0].title)).toEqual(["Step 1 of 3", "Step 2 of 3"]);
+    expect(result.data).toMatchObject({ clicked: { index: 3, x: 1, y: 2 }, finished: true });
+    expect(guideActive(t.context)).toBe(false);
+  });
+
+  it("one step ends at the first box press", async () => {
+    const t = teachFake({ presses: [{ index: 0 }] });
+    const result = await run(t.context, { steps: [three[0]], waitForClick: true });
+    expect(result.data).toMatchObject({ clicked: { index: 1 }, finished: true });
+  });
+
+  it("reads events only for the current card", async () => {
+    const t = teachFake();
+    const pending = run(t.context, { steps: three, waitForClick: true });
+    await settle(250);
+    expect(t.pollEvents.mock.calls.length).toBeGreaterThan(0);
+    expect(t.pollEvents.mock.calls.every((c) => c[0] === t.cardIds()[0])).toBe(true);
+    t.queue.push({ overlayId: "someone-else", event: "next" });
+    await settle(250);
+    expect(t.queue).toHaveLength(1);
+    expect(t.showWidget).toHaveBeenCalledTimes(1);
+    await clear!.handler({}, t.context);
+    await pending;
+  });
+
+  it("guide.clear ends the wait", async () => {
+    const t = teachFake();
+    const pending = run(t.context, { steps: three, waitForClick: true });
+    await settle(50);
+    await clear!.handler({}, t.context);
+    const result = await pending;
+    expect(result.data).toMatchObject({ clicked: null, cleared: true });
+    expect(guideActive(t.context)).toBe(false);
+  });
+
+  it("Stop removes the marks and the card", async () => {
+    let stopped = false;
+    guideHooks.readRunState = async () => ({ ...noStop, stop: { requested: stopped } });
+    const t = teachFake({ dir: "/nonexistent-guide-dir" });
+    const pending = run(t.context, { steps: three, waitForClick: true });
+    await settle(50);
+    stopped = true;
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    const result = await pending;
+    expect(result.data).toMatchObject({ clicked: null, stopped: true });
+    expect(t.dismiss).toHaveBeenCalledTimes(4);
+    expect(guideActive(t.context)).toBe(false);
+  });
+
+  it("Next and Back work when the pointer watcher is unavailable", async () => {
+    const t = teachFake();
+    (t.context.linux as any).waitForPointerPress = async () => ({ pressed: false, reason: "unavailable" });
+    const pending = run(t.context, { steps: [three[0], three[1]], waitForClick: true, waitSeconds: 30 });
+    await settle(50);
+    t.press("next"); await settle();
+    t.press("next");
+    expect((await pending).data).toMatchObject({ finished: true, clicked: { index: 2, via: "done" } });
+  });
+
+  it("without waitForClick there is no card, only tooltips", async () => {
+    const t = teachFake();
+    await run(t.context, { steps: three });
+    expect(t.showWidget).not.toHaveBeenCalled();
+    expect(t.pollEvents).not.toHaveBeenCalled();
+    expect(t.showPrimitive.mock.calls.filter((c) => c[0].type === "tooltip")).toHaveLength(3);
+    await clear!.handler({}, t.context);
+  });
+
+  it("falls back to tooltips when the card cannot be drawn", async () => {
+    const t = teachFake({ presses: [{ index: 0 }] });
+    t.showWidget.mockResolvedValue({ ok: false, errors: ["no"] });
+    const result = await run(t.context, { steps: [three[0]], waitForClick: true });
+    expect(t.showPrimitive.mock.calls.filter((c) => c[0].type === "tooltip")).toHaveLength(1);
+    expect(result.data.clicked).toMatchObject({ index: 1 });
+  });
+});
