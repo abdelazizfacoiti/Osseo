@@ -266,7 +266,8 @@ const DELETE_WORDS = /\b(delete|remove|erase)\b/i;
  * segment of the tool name, because nothing else tells them apart.
  */
 export function actionCategory(tool: string, _input: unknown, classification: PolicyClassification): PolicyAction {
-  const last = tool.split(".").pop() ?? tool;
+  // browser.own_click is the same kind of action as browser.click.
+  const last = (tool.split(".").pop() ?? tool).replace(/^own_/, "");
   const readOnlyAction = classification.actionType === "observe" || classification.actionType === "inspect" || classification.actionType === "file_read";
   if (!classification.stateChanging || readOnlyAction) return "any";
   if (classification.destructive === true || classification.actionType === "file_delete" || last === "delete") return "delete";
