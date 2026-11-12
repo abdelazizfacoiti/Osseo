@@ -13,6 +13,7 @@ import { parseFlags } from "./flags.js";
 import { policyCommand } from "./policy.js";
 import { replayCommand } from "./replay.js";
 import { viewerCommand } from "./viewer.js";
+import { trayCommand } from "./tray.js";
 import { journalCommand } from "./journal-cli.js";
 import { hostCommand, hostDoctorLine } from "./host.js";
 import { shortcutCommand } from "./shortcut.js";
@@ -736,6 +737,7 @@ async function main(): Promise<number> {
     else if (top === "policy") result = await policyCommand(agentHome, sub, args, json);
     else if (top === "replay") result = await replayCommand(args, agentHome);
     else if (top === "viewer") result = await viewerCommand(argv.slice(argv.indexOf("viewer") + 1), agentHome);
+    else if (top === "tray") result = await trayCommand(argv.slice(argv.indexOf("tray") + 1), agentHome);
     else if (top === "selftest") result = await selftestCommand(argv.slice(argv.indexOf("selftest") + 1), agentHome, { mcpEntry: mcpEntry() });
     else if (top === "shortcut") result = await shortcutCommand(argv.slice(argv.indexOf("shortcut") + 1), agentHome);
     else if (top === "host") result = await hostCommand(argv.slice(argv.indexOf("host") + 1), agentHome, { hostEntry: path.join(path.dirname(mcpEntry()), "host", "main.js") });

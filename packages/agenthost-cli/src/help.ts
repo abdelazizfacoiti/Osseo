@@ -4,7 +4,7 @@
  * the runtime directory, so `agenthost <anything> --help` is always safe.
  */
 
-export const TOP_USAGE = "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|policy|replay|viewer|journal|host|shortcut|selftest|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall|help";
+export const TOP_USAGE = "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|policy|replay|viewer|tray|journal|host|shortcut|selftest|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall|help";
 
 export const COMMAND_USAGE: Record<string, string> = {
   version: "agenthost version",
@@ -27,6 +27,7 @@ export const COMMAND_USAGE: Record<string, string> = {
   host: "agenthost host status | start | stop | restart. The per-user host that MCP clients use when AGENTHOST_HOST=1. status shows pid, socket and connected sessions; start launches it detached and refuses if one is running; stop asks it to exit through its socket.",
   journal: "agenthost journal show [--session <id>] | save <name> [--session <id>] [--last <n>] [--description <text>] [--apply]. Saves the steps the agent took through numbered actions as a workflow; typed text becomes parameters, never values. Run it with agenthost workflow run <name> --param text_1=...",
   viewer: "agenthost viewer start [--display :N] | stop | status. Opens a small live view of the background display with Pause, Resume and Stop.",
+  tray: "agenthost tray start | stop | status. Shows an AgentHost icon in the system tray with the agent's state and a menu: Stop, Pause, Resume and Open viewer. Menu actions need a real pointer press (Resume also needs physical hardware). GNOME needs the AppIndicator extension.",
   replay: "agenthost replay build [--session <id> | --task <id> | --last] [--out <file>] | list | open <id> | delete <id> [--apply]",
   policy: "agenthost policy list [--json] | add --action <a> --decision <allow|ask|never> [--app <name>] [--site <host>] [--note <text>] [--apply] | remove <line> [--apply]",
   capabilities: "agenthost capabilities [--markdown]",

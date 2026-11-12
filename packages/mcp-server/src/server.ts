@@ -100,7 +100,7 @@ import {
   startBackgroundDisplay
 } from "@agenthost/os-linux";
 import { WindowsHelperProcess, createWindowsDesktop } from "@agenthost/os-windows";
-import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator } from "@agenthost/app-overlay";
+import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator, type OverlayRenderer } from "@agenthost/app-overlay";
 import type { AgentHostMcpContext, LinuxAutomation } from "./context.js";
 import { createDesktopTools } from "./tools/desktop.js";
 import { createAppTools } from "./tools/app.js";
@@ -251,6 +251,8 @@ export interface AgentHostServerOptions {
   trace?: import("@agenthost/core").ToolTraceLogger;
   sessionId?: string;
   linux?: LinuxAutomation;
+  /** Host service only: a renderer owned by the host and shared by its sessions. Never closed from here (closing a proxy is a no-op). */
+  overlayRenderer?: OverlayRenderer;
 }
 
 /** A tool may attach an image under data.inlineImage. It goes to the client as image content, never into the JSON text. */
@@ -314,7 +316,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const dockLayout = (config.overlay?.layout ?? "dock") === "dock" || config.overlay?.layout === "rail";
   const actionPill = config.overlay?.actionPill ?? !dockLayout;
   const pillAutoHideMs = config.overlay?.pillAutoHideMs ?? 30_000;
-  const overlay = new VisualSurfaceCoordinator(createOverlayRenderer(config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto", {
+  const overlay = new VisualSurfaceCoordinator(options.overlayRenderer ?? createOverlayRenderer(config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto", {
     sessionId,
     inputGuardPath: inputGuardPath(config.agentHostDir),
     visual: {

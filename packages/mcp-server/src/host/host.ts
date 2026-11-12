@@ -4,6 +4,8 @@ import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { HOST_PROTOCOL, LineReader, encodeLine, jsonRpcError, parseHello } from "./protocol.js";
 import { DEFAULT_LEASE_WAIT_MS, HostLease } from "./lease.js";
 import { SocketTransport } from "./session-transport.js";
+import { SharedRendererHub } from "./shared-renderer.js";
+import type { OverlayRenderer } from "@agenthost/app-overlay";
 import { listenOnHostSocket, removeHostFiles } from "./socket.js";
 
 /*
@@ -18,11 +20,24 @@ export interface HostSession {
   isStateChanging(toolName: string): boolean;
 }
 
-export type CreateHostSession = (transport: SocketTransport, info: { sessionId: string; client: string }) => Promise<HostSession>;
+export interface HostSessionInfo {
+  sessionId: string;
+  client: string;
+  /** This session's view of the host's one shared renderer. A session must never close it. */
+  overlayRenderer?: OverlayRenderer;
+}
+
+export type CreateHostSession = (transport: SocketTransport, info: HostSessionInfo) => Promise<HostSession>;
 
 export interface HostOptions {
   agentHome: string;
   createSession?: CreateHostSession;
+  /**
+   * Builds the one renderer all sessions share. Default (with the default
+   * session factory): the same renderer server.ts builds for one session.
+   * With a custom createSession and no factory there is no shared renderer.
+   */
+  createRenderer?: () => Promise<OverlayRenderer> | OverlayRenderer;
   leaseWaitMs?: number;
   idleExitMs?: number;
   idleCheckMs?: number;
@@ -41,9 +56,32 @@ export interface RunningHost {
 
 export const DEFAULT_IDLE_EXIT_MS = 10 * 60_000;
 
-async function defaultCreateSession(transport: SocketTransport, info: { sessionId: string }): Promise<HostSession> {
+async function defaultCreateRenderer(): Promise<OverlayRenderer> {
+  // Same renderer options as the per-session path in server.ts, built once for the host.
+  const { loadAgentHostConfig } = await import("@agenthost/core");
+  const { createOverlayRenderer } = await import("@agenthost/app-overlay");
+  const { inputGuardPath } = await import("../input-guard.js");
+  const config = await loadAgentHostConfig();
+  return createOverlayRenderer(config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto", {
+    sessionId: `host_${process.pid}`,
+    inputGuardPath: inputGuardPath(config.agentHostDir),
+    visual: {
+      layout: config.overlay?.layout ?? "dock",
+      dockSide: config.overlay?.dockSide ?? "right",
+      dockWidthPercent: config.overlay?.dockWidthPercent ?? 18,
+      dockReserveSpace: config.overlay?.dockReserveSpace ?? true,
+      allowSyntheticControl: config.overlay?.allowSyntheticControl ?? false,
+      maxWidth: config.overlay?.maxWidth ?? 520
+    }
+  });
+}
+
+async function defaultCreateSession(transport: SocketTransport, info: HostSessionInfo): Promise<HostSession> {
   const { createAgentHostMcpServer } = await import("../server.js");
-  const { server, context, closeResources } = await createAgentHostMcpServer({ sessionId: info.sessionId });
+  const { server, context, closeResources } = await createAgentHostMcpServer({
+    sessionId: info.sessionId,
+    ...(info.overlayRenderer === undefined ? {} : { overlayRenderer: info.overlayRenderer })
+  });
   transport.setClassifier((name) => context.tools?.get(name)?.execution?.executionClass === "state_changing");
   await server.connect(transport);
   return {
@@ -68,6 +106,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const { agentHome } = options;
   const lease = new HostLease(options.leaseWaitMs ?? DEFAULT_LEASE_WAIT_MS);
   const createSession = options.createSession ?? defaultCreateSession;
+  // One renderer for every session. Only built when the host builds its own sessions or is given a factory.
+  const rendererFactory = options.createRenderer ?? (options.createSession === undefined ? defaultCreateRenderer : undefined);
+  const hub = rendererFactory === undefined ? undefined : new SharedRendererHub(await rendererFactory());
   const idleExitMs = options.idleExitMs ?? DEFAULT_IDLE_EXIT_MS;
   const hasRunningTask = options.hasRunningTask ?? (() => defaultHasRunningTask(agentHome));
   const startedMs = Date.now();
@@ -137,7 +178,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       sessionId = `h_${randomBytes(6).toString("hex")}`;
       const created = new SocketTransport(write, lease, `${hello.client}/${sessionId}`);
       transport = created;
-      createSession(created, { sessionId, client: hello.client }).then((made) => {
+      const proxy = hub?.proxyFor(sessionId);
+      createSession(created, { sessionId, client: hello.client, ...(proxy === undefined ? {} : { overlayRenderer: proxy }) }).then((made) => {
         session = made;
         sessions.set(sessionId, made);
         phase = "ready";
@@ -145,6 +187,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         for (const queued of backlog.splice(0)) dispatch(queued);
         if (socket.destroyed) void end();
       }, (error: unknown) => {
+        void hub?.release(sessionId);
         write(encodeLine({ refused: { code: "session_failed", message: error instanceof Error ? error.message : "session_failed" } }));
         socket.end();
       });
@@ -163,6 +206,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         sessions.delete(sessionId);
         await session.close().catch(() => undefined);
       }
+      // After the session's own close: take its cards off the shared renderer.
+      await hub?.release(sessionId);
       if (connections.size === 0) idleSince = Date.now();
     };
     socket.on("close", () => { void end(); });
@@ -184,6 +229,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       for (const socket of connections) socket.destroy();
       await stopped;
       await Promise.all([...sessions.values()].map((s) => s.close().catch(() => undefined)));
+      await hub?.close().catch(() => undefined);
       await removeHostFiles(agentHome);
       resolveClosed(reason);
       options.onExit?.(reason);
