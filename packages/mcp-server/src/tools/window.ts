@@ -2,7 +2,7 @@ import { toolFailure, toolSuccess, evaluateSafety, type WindowListResult, type W
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 
 const listInput = z.object({
   limit: z.number().int().min(1).max(100).optional(),
@@ -32,7 +32,7 @@ function safetyCheck(tool: string, context: AgentHostMcpContext, appName?: strin
   return evaluateSafety(
     { tool, actionType: "inspect", strategy: "gui_control", ...(appName === undefined ? {} : { appName }) },
     context.policy,
-    createSafetyEvaluationContext(context)
+    safetyContext(context)
   );
 }
 

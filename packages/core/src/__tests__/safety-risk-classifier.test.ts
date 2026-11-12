@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateApprovalRequirement, evaluateSafety, getDefaultPolicy } from "../index.js";
+import { communicationInspectionAllowed, evaluateApprovalRequirement, evaluateSafety, getDefaultPolicy } from "../index.js";
 
 const homeDir = "/home/tester";
 
@@ -27,7 +27,7 @@ describe("evaluateSafety", () => {
     expect(send.blocked).toBe(false);
     expect(send.allowed).toBe(false);
     expect(send.approval.status).toBe("required");
-    expect(send.grantDecision.requiresConfirmationToken).toBe(true);
+    expect(send.requiresConfirmationToken).toBe(true);
     expect(upload.riskLevel).toBe("high");
     expect(upload.allowed).toBe(false);
     expect(upload.approval.status).toBe("required");
@@ -49,7 +49,7 @@ describe("evaluateSafety", () => {
     expect(result.riskLevel).toBe("high");
     expect(result.allowed).toBe(false);
     expect(result.approval.status).toBe("required");
-    expect(result.grantDecision.requiresConfirmationToken).toBe(true);
+    expect(result.requiresConfirmationToken).toBe(true);
   });
 
   it("keeps credential and security apps hard-blocked", () => {
@@ -72,7 +72,7 @@ describe("evaluateSafety", () => {
     const confirmed = evaluateSafety({ tool: "accessibility.inspect_element", actionType: "inspect", appName: "Gmail", dataSensitivity: "sensitive" }, getDefaultPolicy(), { homeDir, confirmationSatisfied: true });
     expect(pending.blocked).toBe(false);
     expect(pending.approval.status).toBe("required");
-    expect(pending.grantDecision.requiresConfirmationToken).toBe(true);
+    expect(pending.requiresConfirmationToken).toBe(true);
     expect(confirmed.allowed).toBe(true);
     expect(confirmed.approval.status).toBe("approved");
   });
@@ -104,19 +104,12 @@ describe("evaluateSafety", () => {
     expect(result.matchedRules).toContain("action.unknown.conservative");
   });
 
-  it("ignores expired grants", () => {
+  it("requires approval for a sensitive private read", () => {
     const result = evaluateSafety(
       { tool: "file.read", actionType: "file_read", filePath: "/tmp/private.txt", dataSensitivity: "sensitive" },
-      getDefaultPolicy({ grants: [{
-        id: "expired-private-read",
-        scope: "persistent",
-        effect: "allow",
-        expiresAt: "2000-01-01T00:00:00.000Z",
-        match: { tools: ["file.read"], dataSensitivities: ["sensitive"] }
-      }] }),
+      getDefaultPolicy(),
       { homeDir }
     );
-    expect(result.grantDecision.allowedByGrantIds).toEqual([]);
     expect(result.approval.status).toBe("required");
   });
 });
@@ -130,7 +123,32 @@ describe("evaluateApprovalRequirement", () => {
   });
 
   it("marks an accepted exact confirmation as approved", () => {
-    const approval = evaluateApprovalRequirement("high", getDefaultPolicy(), ["High-risk test."], false, true);
+    const approval = evaluateApprovalRequirement("high", getDefaultPolicy(), ["High-risk test."], true);
     expect(approval).toMatchObject({ required: false, status: "approved" });
+  });
+});
+
+describe("communicationInspectionAllowed", () => {
+  it("covers observe, inspect and file_read in communication apps up to medium risk", () => {
+    for (const actionType of ["observe", "inspect", "file_read"] as const) {
+      expect(communicationInspectionAllowed({ tool: "t", actionType }, "communication", "low")).toBe(true);
+      expect(communicationInspectionAllowed({ tool: "t", actionType }, "communication", "medium")).toBe(true);
+      expect(communicationInspectionAllowed({ tool: "t", actionType }, "communication", "high")).toBe(false);
+    }
+  });
+
+  it("never covers sends, other actions or other apps", () => {
+    expect(communicationInspectionAllowed({ tool: "t", actionType: "communication_send" }, "communication", "low")).toBe(false);
+    expect(communicationInspectionAllowed({ tool: "t", actionType: "gui_click" }, "communication", "low")).toBe(false);
+    expect(communicationInspectionAllowed({ tool: "t", actionType: "inspect" }, "normal", "low")).toBe(false);
+  });
+
+  it("lets a policy that denies inspection still read a communication app, but not send", () => {
+    const policy = { ...getDefaultPolicy(), defaults: { ...getDefaultPolicy().defaults, accessibilityRead: "deny" as const } };
+    const read = evaluateSafety({ tool: "ui.tree", actionType: "inspect", appName: "Gmail" }, policy, { homeDir });
+    expect(read.blocked).toBe(false);
+    const send = evaluateSafety({ tool: "email.send", actionType: "communication_send", appName: "Gmail", externalEffect: true, communicative: true }, policy, { homeDir });
+    expect(send.approval.status).toBe("required");
+    expect(send.requiresConfirmationToken).toBe(true);
   });
 });

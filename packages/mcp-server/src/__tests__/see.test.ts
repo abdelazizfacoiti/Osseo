@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getDefaultPolicy } from "@agenthost/core";
 import type { AgentHostMcpContext } from "../context.js";
-import { GrantStore } from "../grants.js";
 
 const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
 const screenshot = { ok: true as boolean };
@@ -46,7 +45,6 @@ function fake(options: { tree?: unknown; browser?: unknown; active?: boolean; ap
   return {
     config: { agentHostDir: "/tmp/agenthost-see-test" },
     policy: getDefaultPolicy(),
-    grants: new GrantStore(),
     linux: {
       browser: options.browser,
       getActiveWindow: async () => ({ activeWindow: options.active === false ? undefined : { windowId: "w1", title: "Form - App", appName: options.app ?? "App", pid: 7 } }),

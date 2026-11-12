@@ -111,50 +111,29 @@ describe("loadAgentHostConfig", () => {
     expect("phone" in config).toBe(false);
   });
 
-  it("loads persistent grants on the default policy", async () => {
+  it("rejects a non-empty grants array and tells the person where the rule goes", async () => {
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-grants-"));
     const agentHostDir = path.join(homeDir, ".agenthost");
     await mkdir(agentHostDir, { recursive: true });
     const configPath = path.join(agentHostDir, "config.json");
     await writeFile(
       configPath,
-      JSON.stringify({
-        profile: "gui-dev",
-        grants: [
-          {
-            id: "allow-output-write",
-            scope: "persistent",
-            effect: "allow",
-            match: {
-              tools: ["file.write"],
-              fileRoots: ["~/.agenthost/outputs"]
-            },
-            requirements: {
-              requiresDryRun: true,
-              requiresConfirmationToken: true
-            }
-          }
-        ]
-      }),
+      JSON.stringify({ grants: [{ id: "allow-output-write", scope: "persistent", effect: "allow", match: { tools: ["file.write"] } }] }),
       "utf8"
     );
+    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow(
+      "Capability grants were removed. Move the rule to policy.toml (see docs/04) or delete the grants key from config.json."
+    );
+  });
 
+  it("accepts an empty grants array", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-grants-empty-"));
+    const agentHostDir = path.join(homeDir, ".agenthost");
+    await mkdir(agentHostDir, { recursive: true });
+    const configPath = path.join(agentHostDir, "config.json");
+    await writeFile(configPath, JSON.stringify({ grants: [] }), "utf8");
     const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
-
-    expect((config as unknown as Record<string, unknown>).profile).toBeUndefined();
-    expect(config.policy.grants.find((grant) => grant.id === "allow-output-write")).toMatchObject({
-      id: "allow-output-write",
-      scope: "persistent",
-      effect: "allow",
-      match: {
-        tools: ["file.write"],
-        fileRoots: ["~/.agenthost/outputs"]
-      },
-      requirements: {
-        requiresDryRun: true,
-        requiresConfirmationToken: true
-      }
-    });
+    expect("grants" in config.policy).toBe(false);
   });
 
   it("ignores optionalAdapters from an old config file", async () => {
@@ -167,28 +146,11 @@ describe("loadAgentHostConfig", () => {
     expect("optionalAdapters" in config).toBe(false);
   });
 
-  it("rejects unknown grant fields, including the removed generated-tool and runtime fields", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-runtime-invalid-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
-    const bad = [
-      { match: { unknown: ["x"] } },
-      { match: { runtimeCapabilities: ["pure_compute"] } },
-      { match: { targetFingerprints: ["a".repeat(64)] } },
-      { match: { tools: ["file.write"] }, requirements: { maxRuntimeMs: 3000 } }
-    ];
-    for (const entry of bad) {
-      await writeFile(configPath, JSON.stringify({ grants: [{ id: "bad", scope: "persistent", effect: "allow", ...entry }] }), "utf8");
-      await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
-    }
-  });
-
   it("ignores the legacy AGENTHOST_PROFILE environment variable", async () => {
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-legacy-profile-"));
     const config = await loadAgentHostConfig({ env: { AGENTHOST_PROFILE: "demo-unlocked-local" }, homeDir });
     expect(config.policy.allowFileWriteRoots).toContain("~");
-    expect(config.policy.grants.some((grant) => grant.id === "default.communication-read")).toBe(true);
+    expect("grants" in config.policy).toBe(false);
   });
 
   it("allows environment to override Forge sandbox mode", async () => {

@@ -2,7 +2,7 @@ import { toolFailure, toolSuccess, evaluateSafety, normalizePathForPolicy, type 
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 
 const runInput = z.object({
   command: z.string().trim().min(1).max(10000),
@@ -32,7 +32,7 @@ function safetyFor(input: { command: string; args?: string[] | undefined; cwd?: 
   const safety = evaluateSafety(
     { tool: "shell.run", actionType: "shell_command", strategy: "cli_or_script", shellCommand: classifiedCommand },
     context.policy,
-    createSafetyEvaluationContext(context)
+    safetyContext(context)
   );
   return { shellCommand, cwd, safety };
 }

@@ -49,7 +49,6 @@ function context(home: string, browser: BrowserAutomation | undefined): AgentHos
     sessionId: "browser-test",
     config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
-    grants: { listActiveGrants: () => [] },
     logger: { log: async (_entry: AuditLogEntry) => undefined },
     linux: browser === undefined ? {} : { browser }
   } as unknown as AgentHostMcpContext;

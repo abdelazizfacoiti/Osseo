@@ -35,7 +35,7 @@ function ocrCacheKey(imagePath: string, size: number, mtimeMs: number, mode: Vis
   return `${imagePath}\0${size}\0${mtimeMs}\0${mode}\0${maxItems}`;
 }
 
-export async function analyzeLinuxImage(input: { imagePath: string; source: "agenthost_screenshot" | "agenthost_output" | "granted_path"; basename: string; mode: VisionMode; maxItems: number }, context: LinuxVisionContext = {}): Promise<VisionGroundingResult> {
+export async function analyzeLinuxImage(input: { imagePath: string; source: "agenthost_screenshot" | "agenthost_output"; basename: string; mode: VisionMode; maxItems: number }, context: LinuxVisionContext = {}): Promise<VisionGroundingResult> {
   // Fast path: reuse a fresh OCR result for this exact file revision.
   try {
     const fileStat = await stat(input.imagePath);
@@ -64,7 +64,7 @@ export async function analyzeLinuxImage(input: { imagePath: string; source: "age
   }
 }
 
-async function runOcr(input: { imagePath: string; source: "agenthost_screenshot" | "agenthost_output" | "granted_path"; basename: string; mode: VisionMode; maxItems: number }, context: LinuxVisionContext = {}): Promise<VisionGroundingResult> {
+async function runOcr(input: { imagePath: string; source: "agenthost_screenshot" | "agenthost_output"; basename: string; mode: VisionMode; maxItems: number }, context: LinuxVisionContext = {}): Promise<VisionGroundingResult> {
   const command = context.tesseractPath ?? await findCommandPath("tesseract", context.env === undefined ? {} : { env: context.env });
   if (command === undefined) return { supported: false, backend: "unavailable", mode: input.mode, textItems: [], groups: [], targetCandidates: [], warnings: [], redactionCounts: {}, truncated: false, reason: "ocr_backend_unavailable" };
   const env: NodeJS.ProcessEnv = {}; for (const key of ["PATH", "LANG", "LC_ALL", "TESSDATA_PREFIX"]) if (context.env?.[key] ?? process.env[key]) env[key] = context.env?.[key] ?? process.env[key];

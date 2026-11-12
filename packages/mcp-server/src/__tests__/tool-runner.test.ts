@@ -73,7 +73,6 @@ function makeContext(home: string, logs: AuditLogEntry[]): AgentHostMcpContext {
     sessionId: "test-session",
     config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
-    grants: { listActiveGrants: () => [] },
     logger: { log: async (entry: AuditLogEntry) => { logs.push(entry); } },
     runtime: { version: "9.9.9-test", entryPath: "/opt/agenthost/mcp-server/dist/index.js", startedAt: "2026-01-01T00:00:00.000Z" }
   } as unknown as AgentHostMcpContext;

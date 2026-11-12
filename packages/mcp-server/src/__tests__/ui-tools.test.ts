@@ -10,7 +10,6 @@ function makeContext(linux: Record<string, unknown>): AgentHostMcpContext {
     sessionId: "ui-tools",
     config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
-    grants: { listActiveGrants: () => [] },
     linux
   } as unknown as AgentHostMcpContext;
 }

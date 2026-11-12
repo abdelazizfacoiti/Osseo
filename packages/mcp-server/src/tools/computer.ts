@@ -4,7 +4,7 @@ import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
 import { createRunStepsTool } from "./run-steps.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 
 const observeInput = z.object({
   includeWindows: z.boolean().optional()
@@ -157,7 +157,7 @@ export function createComputerTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
       let fileConditionPath: string | undefined;
       if (input.fileExists !== undefined) {
         fileConditionPath = normalizePathForPolicy(input.fileExists, { agentHostDir: context.config.agentHostDir });
-        const safety = evaluateSafety({ tool: "computer.wait_for", actionType: "file_read", filePath: fileConditionPath, strategy: "cli_or_script" }, context.policy, createSafetyEvaluationContext(context));
+        const safety = evaluateSafety({ tool: "computer.wait_for", actionType: "file_read", filePath: fileConditionPath, strategy: "cli_or_script" }, context.policy, safetyContext(context));
         if (!safety.allowed) return toolFailure({ tool: "computer.wait_for", riskLevel: safety.riskLevel, approval: safety.approval, error: { code: safety.blocked ? "safety_blocked" : "approval_required", message: safety.blocked ? "Blocked by safety engine." : "File condition requires approval.", details: safety }, observations: safety.reasons });
       }
       const start = Date.now();

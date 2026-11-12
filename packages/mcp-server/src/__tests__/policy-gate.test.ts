@@ -37,7 +37,6 @@ function makeContext(home: string, logs: AuditLogEntry[], browser?: BrowserAutom
     sessionId: "policy-test",
     config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
-    grants: { listActiveGrants: () => [] },
     logger: { log: async (entry: AuditLogEntry) => { logs.push(entry); } },
     linux: browser === undefined ? {} : { browser }
   } as unknown as AgentHostMcpContext;

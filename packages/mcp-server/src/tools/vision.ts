@@ -33,7 +33,7 @@ function matches(expected: DesktopWindowContext, actual: DesktopWindowContext): 
   return (expected.windowId === undefined || expected.windowId === actual.windowId) && (expected.appName === undefined || expected.appName === actual.appName) && (expected.pid === undefined || expected.pid === actual.pid) && (expected.title === undefined || expected.title === actual.title);
 }
 
-async function prepare(input: Base, context: AgentHostMcpContext, mode: "ocr" | "layout" | "target_search" = "ocr"): Promise<VisionGroundingResult | { imagePath: string; source: "agenthost_screenshot" | "agenthost_output" | "granted_path"; basename: string; sensitivity: ReturnType<typeof classifyAppSensitivity> }> {
+async function prepare(input: Base, context: AgentHostMcpContext, mode: "ocr" | "layout" | "target_search" = "ocr"): Promise<VisionGroundingResult | { imagePath: string; source: "agenthost_screenshot" | "agenthost_output"; basename: string; sensitivity: ReturnType<typeof classifyAppSensitivity> }> {
   let actual: DesktopWindowContext | undefined;
   if (input.activeWindow !== undefined) {
     const expected: DesktopWindowContext = {
@@ -59,7 +59,7 @@ async function prepare(input: Base, context: AgentHostMcpContext, mode: "ocr" | 
       ...(sensitivity === "communication" ? { dataSensitivity: "sensitive" as const } : {})
     },
     context.policy,
-    { agentHostDir: context.config.agentHostDir, grants: context.grants.listActiveGrants() }
+    { agentHostDir: context.config.agentHostDir }
   );
   if (!safety.allowed) return failResult(safety.blocked ? "safety_blocked" : "approval_required");
   let resolved: string;
@@ -79,8 +79,7 @@ async function prepare(input: Base, context: AgentHostMcpContext, mode: "ocr" | 
   }
   const screenshots = path.join(context.config.agentHostDir, "screenshots");
   const outputs = path.join(context.config.agentHostDir, "outputs");
-  const granted = safety.grantDecision.allowedByGrantIds.length > 0;
-  const source = inside(resolved, screenshots) ? "agenthost_screenshot" : inside(resolved, outputs) ? "agenthost_output" : granted ? "granted_path" : undefined;
+  const source = inside(resolved, screenshots) ? "agenthost_screenshot" : inside(resolved, outputs) ? "agenthost_output" : undefined;
   if (source === undefined) return failResult("image_path_not_approved");
   return { imagePath: resolved, source, basename: path.basename(resolved), sensitivity };
 }

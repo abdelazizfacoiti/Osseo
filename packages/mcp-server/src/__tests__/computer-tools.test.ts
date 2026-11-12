@@ -20,7 +20,6 @@ describe("computer state tools", () => {
       sessionId: "test-session",
       config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
       policy: getDefaultPolicy(),
-      grants: { listActiveGrants: () => [] },
       logger: { log: async () => undefined },
       linux: {
         getActiveWindow: async () => ({ supported: true, backend: "test", activeWindow: { windowId: "1", appName: "Notes", title: "Plan" }, reason: "ok" }),
@@ -79,7 +78,6 @@ describe("computer state tools", () => {
       sessionId: "test-session",
       config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
       policy: getDefaultPolicy(),
-      grants: { listActiveGrants: () => [] },
       logger: { log: async () => undefined },
       linux: {
         getActiveWindow: async () => ({ supported: true, backend: "test", activeWindow: { windowId: "1", appName: "Notes" }, reason: "ok" }),

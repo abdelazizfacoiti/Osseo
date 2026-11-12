@@ -2,7 +2,7 @@ import { evaluateSafety, classifyAppSensitivity, toolFailure, toolSuccess, type 
 import type { BrowserElement } from "@agenthost/os-linux";
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 import { callGoverned } from "../nested.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
 import { rememberView, type Box, type SeenView, type ViewTarget } from "../view-registry.js";
@@ -307,7 +307,7 @@ export function createSeeTool(): AnyAgentHostToolDefinition<AgentHostMcpContext>
         const safety = evaluateSafety(
           { tool: "see", actionType: "inspect", strategy: "gui_control", ...(window!.app.length === 0 ? {} : { appName: window!.app }) },
           context.policy,
-          createSafetyEvaluationContext(context)
+          safetyContext(context)
         );
         if (!safety.allowed) {
           return toolFailure({ tool: "see", riskLevel: safety.riskLevel, error: { code: "safety_blocked", message: "Looking at this app is blocked by policy.", details: { reasons: safety.reasons } }, observations: safety.reasons });

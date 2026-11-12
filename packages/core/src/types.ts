@@ -74,7 +74,7 @@ export interface VisionPoint { x: number; y: number; }
 export interface VisionTextItem { id: string; text: string; redactedText: string; bounds: VisionBounds; center: VisionPoint; confidence: number; kind: "text"; page: number; block: number; paragraph: number; line: number; redacted: boolean; }
 export interface VisionTextGroup { id: string; text: string; bounds: VisionBounds; center: VisionPoint; confidence: number; matchedTextIds: string[]; }
 export interface VisionTargetCandidate { candidateId: string; label: string; kind: "text" | "button_candidate" | "input_candidate" | "region"; bounds: VisionBounds; center: VisionPoint; coordinateSpace: "image"; confidence: number; reason: string; matchedTextIds: string[]; riskHint: "normal" | "medium" | "high"; }
-export interface VisionGroundingResult { supported: boolean; backend: "tesseract" | "unavailable"; mode: VisionMode; image?: { width: number; height: number; source: "agenthost_screenshot" | "agenthost_output" | "granted_path"; basename: string; pathRedacted: true; }; textItems: VisionTextItem[]; groups: VisionTextGroup[]; targetCandidates: VisionTargetCandidate[]; warnings: string[]; redactionCounts: Record<string, number>; truncated: boolean; reason: string; }
+export interface VisionGroundingResult { supported: boolean; backend: "tesseract" | "unavailable"; mode: VisionMode; image?: { width: number; height: number; source: "agenthost_screenshot" | "agenthost_output"; basename: string; pathRedacted: true; }; textItems: VisionTextItem[]; groups: VisionTextGroup[]; targetCandidates: VisionTargetCandidate[]; warnings: string[]; redactionCounts: Record<string, number>; truncated: boolean; reason: string; }
 export const CHECKPOINT_KINDS = ["browser_url_contains", "browser_text_appears_redacted", "browser_element_exists", "browser_element_missing", "accessibility_element_exists", "accessibility_element_missing", "active_window_matches", "active_window_title_contains", "file_exists", "file_missing", "output_artifact_exists", "vision_text_appears", "vision_text_missing", "vision_target_exists", "manual_check"] as const;
 export type CheckpointKind = (typeof CHECKPOINT_KINDS)[number];
 export type CheckpointStrategy = "browser" | "accessibility" | "vision" | "file" | "desktop" | "manual";
@@ -92,12 +92,6 @@ export type ToolForgeManifestSource = (typeof TOOL_FORGE_MANIFEST_SOURCES)[numbe
 
 export const PERMISSION_DEFAULTS = ["allow", "approval_required", "deny", "guide_only"] as const;
 export type PermissionDefault = (typeof PERMISSION_DEFAULTS)[number];
-
-export const GRANT_EFFECTS = ["allow", "deny", "guide_only"] as const;
-export type GrantEffect = (typeof GRANT_EFFECTS)[number];
-
-export const GRANT_SCOPES = ["session", "persistent"] as const;
-export type GrantScope = (typeof GRANT_SCOPES)[number];
 
 export interface ApprovalInfo {
   required: boolean;
@@ -131,7 +125,6 @@ export interface ToolResult<T = unknown> {
   overlay?: string;
   confirmation?: ToolConfirmationInfo;
   receipt?: ToolResultReceipt;
-  grantDecision?: GrantDecision;
   actionDecision?: ActionEffectDecisionSummary;
   verification?: ActionVerificationSummary;
   state?: ToolStateSnapshot;
@@ -326,7 +319,6 @@ export interface ActionEffectDecisionSummary {
   code?: string;
   reason: string;
   effectFingerprint?: string;
-  requiresGrant: boolean;
   requiresConfirmation: boolean;
   requiresStrongConfirmation: boolean;
   verificationRequired: boolean;
@@ -382,38 +374,6 @@ export interface PermissionDefaults {
   destructiveActions: PermissionDefault;
 }
 
-export interface CapabilityGrantRequirements {
-  requiresDryRun?: boolean;
-  requiresConfirmationToken?: boolean;
-  requiresApproval?: boolean;
-  requiresExactTarget?: boolean;
-  maxRiskLevel?: RiskLevel;
-  allowedRoots?: string[];
-}
-
-export interface CapabilityGrantMatch {
-  tools?: string[];
-  strategies?: AutomationStrategy[];
-  actionTypes?: ActionType[];
-  appNames?: string[];
-  appIds?: string[];
-  appSensitivities?: AppSensitivity[];
-  dataSensitivities?: DataSensitivity[];
-  fileRoots?: string[];
-  commandAllowlist?: string[];
-}
-
-export interface CapabilityGrant {
-  id: string;
-  scope: GrantScope;
-  effect: GrantEffect;
-  description?: string;
-  createdAt?: string;
-  expiresAt?: string;
-  match: CapabilityGrantMatch;
-  requirements?: CapabilityGrantRequirements;
-}
-
 export interface RuntimePolicy {
   description: string;
   enabled: boolean;
@@ -431,7 +391,6 @@ export interface RuntimePolicy {
   requireConfirmationForStateChanging: boolean;
   requireExactTargetForStateChanging: boolean;
   defaults: PermissionDefaults;
-  grants: CapabilityGrant[];
   scheduler?: SchedulerPolicy;
 }
 
@@ -703,17 +662,6 @@ export interface SafetyInput {
   effect?: Partial<GovernedActionEffect> & { operationFamily?: string; operation?: string; bindings?: ActionBindingFingerprints };
 }
 
-export interface GrantDecision {
-  matchedGrantIds: string[];
-  allowedByGrantIds: string[];
-  deniedByGrantIds: string[];
-  guideOnlyByGrantIds: string[];
-  requiresDryRun: boolean;
-  requiresConfirmationToken: boolean;
-  requiresApproval: boolean;
-  requiresExactTarget: boolean;
-}
-
 export interface SafetyDecision {
   riskLevel: RiskLevel;
   appSensitivity: AppSensitivity;
@@ -723,7 +671,8 @@ export interface SafetyDecision {
   guideOnly: boolean;
   reasons: string[];
   matchedRules: string[];
-  grantDecision: GrantDecision;
+  /** True when the call needs an exact single-use confirmation token (policy flag, external/destructive/financial effect, or private data). */
+  requiresConfirmationToken: boolean;
   actionDecision?: ActionEffectDecisionSummary;
 }
 
@@ -752,7 +701,6 @@ export interface SafetyEvaluationContext {
   env?: Record<string, string | undefined>;
   agentHostDir?: string;
   protectedPaths?: string[];
-  grants?: CapabilityGrant[];
   /** Set only after the runner accepted an exact single-use confirmation. */
   confirmationSatisfied?: boolean;
 }
@@ -1275,18 +1223,6 @@ export interface CapabilityList {
   appCapabilities: AppCapability[];
 }
 
-export interface GrantSummary {
-  id: string;
-  scope: GrantScope;
-  effect: GrantEffect;
-  description?: string;
-  createdAt?: string;
-  expiresAt?: string;
-  active: boolean;
-  match: CapabilityGrantMatch;
-  requirements?: CapabilityGrantRequirements;
-}
-
 export interface ToolForgeRequirements {
   requiresDryRun?: boolean | undefined;
   requiresConfirmationToken?: boolean | undefined;
@@ -1396,7 +1332,6 @@ export interface ToolForgePermissionReview {
   matchedGrantIds: string[];
   missingGrant: boolean;
   reasons: string[];
-  proposedGrant?: CapabilityGrant;
 }
 
 export interface ToolForgeReviewResult {
@@ -1490,7 +1425,6 @@ export interface ToolForgeReviewRecord {
   dangerousPermissions: string[];
   blockedPermissions: string[];
   missingGrants: string[];
-  proposedGrants: CapabilityGrant[];
   decisionStatus: ToolForgeReviewDecisionStatus;
   explanation: string;
   saferAlternatives: string[];
@@ -1675,7 +1609,6 @@ export interface ToolForgeRegistrationRecord {
   status: ToolForgeRegistrationStatus;
   registeredTools: ToolForgeToolDeclaration[];
   permissionsSnapshot: ToolForgePermissionRequest[];
-  grantsSnapshot: GrantSummary[];
   reviewId?: string;
   validationIds: string[];
   harnessRunIds: string[];
@@ -1978,7 +1911,6 @@ export interface AuditLogEntry {
   matchedGrantIds?: string[];
   deniedGrantIds?: string[];
   guideOnlyGrantIds?: string[];
-  grantDecision?: GrantDecision;
   actionDecision?: ActionEffectDecisionSummary;
   dryRunRequired?: boolean;
   confirmationRequiredByGrant?: boolean;

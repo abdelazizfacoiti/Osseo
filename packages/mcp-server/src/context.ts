@@ -40,7 +40,6 @@ import type {
 } from "@agenthost/core";
 import type { OverlayManager } from "@agenthost/app-overlay";
 import type { BrowserAutomation, LinuxClipboardResult, RunSafeCommandInput, UrlOpenBrowser, UrlOpenResult } from "@agenthost/os-linux";
-import type { GrantStore } from "./grants.js";
 import type { AnyAgentHostToolDefinition } from "./tool-runner.js";
 import type { ToolActionOverlay } from "./action-overlay.js";
 import type { ActionTimeline } from "./action-timeline.js";
@@ -101,7 +100,7 @@ export interface LinuxAutomation {
   }): Promise<DesktopClickResult>;
   pointer?(input: { action: "move_mouse" | "scroll" | "double_click" | "right_click" | "drag"; activeWindow: DesktopWindowContext; x?: number; y?: number; direction?: "up" | "down" | "left" | "right"; amount?: number; startX?: number; startY?: number; endX?: number; endY?: number; durationMs?: number }): Promise<DesktopPointerResult>;
   checkSandboxSupport?(): Promise<SandboxSupportProbeResult>;
-  analyzeImage?(input: { imagePath: string; source: "agenthost_screenshot" | "agenthost_output" | "granted_path"; basename: string; mode: VisionMode; maxItems: number }): Promise<VisionGroundingResult>;
+  analyzeImage?(input: { imagePath: string; source: "agenthost_screenshot" | "agenthost_output"; basename: string; mode: VisionMode; maxItems: number }): Promise<VisionGroundingResult>;
   getScreenGeometry?(): Promise<{ supported: boolean; bounds?: { x: number; y: number; width: number; height: number }; reason: string }>;
   /** Resolves on the person's next left-button press inside one of the regions. Read-only; absent on Windows. */
   waitForPointerPress?(input: { regions: Array<{ x: number; y: number; width: number; height: number }>; timeoutMs: number; signal?: AbortSignal }): Promise<{ pressed: true; index: number; x: number; y: number } | { pressed: false; reason: "timeout" | "aborted" | "unavailable"; detail?: string }>;
@@ -187,7 +186,6 @@ export interface AgentHostMcpContext {
   planStep?: { index: number; total: number };
   /** Set while a plan is being previewed: nested calls resolve effects but never mint tokens. */
   previewOnly?: boolean;
-  grants: GrantStore;
   overlay?: OverlayManager;
   actionOverlay?: ToolActionOverlay;
   actionTimeline?: ActionTimeline;
@@ -201,4 +199,19 @@ export interface AgentHostMcpContext {
   /** Live tool definitions for governed nested execution (plan executor). */
   tools?: Map<string, AnyAgentHostToolDefinition<any>>;
   linux: LinuxAutomation;
+}
+
+/** The plain per-call context the safety classifier needs. */
+export function safetyContext(context: AgentHostMcpContext): {
+  ownerSessionId: string;
+  agentHostDir: string;
+  protectedPaths: string[];
+  confirmationSatisfied?: boolean;
+} {
+  return {
+    ownerSessionId: context.sessionId,
+    agentHostDir: context.config.agentHostDir,
+    protectedPaths: [context.config.configPath, context.config.logFile],
+    ...(context.confirmationSatisfied === true ? { confirmationSatisfied: true } : {})
+  };
 }

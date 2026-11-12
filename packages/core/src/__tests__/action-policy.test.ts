@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createGovernedActionEffect, decideGovernedAction, fingerprintActionBinding, getDefaultPolicy, validateGovernedActionEffect } from "../index.js";
 
 describe("universal governed-action policy", () => {
-  it("returns precise confirmation recovery for an external effect without a scoped grant", () => {
+  it("returns precise confirmation recovery for an external effect under the default policy", () => {
     const effect = createGovernedActionEffect({
       ownerSessionId: "session-policy-test",
       operationFamily: "communication",
@@ -16,10 +16,31 @@ describe("universal governed-action policy", () => {
     const decision = decideGovernedAction({
       effect,
       safety: { allowed: false, blocked: false, guideOnly: false, riskLevel: "high", appSensitivity: "communication" },
-      grantDecision: { matchedGrantIds: [], allowedByGrantIds: [], deniedByGrantIds: [], guideOnlyByGrantIds: [], requiresDryRun: true, requiresConfirmationToken: true, requiresApproval: false, requiresExactTarget: true },
       policy: getDefaultPolicy()
     });
     expect(decision.code).toBe("action_confirmation_missing");
+    expect(decision.recovery).toBe("confirm");
+  });
+
+  it("keeps a recoverable refusal when the policy denies external sends", () => {
+    const effect = createGovernedActionEffect({
+      ownerSessionId: "session-policy-test",
+      operationFamily: "communication",
+      operation: "send",
+      executionClass: "state_changing",
+      externalEffect: true,
+      confirmationLevel: "standard",
+      verificationKind: "receipt",
+      bindings: { recipient: fingerprintActionBinding("recipient"), content: fingerprintActionBinding("message") }
+    });
+    const policy = getDefaultPolicy();
+    policy.defaults.externalSendsUploads = "deny";
+    const decision = decideGovernedAction({
+      effect,
+      safety: { allowed: false, blocked: false, guideOnly: false, riskLevel: "high", appSensitivity: "communication" },
+      policy
+    });
+    expect(decision.code).toBe("action_not_permitted");
     expect(decision.recovery).toBe("confirm");
   });
 
@@ -37,7 +58,6 @@ describe("universal governed-action policy", () => {
     const decision = decideGovernedAction({
       effect,
       safety: { allowed: true, blocked: false, guideOnly: false, riskLevel: "high", appSensitivity: "financial" },
-      grantDecision: { matchedGrantIds: ["exact-financial"], allowedByGrantIds: ["exact-financial"], deniedByGrantIds: [], guideOnlyByGrantIds: [], requiresDryRun: true, requiresConfirmationToken: true, requiresApproval: false, requiresExactTarget: true },
       policy: getDefaultPolicy()
     });
     expect(decision.decision).toBe("unsupported");

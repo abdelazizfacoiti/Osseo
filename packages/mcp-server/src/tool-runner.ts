@@ -30,7 +30,7 @@ import {
 import type { AgentHostMcpContext } from "./context.js";
 import type { ToolActionHandle, ToolActionTarget } from "./action-overlay.js";
 import { shouldShowActionCard } from "./activity.js";
-import { createSafetyEvaluationContext } from "./grants.js";
+import { safetyContext } from "./context.js";
 import { applyFilePolicy } from "./policy-gate.js";
 import { withStateChangingLane } from "./execution-gate.js";
 import { injectsInput, markAgentInput } from "./input-guard.js";
@@ -347,7 +347,7 @@ function safetyEffect(
     const safety = evaluateSafety(
       { ...safetyInput, tool: tool.name, actionType: tool.safety.actionType },
       context.policy,
-      createSafetyEvaluationContext(context)
+      safetyContext(context)
     );
     return {
       summary,
@@ -356,7 +356,7 @@ function safetyEffect(
       approval: safety.approval,
       blocked: safety.blocked,
       reasons: safety.reasons,
-      requiresConfirmation: safety.grantDecision.requiresConfirmationToken
+      requiresConfirmation: safety.requiresConfirmationToken
         || safety.riskLevel === "high"
         || safety.appSensitivity === "communication"
         || safety.appSensitivity === "financial"

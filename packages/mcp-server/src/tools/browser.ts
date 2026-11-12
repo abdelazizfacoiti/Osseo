@@ -4,7 +4,7 @@ import { stat as statPath } from "node:fs/promises";
 import { isAbsolute as isAbsolutePath } from "node:path";
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition, ToolPreviewEffect } from "../tool-runner.js";
 
 /*
@@ -77,7 +77,7 @@ function safetyFor(tool: string, context: AgentHostMcpContext, url: string | und
   return evaluateSafety(
     { tool, actionType: "browser_action", strategy: "browser_automation", appName: "Chrome", ...(url === undefined || url === "" ? {} : { url: classificationUrl(url) }), ...extra },
     context.policy,
-    createSafetyEvaluationContext(context)
+    safetyContext(context)
   );
 }
 
@@ -131,7 +131,7 @@ function uploadSafety(context: AgentHostMcpContext, url: string | undefined, fil
   return evaluateSafety(
     { tool: "browser.upload", actionType: "upload", strategy: "browser_automation", appName: "Chrome", ...(url === undefined || url === "" ? {} : { url: classificationUrl(url) }), filePath: file },
     context.policy,
-    createSafetyEvaluationContext(context)
+    safetyContext(context)
   );
 }
 
@@ -164,7 +164,7 @@ export function createBrowserTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       isDryRun: (i) => i.dryRun === true,
       resolveEffect: (i, context): ToolPreviewEffect => {
         const safety = safetyFor("browser.open", context, i.url);
-        return { summary: `Open ${i.url === undefined ? "the browser" : redactedUrl(i.url)}.`, targetFingerprint: `browser.open:${i.url === undefined ? "" : redactedUrl(i.url)}`, riskLevel: safety.riskLevel, approval: safety.approval, blocked: safety.blocked, reasons: safety.reasons, requiresConfirmation: safety.grantDecision.requiresConfirmationToken || safety.riskLevel === "high" };
+        return { summary: `Open ${i.url === undefined ? "the browser" : redactedUrl(i.url)}.`, targetFingerprint: `browser.open:${i.url === undefined ? "" : redactedUrl(i.url)}`, riskLevel: safety.riskLevel, approval: safety.approval, blocked: safety.blocked, reasons: safety.reasons, requiresConfirmation: safety.requiresConfirmationToken || safety.riskLevel === "high" };
       }
     },
     async handler(input, context): Promise<ToolResult<BrowserOpenResult>> {
@@ -228,7 +228,7 @@ export function createBrowserTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           approval: safety.approval,
           blocked: safety.blocked,
           reasons: [...safety.reasons, ...(assessed.reason === undefined ? [] : [assessed.reason])],
-          requiresConfirmation: assessed.consequential || safety.grantDecision.requiresConfirmationToken || safety.riskLevel === "high"
+          requiresConfirmation: assessed.consequential || safety.requiresConfirmationToken || safety.riskLevel === "high"
         };
       }
     },
@@ -277,7 +277,7 @@ export function createBrowserTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           approval: safety.approval,
           blocked: safety.blocked,
           reasons: [...safety.reasons, ...(submitsSensitive ? ["Pressing Enter submits a form with password or payment fields."] : [])],
-          requiresConfirmation: submitsSensitive || safety.grantDecision.requiresConfirmationToken || safety.riskLevel === "high"
+          requiresConfirmation: submitsSensitive || safety.requiresConfirmationToken || safety.riskLevel === "high"
         };
       }
     },
@@ -313,7 +313,7 @@ export function createBrowserTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       isDryRun: (i) => i.dryRun === true,
       resolveEffect: (i, context): ToolPreviewEffect => {
         const safety = safetyFor("browser.navigate", context, i.url);
-        return { summary: `Browser ${i.action}${i.url === undefined ? "" : ` ${redactedUrl(i.url)}`}.`, targetFingerprint: `browser.navigate:${i.action}:${i.url === undefined ? "" : redactedUrl(i.url)}`, riskLevel: safety.riskLevel, approval: safety.approval, blocked: safety.blocked, reasons: safety.reasons, requiresConfirmation: safety.grantDecision.requiresConfirmationToken || safety.riskLevel === "high" };
+        return { summary: `Browser ${i.action}${i.url === undefined ? "" : ` ${redactedUrl(i.url)}`}.`, targetFingerprint: `browser.navigate:${i.action}:${i.url === undefined ? "" : redactedUrl(i.url)}`, riskLevel: safety.riskLevel, approval: safety.approval, blocked: safety.blocked, reasons: safety.reasons, requiresConfirmation: safety.requiresConfirmationToken || safety.riskLevel === "high" };
       }
     },
     async handler(input, context): Promise<ToolResult<BrowserActionResult>> {
@@ -455,7 +455,7 @@ export function createBrowserTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           approval: safety.approval,
           blocked: safety.blocked,
           reasons: [...safety.reasons, ...(submit?.reason === undefined ? [] : [submit.reason])],
-          requiresConfirmation: submit?.consequential === true || safety.grantDecision.requiresConfirmationToken || safety.riskLevel === "high"
+          requiresConfirmation: submit?.consequential === true || safety.requiresConfirmationToken || safety.riskLevel === "high"
         };
       }
     },

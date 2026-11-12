@@ -269,7 +269,7 @@ export function classifyShellCommand(
     }
   }
 
-  const approval = evaluateApprovalRequirement(riskLevel, policy, reasons, false, context.confirmationSatisfied === true);
+  const approval = evaluateApprovalRequirement(riskLevel, policy, reasons, context.confirmationSatisfied === true);
   const blocked = riskLevel === "blocked" || approval.status === "denied";
 
   return {
@@ -279,16 +279,7 @@ export function classifyShellCommand(
     allowed: !blocked && isApprovalSatisfied(approval),
     blocked,
     guideOnly: false,
-    grantDecision: {
-      matchedGrantIds: [],
-      allowedByGrantIds: [],
-      deniedByGrantIds: [],
-      guideOnlyByGrantIds: [],
-      requiresDryRun: false,
-      requiresConfirmationToken: false,
-      requiresApproval: false,
-      requiresExactTarget: false
-    },
+    requiresConfirmationToken: false,
     reasons,
     matchedRules: [...new Set(matchedRules)]
   };

@@ -3,7 +3,7 @@ import { URL_OPEN_BROWSERS, type UrlOpenResult } from "@agenthost/os-linux";
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 
 const openAppInput = z.object({
   appName: z.string().trim().min(1).max(200)
@@ -18,7 +18,7 @@ function launchSafety(tool: string, context: AgentHostMcpContext, target: { appN
   return evaluateSafety(
     { tool, actionType: "app_launch", strategy: "cli_or_script", ...target },
     context.policy,
-    createSafetyEvaluationContext(context)
+    safetyContext(context)
   );
 }
 

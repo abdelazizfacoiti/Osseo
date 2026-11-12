@@ -1,13 +1,14 @@
 import type {
   AppSensitivity,
   PathAccessMode,
+  PermissionDefault,
   RuntimePolicy,
   RiskLevel,
   SafetyDecision,
   SafetyEvaluationContext,
   SafetyInput
 } from "../types.js";
-import { evaluateGrantDecision, isStateChangingAction } from "../grants.js";
+import { isStateChangingAction } from "../grants.js";
 import { evaluateApprovalRequirement, isApprovalSatisfied } from "./approval.js";
 import { classifyAppSensitivity } from "./app-sensitivity.js";
 import { classifyPath } from "./path-policy.js";
@@ -117,6 +118,137 @@ function applyAppSensitivityRisk(
   return riskLevel;
 }
 
+/**
+ * Reading or inspecting a communication app (observe, inspect, file_read) is
+ * allowed to proceed when the risk is at most medium, even if the policy
+ * default for the action would otherwise deny it or route it to guide mode.
+ * Sends and other external effects are not covered: they still need an exact
+ * single-use confirmation through the normal approval rules.
+ */
+export function communicationInspectionAllowed(
+  input: SafetyInput,
+  appSensitivity: AppSensitivity,
+  riskLevel: RiskLevel
+): boolean {
+  return (
+    appSensitivity === "communication" &&
+    (input.actionType === "observe" || input.actionType === "inspect" || input.actionType === "file_read") &&
+    RISK_ORDER.indexOf(riskLevel) <= RISK_ORDER.indexOf("medium")
+  );
+}
+
+function permissionDefaultFor(policy: RuntimePolicy, input: SafetyInput): PermissionDefault {
+  if (input.tool === "desktop.screenshot") {
+    return policy.defaults.screenshots;
+  }
+
+  if (input.tool === "window.focus") {
+    return policy.allowGenericClick ? "allow" : policy.defaults.windowFocus;
+  }
+
+  if (input.tool === "desktop.hotkey") {
+    return policy.allowGenericType ? "allow" : policy.defaults.guiHotkey;
+  }
+
+  if (input.dataSensitivity === "sensitive" || input.dataSensitivity === "secret") {
+    return policy.defaults.privateDataReads;
+  }
+
+  switch (input.actionType) {
+    case "observe":
+    case "inspect":
+      return input.actionType === "inspect" ? policy.defaults.accessibilityRead : "allow";
+    case "app_launch":
+      return policy.defaults.appOpen;
+    case "shell_command":
+      return policy.defaults.shell;
+    case "file_read":
+      return policy.defaults.fileRead;
+    case "file_write":
+    case "file_delete":
+      return input.destructive ? policy.defaults.destructiveActions : policy.defaults.fileWrite;
+    case "gui_click":
+      return policy.allowGenericClick ? "allow" : policy.defaults.guiClick;
+    case "gui_type":
+      return policy.allowGenericType ? "allow" : policy.defaults.guiType;
+    case "accessibility_action":
+    case "accessibility_set_value":
+    case "accessibility_focus":
+      return policy.defaults.accessibilityActions;
+    case "browser_action":
+      return policy.defaults.browserAutomation;
+    case "communication_send":
+      return policy.defaults.communicationActions;
+    case "upload":
+      return policy.defaults.externalSendsUploads;
+    case "system_change":
+      return policy.defaults.destructiveActions;
+    case "unknown":
+      return "approval_required";
+  }
+}
+
+interface PolicyEvaluation {
+  blocked: boolean;
+  guideOnly: boolean;
+  requiresApproval: boolean;
+  requiresConfirmationToken: boolean;
+  reasons: string[];
+  matchedRules: string[];
+}
+
+/** Policy-level defaults and the confirmation-token rule for one call. */
+function evaluatePolicyDefaults(
+  input: SafetyInput,
+  policy: RuntimePolicy,
+  appSensitivity: AppSensitivity,
+  riskLevel: RiskLevel
+): PolicyEvaluation {
+  const reasons: string[] = [];
+  const matchedRules: string[] = [];
+  let requiresConfirmationToken = policy.requireConfirmationForStateChanging && isStateChangingAction(input.actionType);
+  let requiresApproval = false;
+  let blocked = false;
+  let guideOnly = false;
+
+  const defaultPermission = permissionDefaultFor(policy, input);
+  if (defaultPermission === "deny") {
+    blocked = true;
+    reasons.push("Policy denies this capability by default.");
+    matchedRules.push(`policy.default.${input.actionType}.deny`);
+  } else if (defaultPermission === "guide_only") {
+    guideOnly = true;
+    reasons.push("Policy routes this capability to guide mode by default.");
+    matchedRules.push(`policy.default.${input.actionType}.guide_only`);
+  } else if (defaultPermission === "approval_required") {
+    requiresApproval = true;
+    reasons.push("Policy requires approval for this capability by default.");
+    matchedRules.push(`policy.default.${input.actionType}.approval_required`);
+  }
+
+  if (communicationInspectionAllowed(input, appSensitivity, riskLevel)) {
+    blocked = false;
+    guideOnly = false;
+    reasons.push("Inspecting a communication app is allowed within medium risk.");
+    matchedRules.push("app.communication.inspection_allowed");
+  }
+
+  // Consequential effects are never silently executed: they require an exact
+  // single-use confirmation bound to the current input and target.
+  if (input.externalEffect === true || input.destructive === true || appSensitivity === "financial") {
+    requiresConfirmationToken = true;
+    reasons.push("External, destructive, or financial effects require exact single-use confirmation.");
+    matchedRules.push("effect.exact_confirmation_required");
+  }
+  if (input.dataSensitivity === "sensitive" || input.dataSensitivity === "secret") {
+    requiresConfirmationToken = true;
+    reasons.push("Private-data access requires exact single-use confirmation.");
+    matchedRules.push("data.private_confirmation_required");
+  }
+
+  return { blocked, guideOnly, requiresApproval, requiresConfirmationToken, reasons, matchedRules };
+}
+
 export function classifyRisk(
   input: SafetyInput,
   policy: RuntimePolicy,
@@ -204,20 +336,14 @@ export function classifyRisk(
     matchedRules.push("policy.disabled");
   }
 
-  const grantEvaluation = evaluateGrantDecision(input, policy, context.grants ?? policy.grants, appSensitivity, context);
-  reasons.push(...grantEvaluation.reasons);
-  matchedRules.push(...grantEvaluation.matchedRules);
+  const policyEvaluation = evaluatePolicyDefaults(input, policy, appSensitivity, riskLevel);
+  reasons.push(...policyEvaluation.reasons);
+  matchedRules.push(...policyEvaluation.matchedRules);
 
-  // A matching scoped allow grant can make this exact effect eligible even
-  // when its category is normally high-risk. It never removes the tool's
-  // dry-run, confirmation, target, or verification requirements.
-  const exactGovernedGrant = riskLevel === "high"
-    && grantEvaluation.decision.allowedByGrantIds.length > 0
-    && (appSensitivity !== "financial" || input.effect?.bindings?.route !== undefined);
-  let approval = evaluateApprovalRequirement(riskLevel, policy, reasons, exactGovernedGrant, context.confirmationSatisfied === true);
+  let approval = evaluateApprovalRequirement(riskLevel, policy, reasons, context.confirmationSatisfied === true);
 
   if (
-    grantEvaluation.decision.requiresApproval &&
+    policyEvaluation.requiresApproval &&
     context.confirmationSatisfied !== true &&
     approval.status !== "denied" &&
     approval.status !== "required"
@@ -225,11 +351,11 @@ export function classifyRisk(
     approval = {
       required: true,
       status: "required",
-      reason: "A matching capability grant requires approval before execution."
+      reason: "Policy requires approval for this capability before execution."
     };
   }
 
-  const blocked = riskLevel === "blocked" || approval.status === "denied" || grantEvaluation.blocked || grantEvaluation.guideOnly;
+  const blocked = riskLevel === "blocked" || approval.status === "denied" || policyEvaluation.blocked || policyEvaluation.guideOnly;
 
   if (blocked && approval.status !== "denied") {
     approval = {
@@ -241,8 +367,7 @@ export function classifyRisk(
 
   const actionDecision = input.effect === undefined ? undefined : decideGovernedAction({
     effect: actionEffectFromSafetyInput(input, context.ownerSessionId ?? "unknown-session", "state_changing"),
-    safety: { allowed: !blocked, blocked, guideOnly: grantEvaluation.guideOnly, riskLevel, appSensitivity },
-    grantDecision: grantEvaluation.decision,
+    safety: { allowed: !blocked, blocked, guideOnly: policyEvaluation.guideOnly, riskLevel, appSensitivity },
     policy
   });
 
@@ -252,10 +377,10 @@ export function classifyRisk(
     approval,
     allowed: !blocked && isApprovalSatisfied(approval),
     blocked,
-    guideOnly: grantEvaluation.guideOnly,
+    guideOnly: policyEvaluation.guideOnly,
     reasons,
     matchedRules: [...new Set(matchedRules)],
-    grantDecision: grantEvaluation.decision,
+    requiresConfirmationToken: policyEvaluation.requiresConfirmationToken,
     ...(actionDecision === undefined ? {} : { actionDecision })
   };
 }

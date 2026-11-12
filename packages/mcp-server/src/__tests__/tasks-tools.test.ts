@@ -22,7 +22,6 @@ function makeContext(home: string): AgentHostMcpContext {
     sessionId: "tasks-tools-session",
     config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
-    grants: { listActiveGrants: () => [] },
     logger: { log: async (_entry: AuditLogEntry) => undefined }
   } as unknown as AgentHostMcpContext;
 }

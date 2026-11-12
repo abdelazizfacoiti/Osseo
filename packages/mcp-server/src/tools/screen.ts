@@ -1,7 +1,7 @@
 import { evaluateSafety, toolFailure, toolSuccess, type ToolResult } from "@agenthost/core";
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
 
 /**
@@ -95,7 +95,7 @@ export function createScreenTools(): AnyAgentHostToolDefinition<AgentHostMcpCont
       const safety = evaluateSafety(
         { tool: "screen.read", actionType: "inspect", strategy: "gui_control", ...(active.appName === undefined ? {} : { appName: active.appName }) },
         context.policy,
-        createSafetyEvaluationContext(context)
+        safetyContext(context)
       );
       if (!safety.allowed) {
         return toolFailure({ tool: "screen.read", riskLevel: safety.riskLevel, error: { code: "safety_blocked", message: "Reading this app's accessibility tree is blocked by policy.", details: { reasons: safety.reasons } }, observations: safety.reasons });

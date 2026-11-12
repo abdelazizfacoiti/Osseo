@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { getDefaultPolicy } from "./policies.js";
-import type { AgentHostConfig, CapabilityGrant, CapabilityGrantMatch, CapabilityGrantRequirements, ForgeRuntimeSandboxMode } from "./types.js";
+import type { AgentHostConfig, ForgeRuntimeSandboxMode } from "./types.js";
 import type { OverlayRendererMode, OverlayPublicConfig } from "./overlay.js";
 
 const forgeRuntimeSandboxModeSchema = z.enum(["auto", "none", "bubblewrap", "firejail", "unshare"]);
@@ -47,83 +47,6 @@ const speechSchema = z.object({
   playbackTimeoutMs: z.number().int().positive().max(300_000).optional()
 }).strict();
 
-const automationStrategySchema = z.enum([
-  "app_adapter",
-  "official_api",
-  "cli_or_script",
-  "browser_automation",
-  "accessibility",
-  "gui_control",
-  "guide_only"
-]);
-
-const actionTypeSchema = z.enum([
-  "observe",
-  "inspect",
-  "app_launch",
-  "shell_command",
-  "file_read",
-  "file_write",
-  "file_delete",
-  "gui_click",
-  "gui_type",
-  "accessibility_action",
-  "accessibility_set_value",
-  "accessibility_focus",
-  "browser_action",
-  "communication_send",
-  "upload",
-  "system_change",
-  "unknown"
-]);
-
-const appSensitivitySchema = z.enum([
-  "normal",
-  "communication",
-  "financial",
-  "credential_or_security",
-  "system_settings",
-  "unknown"
-]);
-
-const dataSensitivitySchema = z.enum(["none", "low", "sensitive", "secret"]);
-const riskLevelSchema = z.enum(["observe", "low", "medium", "high", "blocked"]);
-
-const capabilityGrantSchema = z
-  .object({
-    id: z.string().trim().min(1).max(200),
-    scope: z.enum(["session", "persistent"]),
-    effect: z.enum(["allow", "deny", "guide_only"]),
-    description: z.string().trim().min(1).max(500).optional(),
-    createdAt: z.string().datetime().optional(),
-    expiresAt: z.string().datetime().optional(),
-    match: z
-      .object({
-        tools: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
-        strategies: z.array(automationStrategySchema).max(20).optional(),
-        actionTypes: z.array(actionTypeSchema).max(50).optional(),
-        appNames: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
-        appIds: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
-        appSensitivities: z.array(appSensitivitySchema).max(20).optional(),
-        dataSensitivities: z.array(dataSensitivitySchema).max(20).optional(),
-        fileRoots: z.array(z.string().trim().min(1).max(1000)).max(100).optional(),
-        commandAllowlist: z.array(z.string().trim().min(1).max(500)).max(100).optional()
-      })
-      .strict(),
-    requirements: z
-      .object({
-        requiresDryRun: z.boolean().optional(),
-        requiresConfirmationToken: z.boolean().optional(),
-        requiresApproval: z.boolean().optional(),
-        requiresExactTarget: z.boolean().optional(),
-        maxRiskLevel: riskLevelSchema.optional(),
-        allowedRoots: z.array(z.string().trim().min(1).max(1000)).max(100).optional()
-      })
-      .strict()
-      .optional()
-  })
-  .strict();
-
 const configFileSchema = z
   .object({
     schemaVersion: z.literal(1).optional(),
@@ -144,7 +67,8 @@ const configFileSchema = z
     optionalAdapters: z.unknown().optional(),
     // Accepted for old config files (removed phone approvals); it does nothing.
     phone: z.unknown().optional(),
-    grants: z.array(capabilityGrantSchema).max(500).optional()
+    // Removed capability grants: only an empty array is accepted (checked in readConfigFile).
+    grants: z.unknown().optional()
   })
   .strict();
 
@@ -174,6 +98,9 @@ function resolveLocalPath(input: string, homeDir: string): string {
 /** Dead pre-P1 config surfaces: accepted for older files, stripped before strict parsing. */
 const LEGACY_CONFIG_KEYS = ["runtimeActivityOverlay", "browserBridge", "controlRoom", "profile"] as const;
 
+export const GRANTS_REMOVED_MESSAGE =
+  "Capability grants were removed. Move the rule to policy.toml (see docs/04) or delete the grants key from config.json.";
+
 async function readConfigFile(configPath: string): Promise<z.infer<typeof configFileSchema>> {
   try {
     const raw = await readFile(configPath, "utf8");
@@ -181,7 +108,11 @@ async function readConfigFile(configPath: string): Promise<z.infer<typeof config
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
       for (const key of LEGACY_CONFIG_KEYS) delete (parsed as Record<string, unknown>)[key];
     }
-    return configFileSchema.parse(parsed);
+    const file = configFileSchema.parse(parsed);
+    if (file.grants !== undefined && !(Array.isArray(file.grants) && file.grants.length === 0)) {
+      throw new Error(GRANTS_REMOVED_MESSAGE);
+    }
+    return file;
   } catch (error) {
     if (typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT") {
       return {};
@@ -189,54 +120,6 @@ async function readConfigFile(configPath: string): Promise<z.infer<typeof config
 
     throw error;
   }
-}
-
-function normalizeGrantMatch(match: z.infer<typeof capabilityGrantSchema>["match"]): CapabilityGrantMatch {
-  return {
-    ...(match.tools === undefined ? {} : { tools: match.tools }),
-    ...(match.strategies === undefined ? {} : { strategies: match.strategies }),
-    ...(match.actionTypes === undefined ? {} : { actionTypes: match.actionTypes }),
-    ...(match.appNames === undefined ? {} : { appNames: match.appNames }),
-    ...(match.appIds === undefined ? {} : { appIds: match.appIds }),
-    ...(match.appSensitivities === undefined ? {} : { appSensitivities: match.appSensitivities }),
-    ...(match.dataSensitivities === undefined ? {} : { dataSensitivities: match.dataSensitivities }),
-    ...(match.fileRoots === undefined ? {} : { fileRoots: match.fileRoots }),
-    ...(match.commandAllowlist === undefined ? {} : { commandAllowlist: match.commandAllowlist })
-  };
-}
-
-function normalizeGrantRequirements(
-  requirements: z.infer<typeof capabilityGrantSchema>["requirements"]
-): CapabilityGrantRequirements | undefined {
-  if (requirements === undefined) {
-    return undefined;
-  }
-
-  return {
-    ...(requirements.requiresDryRun === undefined ? {} : { requiresDryRun: requirements.requiresDryRun }),
-    ...(requirements.requiresConfirmationToken === undefined
-      ? {}
-      : { requiresConfirmationToken: requirements.requiresConfirmationToken }),
-    ...(requirements.requiresApproval === undefined ? {} : { requiresApproval: requirements.requiresApproval }),
-    ...(requirements.requiresExactTarget === undefined ? {} : { requiresExactTarget: requirements.requiresExactTarget }),
-    ...(requirements.maxRiskLevel === undefined ? {} : { maxRiskLevel: requirements.maxRiskLevel }),
-    ...(requirements.allowedRoots === undefined ? {} : { allowedRoots: requirements.allowedRoots })
-  };
-}
-
-function normalizeGrant(grant: z.infer<typeof capabilityGrantSchema>): CapabilityGrant {
-  const requirements = normalizeGrantRequirements(grant.requirements);
-
-  return {
-    id: grant.id,
-    scope: grant.scope,
-    effect: grant.effect,
-    ...(grant.description === undefined ? {} : { description: grant.description }),
-    ...(grant.createdAt === undefined ? {} : { createdAt: grant.createdAt }),
-    ...(grant.expiresAt === undefined ? {} : { expiresAt: grant.expiresAt }),
-    match: normalizeGrantMatch(grant.match),
-    ...(requirements === undefined ? {} : { requirements })
-  };
 }
 
 export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Promise<AgentHostConfig> {
@@ -280,7 +163,6 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     targetRingDurationMs: fileConfig.overlay?.targetRingDurationMs ?? 600,
     pillAutoHideMs: fileConfig.overlay?.pillAutoHideMs ?? 30_000
   };
-  const grants = (fileConfig.grants ?? []).map((grant) => normalizeGrant(grant));
   const placement = z.enum(["foreground", "background"]).parse(env.AGENTHOST_EXECUTION_PLACEMENT ?? fileConfig.execution?.placement ?? "foreground");
   const execution = { placement, yieldToUser: fileConfig.execution?.yieldToUser ?? true, maxActionsPerTask: fileConfig.execution?.maxActionsPerTask ?? 500 };
   const speech = {
@@ -315,6 +197,6 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     tools: { profile: z.enum(["desktop", "full"]).parse(env.AGENTHOST_TOOLS_PROFILE ?? fileConfig.tools?.profile ?? "desktop") },
     autoInstallDependencies: fileConfig.autoInstallDependencies ?? true,
     speech,
-    policy: getDefaultPolicy({ grants })
+    policy: getDefaultPolicy()
   };
 }

@@ -13,7 +13,7 @@ import {
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 
 /*
  * Accessibility (AT-SPI) tools: read and drive app UIs as structured elements
@@ -83,12 +83,12 @@ function check(tool: string, actionType: ActionType, context: AgentHostMcpContex
   // accessibility tree of a password manager exposes entry names and fields,
   // so UI reads are blocked there just like UI writes.
   if (appName !== undefined && classifyAppSensitivity({ appName }) === "credential_or_security") {
-    return evaluateSafety({ tool, actionType: "accessibility_action", strategy: "accessibility", appName }, context.policy, createSafetyEvaluationContext(context));
+    return evaluateSafety({ tool, actionType: "accessibility_action", strategy: "accessibility", appName }, context.policy, safetyContext(context));
   }
   return evaluateSafety(
     { tool, actionType, strategy: "accessibility", ...(appName === undefined ? {} : { appName }), ...(dataSensitivity === undefined ? {} : { dataSensitivity }) },
     context.policy,
-    createSafetyEvaluationContext(context)
+    safetyContext(context)
   );
 }
 

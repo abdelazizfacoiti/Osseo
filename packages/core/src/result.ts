@@ -2,7 +2,6 @@ import type {
   ApprovalInfo,
   AutomationStrategy,
   RiskLevel,
-  GrantDecision,
   ActionEffectDecisionSummary,
   ActionVerificationSummary,
   ToolConfirmationInfo,
@@ -24,7 +23,6 @@ export interface ToolSuccessInput<T> {
   strategy?: AutomationStrategy;
   preview?: boolean;
   confirmation?: ToolConfirmationInfo;
-  grantDecision?: GrantDecision;
   approval?: ApprovalInfo;
   actionDecision?: ActionEffectDecisionSummary;
   verification?: ActionVerificationSummary;
@@ -39,7 +37,6 @@ export function toolSuccess<T>(input: ToolSuccessInput<T>): ToolResult<T> {
     riskLevel: input.riskLevel,
     ...(input.preview === true ? { preview: true } : {}),
     ...(input.confirmation === undefined ? {} : { confirmation: input.confirmation }),
-    ...(input.grantDecision === undefined ? {} : { grantDecision: input.grantDecision }),
     ...(input.actionDecision === undefined ? {} : { actionDecision: input.actionDecision }),
     ...(input.verification === undefined ? {} : { verification: input.verification }),
     ...(input.state === undefined ? {} : { state: input.state }),
@@ -63,7 +60,6 @@ export interface ToolFailureInput {
   strategy?: AutomationStrategy;
   preview?: boolean;
   confirmation?: ToolConfirmationInfo;
-  grantDecision?: GrantDecision;
   approval?: ApprovalInfo;
   actionDecision?: ActionEffectDecisionSummary;
   verification?: ActionVerificationSummary;
@@ -78,7 +74,6 @@ export function toolFailure<T = never>(input: ToolFailureInput): ToolResult<T> {
     riskLevel: input.riskLevel,
     ...(input.preview === true ? { preview: true } : {}),
     ...(input.confirmation === undefined ? {} : { confirmation: input.confirmation }),
-    ...(input.grantDecision === undefined ? {} : { grantDecision: input.grantDecision }),
     ...(input.actionDecision === undefined ? {} : { actionDecision: input.actionDecision }),
     ...(input.verification === undefined ? {} : { verification: input.verification }),
     ...(input.state === undefined ? {} : { state: input.state }),

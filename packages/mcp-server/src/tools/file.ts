@@ -4,7 +4,7 @@ import { toolFailure, toolSuccess, normalizePathForPolicy, evaluateSafety, isAge
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 
 const baseSchema = z.object({
   path: z.string().trim().min(1).max(1000)
@@ -74,7 +74,7 @@ function safetyCheck(tool: string, actionType: "file_read" | "file_write" | "fil
   return evaluateSafety(
     { tool, actionType, filePath, strategy: "cli_or_script" },
     context.policy,
-    createSafetyEvaluationContext(context)
+    safetyContext(context)
   );
 }
 
@@ -87,13 +87,13 @@ function sourceCheck(tool: string, filePath: string, context: AgentHostMcpContex
   return evaluateSafety(
     { tool, actionType: "file_read", filePath, strategy: "cli_or_script" },
     context.policy,
-    createSafetyEvaluationContext(context)
+    safetyContext(context)
   );
 }
 
 /** A move removes its source, so a control-plane source (config, policy.toml, run state) is checked as a write, not a read. */
 function moveSourceCheck(tool: string, filePath: string, context: AgentHostMcpContext) {
-  const platform = createSafetyEvaluationContext(context);
+  const platform = safetyContext(context);
   return isAgentHostControlPath(filePath, platform) ? safetyCheck(tool, "file_write", filePath, context) : sourceCheck(tool, filePath, context);
 }
 

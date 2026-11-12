@@ -88,7 +88,6 @@ import {
 import { WindowsHelperProcess, createWindowsDesktop } from "@agenthost/os-windows";
 import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator } from "@agenthost/app-overlay";
 import type { AgentHostMcpContext, LinuxAutomation } from "./context.js";
-import { GrantStore } from "./grants.js";
 import { createDesktopTools } from "./tools/desktop.js";
 import { createAppTools } from "./tools/app.js";
 import { createUiTools } from "./tools/ui.js";
@@ -293,7 +292,6 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       ))
     : undefined);
   const policy = options.policy ?? config.policy;
-  const grants = new GrantStore({ persistentGrants: policy.grants });
   const activityMode = config.overlay?.mode ?? "always";
   const dockLayout = (config.overlay?.layout ?? "dock") === "dock";
   const actionPill = config.overlay?.actionPill ?? !dockLayout;
@@ -462,7 +460,6 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     registry,
     logger,
     ...(trace === undefined ? {} : { trace }),
-    grants,
     overlay,
     actionOverlay,
     ...(actionTimeline === undefined ? {} : { actionTimeline }),

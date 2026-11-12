@@ -52,7 +52,7 @@ minimal-v2 because MCP clients may start a fresh server process per call; the
 fingerprint and target binding provide the exact-preview proof.
 
 Dangerous or blocked effects are denied even with a token. Confirmation proves
-operator intent; it does not bypass policy, grants, path checks, or handler
+operator intent; it does not bypass policy, path checks, or handler
 checks.
 
 ## Emergency stop and human takeover
@@ -125,7 +125,7 @@ blocked or high risk.
 `shell.run` rejects attempts to override `PATH`, `HOME`, `LD_PRELOAD`,
 `LD_LIBRARY_PATH`, `NODE_OPTIONS`, `PYTHONPATH`, `BASH_ENV`, or `ENV`.
 
-## Policy and grants
+## Policy
 
 AgentHost has one autonomous runtime policy. It permits routine local shell,
 file, GUI input, and screenshot directly.
@@ -134,9 +134,12 @@ gated as `approval_required`; credential/security apps, secret data, protected
 system paths, and the AgentHost control plane stay blocked. No policy bypasses
 schema validation, preview, token, stop/takeover, or audit requirements.
 
-Persistent grants are validated and scoped by capability. A grant does not
-replace a confirmation token for a high-risk, external, destructive, or
-private-data effect.
+Capability grants were removed. Rules that change what asks, runs, or is
+refused live in `policy.toml` (see "Policy file" below). A `grants` key with
+entries in `config.json` fails loading with a message that says so; an empty
+array is accepted. Reading or inspecting a communication app is allowed up to
+medium risk by explicit code (`communicationInspectionAllowed`); sends and other
+external effects still need an exact confirmation.
 
 ## Policy file
 

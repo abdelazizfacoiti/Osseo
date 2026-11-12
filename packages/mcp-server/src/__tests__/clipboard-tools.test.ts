@@ -21,7 +21,6 @@ async function makeContext(linux: Record<string, unknown>): Promise<{ context: A
     sessionId: "clipboard",
     config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
-    grants: { listActiveGrants: () => [] },
     logger: { log: async (entry: AuditLogEntry) => { logs.push(entry); } },
     linux
   } as unknown as AgentHostMcpContext;

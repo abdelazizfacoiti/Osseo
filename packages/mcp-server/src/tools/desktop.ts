@@ -28,7 +28,7 @@ import { join as joinEffectPath } from "node:path";
 import { downscaleToJpeg, measureEffect, waitForSettled, type EffectResult } from "@agenthost/os-linux";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition, ToolPreviewEffect } from "../tool-runner.js";
-import { createSafetyEvaluationContext } from "../grants.js";
+import { safetyContext } from "../context.js";
 
 const nonEmptyString = z.string().trim().min(1).max(1000);
 const confirmationTokenSchema = z.string().trim().min(8).max(120).optional();
@@ -515,7 +515,7 @@ function initialGuiSafety(
       ...(activeWindow.appName === undefined ? {} : { appName: activeWindow.appName })
     },
     context.policy,
-    createSafetyEvaluationContext(context)
+    safetyContext(context)
   );
 }
 
@@ -628,7 +628,7 @@ async function desktopPreview(
     approval: safety.approval,
     blocked: safety.blocked,
     reasons: safety.reasons,
-    requiresConfirmation: safety.grantDecision.requiresConfirmationToken
+    requiresConfirmation: safety.requiresConfirmationToken
       || safety.riskLevel === "high"
       || safety.appSensitivity === "communication"
       || safety.appSensitivity === "financial",
@@ -812,7 +812,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         const safety = evaluateSafety(
           { tool: "desktop.screenshot", actionType: "file_write", strategy: "gui_control", filePath: outputPath },
           context.policy,
-          createSafetyEvaluationContext(context)
+          safetyContext(context)
         );
         return {
           summary: `Capture screenshot to ${outputPath}`,
@@ -842,7 +842,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           filePath: outputPath
         },
         context.policy,
-        createSafetyEvaluationContext(context)
+        safetyContext(context)
       );
 
       if (!postResolutionSafety.allowed) {
@@ -1002,7 +1002,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           ...(validation.activeWindow!.appName === undefined ? {} : { appName: validation.activeWindow!.appName })
         },
         context.policy,
-        createSafetyEvaluationContext(context)
+        safetyContext(context)
       );
 
       if (!postResolutionSafety.allowed) {
@@ -1087,7 +1087,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           ...(validation.activeWindow!.appName === undefined ? {} : { appName: validation.activeWindow!.appName })
         },
         context.policy,
-        createSafetyEvaluationContext(context)
+        safetyContext(context)
       );
 
       if (!postResolutionSafety.allowed) {
@@ -1184,7 +1184,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           ...(window.appName === undefined ? {} : { appName: window.appName })
         },
         context.policy,
-        createSafetyEvaluationContext(context)
+        safetyContext(context)
       );
       if (!postResolutionSafety.allowed) return safetyFailure(tool, postResolutionSafety);
 
@@ -1351,7 +1351,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         const policy = evaluateSafety(
           { tool: "desktop.file_dialog_select", actionType: "file_read", filePath: normalizePathForPolicy(i.path, { agentHostDir: context.config.agentHostDir }), strategy: "cli_or_script" },
           context.policy,
-          createSafetyEvaluationContext(context)
+          safetyContext(context)
         );
         const found = await findFileDialog(context, i);
         if (!found.ok) {
@@ -1382,7 +1382,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       const policy = evaluateSafety(
         { tool, actionType: "file_read", filePath: normalizePathForPolicy(input.path, { agentHostDir: context.config.agentHostDir }), strategy: "cli_or_script" },
         context.policy,
-        createSafetyEvaluationContext(context)
+        safetyContext(context)
       );
       if (!policy.allowed) return safetyFailure(tool, policy);
 
@@ -1524,7 +1524,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           ...(validation.activeWindow!.appName === undefined ? {} : { appName: validation.activeWindow!.appName })
         },
         context.policy,
-        createSafetyEvaluationContext(context)
+        safetyContext(context)
       );
 
       if (!postResolutionSafety.allowed) {
@@ -1660,7 +1660,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           ...(validation.activeWindow!.appName === undefined ? {} : { appName: validation.activeWindow!.appName })
         },
         context.policy,
-        createSafetyEvaluationContext(context)
+        safetyContext(context)
       );
 
       if (!postResolutionSafety.allowed) {

@@ -1,4 +1,4 @@
-import type { CapabilityGrant, PermissionDefaults, RuntimePolicy } from "./types.js";
+import type { PermissionDefaults, RuntimePolicy } from "./types.js";
 
 const DEFAULT_PERMISSIONS: PermissionDefaults = {
   shell: "allow",
@@ -35,29 +35,13 @@ export const DEFAULT_POLICY: RuntimePolicy = {
   requireDryRunForStateChanging: false,
   requireConfirmationForStateChanging: false,
   requireExactTargetForStateChanging: false,
-  defaults: DEFAULT_PERMISSIONS,
-  grants: [{
-    id: "default.communication-read",
-    scope: "persistent",
-    effect: "allow",
-    description: "Read/inspect communication apps. Sends and external effects still require exact confirmation.",
-    match: {
-      actionTypes: ["observe", "inspect", "file_read"],
-      appSensitivities: ["communication"]
-    },
-    requirements: { maxRiskLevel: "medium" }
-  }]
+  defaults: DEFAULT_PERMISSIONS
 };
 
-function cloneGrants(grants: CapabilityGrant[]): CapabilityGrant[] {
-  return structuredClone(grants);
-}
-
-export function getDefaultPolicy(options: { grants?: CapabilityGrant[] } = {}): RuntimePolicy {
+export function getDefaultPolicy(): RuntimePolicy {
   return {
     ...DEFAULT_POLICY,
     allowFileWriteRoots: [...DEFAULT_POLICY.allowFileWriteRoots],
-    defaults: { ...DEFAULT_POLICY.defaults },
-    grants: cloneGrants([...DEFAULT_POLICY.grants, ...(options.grants ?? [])])
+    defaults: { ...DEFAULT_POLICY.defaults }
   };
 }

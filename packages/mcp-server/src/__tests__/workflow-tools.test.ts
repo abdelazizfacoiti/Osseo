@@ -23,7 +23,6 @@ function context(home: string): AgentHostMcpContext {
     sessionId: "workflow-test",
     config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
-    grants: { listActiveGrants: () => [] },
     logger: { log: async (_entry: AuditLogEntry) => undefined },
     tools: new Map([["app.open_url", {}], ["desktop.type_text", {}]]) as never,
     linux: {}

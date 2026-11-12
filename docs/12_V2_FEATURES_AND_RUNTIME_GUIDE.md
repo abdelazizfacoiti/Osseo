@@ -18,7 +18,7 @@ controlled access to a Linux workstation:
 MCP client / model
   -> stdio MCP server
   -> schema validation
-  -> risk + policy + grants
+  -> risk + policy
   -> stop / takeover / pause gate
   -> effect preview and confirmation when required
   -> tool handler
@@ -207,7 +207,7 @@ Targets and pictures:
 Vision tools operate on approved local images only:
 
 - Default approved sources: AgentHost screenshots and outputs.
-- Other paths require a matching grant.
+- Other paths are refused (`image_path_not_approved`).
 - Maximum image size: 20 MB.
 - Formats: PNG, JPEG, WebP, BMP, TIFF.
 - Local Tesseract OCR only; no upload or cloud OCR.
@@ -308,7 +308,7 @@ These remain denied even with a valid token:
 - Secret data.
 - Protected system paths.
 - AgentHost control-plane writes and deletes.
-- Actions blocked by policy or grants.
+- Actions blocked by policy.
 
 ### Dry-run envelope
 
@@ -420,15 +420,12 @@ low/medium effects inside that exact plan:
 - `returnScreenshot` on the plan returns one picture after the whole plan. The
   result lists one line per step.
 
-### Grants
+### Grants (removed)
 
-Persistent grants are validated and scoped by capability. A grant can restrict
-or allow specific tools, action types, apps, sensitivities, file roots,
-commands, and related bindings. It does not replace a confirmation token for a
-high-risk, external, destructive, or private-data effect.
-
-The default policy includes one communication-read grant allowing observation
-and reads up to medium risk. Sends and external effects remain
+Capability grants no longer exist. Put a rule in `policy.toml` instead; a
+non-empty `grants` array in `config.json` is refused with a message that says
+so. The one built-in allowance (observation and reads in communication apps up
+to medium risk) is explicit code, and sends and external effects remain
 confirmation-gated.
 
 ## 6. Tasks and definition of done
@@ -854,7 +851,7 @@ Main fields:
 | `notifications` | `pushUrl`: optional generic push alert (https); never approves |
 | `output` | `verbosity`: `lean` (default: compact results without server provenance, an empty approval block, or null fields; the state is sent once and then `stateUnchanged`) or `full` (every field, pretty-printed) |
 | `blockedApps` | Apps the operator never wants automated (substring match) |
-| `grants` | Capability-scoped allow/deny/guide-only rules |
+| `grants` | Removed. Only an empty array loads; a non-empty one fails with a pointer to `policy.toml` |
 | `optionalAdapters` | Ignored. Old config files that still contain it load without error |
 
 Overlay fields include:

@@ -23,14 +23,14 @@ describe("default autonomous policy", () => {
     expect(policy.defaults.privateDataReads).toBe("approval_required");
     expect(policy.defaults.externalSendsUploads).toBe("approval_required");
     expect(policy.defaults.destructiveActions).toBe("approval_required");
-    expect(policy.grants.map((grant) => grant.id)).toContain("default.communication-read");
+    expect("grants" in policy).toBe(false);
   });
 
   it("returns isolated copies", () => {
     const first = getDefaultPolicy();
     first.allowFileWriteRoots.push("/tmp/mutated");
-    first.grants.push({ id: "test", scope: "session", effect: "allow", match: {} });
+    first.defaults.shell = "deny";
     expect(DEFAULT_POLICY.allowFileWriteRoots).not.toContain("/tmp/mutated");
-    expect(getDefaultPolicy().grants).toHaveLength(DEFAULT_POLICY.grants.length);
+    expect(getDefaultPolicy().defaults.shell).toBe("allow");
   });
 });

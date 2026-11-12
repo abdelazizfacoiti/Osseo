@@ -4,7 +4,6 @@ export function evaluateApprovalRequirement(
   riskLevel: RiskLevel,
   policy: RuntimePolicy,
   reasons: string[] = [],
-  exactGrantPresent = false,
   confirmationSatisfied = false
 ): ApprovalInfo {
   const reason = reasons.join(" ");
@@ -17,7 +16,7 @@ export function evaluateApprovalRequirement(
     };
   }
 
-  if (riskLevel === "high" && policy.blockHighRiskByDefault && !exactGrantPresent) {
+  if (riskLevel === "high" && policy.blockHighRiskByDefault) {
     return {
       required: false,
       status: "denied",
@@ -33,16 +32,6 @@ export function evaluateApprovalRequirement(
     };
   }
 
-  // Exact scoped grants make a high-risk effect eligible for governed
-  // execution; the runner still requires an exact single-use confirmation.
-  if (riskLevel === "high" && exactGrantPresent) {
-    return {
-      required: true,
-      status: "required",
-      reason: reason.length > 0 ? reason : "High-risk action requires exact confirmation."
-    };
-  }
-
   if (riskLevel === "high") {
     return {
       required: true,
@@ -51,7 +40,7 @@ export function evaluateApprovalRequirement(
     };
   }
 
-  if (riskLevel === "medium" && policy.requireApprovalForMediumRisk && !exactGrantPresent) {
+  if (riskLevel === "medium" && policy.requireApprovalForMediumRisk) {
     return {
       required: true,
       status: "required",

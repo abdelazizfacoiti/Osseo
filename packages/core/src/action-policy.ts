@@ -6,7 +6,6 @@ import type {
   ActionRecoveryAction,
   AppSensitivity,
   GovernedActionEffect,
-  GrantDecision,
   RuntimePolicy,
   RiskLevel,
   SafetyInput,
@@ -53,7 +52,7 @@ export function fingerprintActionEffect(input: {
   })).digest("hex");
 }
 
-/** Hash opaque target/content bindings before grants, effects, or logs. */
+/** Hash opaque target/content bindings before effects or logs. */
 export function fingerprintActionBinding(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -80,7 +79,7 @@ function firstBinding(source: Record<string, unknown>, keys: readonly string[]):
 /**
  * Derive opaque bindings for legacy state-changing handlers. This is a
  * bounded compatibility resolver: only known input fields are considered,
- * and values are hashed before entering effects, grants, or logs.
+ * and values are hashed before entering effects or logs.
  */
 export function deriveActionEffectBindings(input: unknown, existing: ActionBindingFingerprints = {}): ActionBindingFingerprints {
   const source = asRecord(input);
@@ -214,7 +213,6 @@ function failure(decision: ActionEffectDecision, recovery: ActionRecoveryAction,
     code,
     reason,
     ...(effect === undefined ? {} : { effectFingerprint: effect.fingerprint }),
-    requiresGrant: effect !== undefined && (effect.externalEffect || effect.destructive || effect.sensitivity !== "normal"),
     requiresConfirmation: effect?.confirmationLevel !== "none",
     requiresStrongConfirmation: effect?.confirmationLevel === "strong",
     verificationRequired: effect !== undefined && (effect.externalEffect || effect.destructive)
@@ -224,7 +222,6 @@ function failure(decision: ActionEffectDecision, recovery: ActionRecoveryAction,
 export function decideGovernedAction(input: {
   effect?: GovernedActionEffect;
   safety?: { allowed: boolean; blocked: boolean; guideOnly: boolean; riskLevel: RiskLevel; appSensitivity: AppSensitivity };
-  grantDecision?: GrantDecision;
   policy: RuntimePolicy;
 }): ActionEffectDecisionSummary {
   const effect = input.effect;
@@ -239,16 +236,14 @@ export function decideGovernedAction(input: {
     return failure("unsupported", "select_route", "action_route_unavailable", "Financial effect has no explicitly governed route and independent verification contract.", effect);
   }
   if (effect.reversibility === "prohibited") return failure("blocked_by_policy", "block", "action_policy_blocked", "Effect is prohibited by safety policy.", effect);
-  if (input.grantDecision !== undefined && input.grantDecision.deniedByGrantIds.length > 0) return failure("blocked_by_policy", "block", "action_policy_blocked", "An explicit deny grant blocks this exact effect.", effect);
-  const needsGrant = effect.externalEffect || effect.destructive || sensitivity !== "normal";
-  // Preserve precise recovery for default-denied external effects. Callers
-  // can request a narrowly scoped grant instead of receiving a category-only
-  // refusal.
-  if (needsGrant && (input.grantDecision?.allowedByGrantIds.length ?? 0) === 0 && input.policy.defaults.externalSendsUploads === "deny") {
-    return failure("require_confirmation", "confirm", "action_grant_missing", "A matching scoped grant is required for this exact effect.", effect);
+  const consequential = effect.externalEffect || effect.destructive || sensitivity !== "normal";
+  // A policy that denies external sends and uploads (none of the built-in ones do) keeps a precise,
+  // recoverable refusal for consequential effects instead of a category-only block.
+  if (consequential && input.policy.defaults.externalSendsUploads === "deny") {
+    return failure("require_confirmation", "confirm", "action_not_permitted", "The active policy does not permit this exact effect without a fresh decision.", effect);
   }
   if (input.safety?.blocked === true) return failure("blocked_by_policy", "block", "action_policy_blocked", "Safety policy blocked this exact effect.", effect);
-  if (input.safety?.guideOnly === true) return failure("guide_only", "guide", "action_policy_blocked", "Current grant or policy permits guide mode only.", effect);
+  if (input.safety?.guideOnly === true) return failure("guide_only", "guide", "action_policy_blocked", "Current policy permits guide mode only.", effect);
   if (effect.verificationKind === "none" && (effect.externalEffect || effect.destructive)) {
     return failure("verification_unavailable", "guide", "action_verification_unavailable", "No independent verification contract is available.", effect);
   }
@@ -258,7 +253,6 @@ export function decideGovernedAction(input: {
     decision: effect.executionClass === "read_only" ? "allow_read_only" : "allow_from_explicit_intent",
     recovery: "retry",
     ...(effect.fingerprint === undefined ? {} : { effectFingerprint: effect.fingerprint }),
-    requiresGrant: needsGrant,
     requiresConfirmation: false,
     requiresStrongConfirmation: false,
     verificationRequired: false,
