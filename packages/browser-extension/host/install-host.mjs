@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { launcherScript } from "./launcher.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -30,7 +31,10 @@ const dir = dirs[browser];
 if (!dir) { console.error("Unknown browser: " + browser); process.exit(2); }
 if (browser !== "firefox" && !/^[a-p]{32}$/.test(extensionId)) { console.error("Chrome and Chromium need --extension-id (32 letters a-p, shown on chrome://extensions)."); process.exit(2); }
 
-const hostPath = path.join(here, "native-host.mjs");
+const hostScript = path.join(here, "native-host.mjs");
+const binDir = path.join(home, ".agenthost", "browser-extension", "bin");
+const launcherPath = path.join(binDir, "agenthost-browser-host");
+const hostPath = launcherPath;
 const template = JSON.parse(fs.readFileSync(path.join(here, "manifest-template.json"), "utf8"));
 const manifest = { ...template, path: hostPath };
 if (browser === "firefox") {
@@ -41,11 +45,17 @@ if (browser === "firefox") {
 }
 const target = path.join(dir, template.name + ".json");
 const resolved = path.resolve(target);
-if (!resolved.startsWith(path.resolve(home) + path.sep)) { console.error("Refusing to write outside the home folder."); process.exit(2); }
+if (![resolved, launcherPath].every((p) => path.resolve(p).startsWith(path.resolve(home) + path.sep))) { console.error("Refusing to write outside the home folder."); process.exit(2); }
 
+const script = launcherScript(process.execPath, hostScript);
+console.log((apply ? "Writing " : "Would write ") + launcherPath + " (mode 0700)");
 console.log((apply ? "Writing " : "Would write ") + resolved);
-if (!apply) { console.log(JSON.stringify(manifest, null, 2)); console.log("Run again with --apply to write it."); process.exit(0); }
+if (!apply) { console.log(script.trimEnd()); console.log(JSON.stringify(manifest, null, 2)); console.log("Run again with --apply to write it."); process.exit(0); }
+fs.mkdirSync(binDir, { recursive: true, mode: 0o700 });
+fs.chmodSync(binDir, 0o700);
+fs.writeFileSync(launcherPath, script, { mode: 0o700 });
+fs.chmodSync(launcherPath, 0o700);
 fs.mkdirSync(dir, { recursive: true });
-fs.writeFileSync(resolved, JSON.stringify(manifest, null, 2) + "\n", { mode: 0o600 });
-try { fs.chmodSync(hostPath, 0o755); } catch { /* best effort */ }
+fs.writeFileSync(resolved, JSON.stringify(manifest, null, 2) + "\n", { mode: 0o644 });
+fs.chmodSync(resolved, 0o644);
 console.log("Done. Restart the browser.");

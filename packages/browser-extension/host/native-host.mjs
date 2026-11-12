@@ -63,20 +63,43 @@ export function createRelay({ getAllowedHosts, toExtension }) {
   };
 }
 
-function main() {
+/** True when something accepts connections on the socket (a live host owns it). A stale file or a missing one is false. */
+export function socketAnswers(socketPath, timeoutMs = 500) {
+  return new Promise((resolve) => {
+    const probe = net.connect(socketPath);
+    let done = false;
+    const finish = (value) => { if (done) return; done = true; clearTimeout(timer); probe.destroy(); resolve(value); };
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    probe.once("connect", () => finish(true));
+    probe.once("error", () => finish(false));
+  });
+}
+
+/**
+ * Decide who serves the socket. A live owner keeps it: this process neither unlinks nor listens and only relays its
+ * own Chrome port. A stale file is removed. Returns { owner } where owner means this process must listen and, at exit,
+ * remove the socket.
+ */
+export async function claimSocket(socketPath, timeoutMs = 500) {
+  fs.mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
+  if (await socketAnswers(socketPath, timeoutMs)) return { owner: false };
+  try { fs.unlinkSync(socketPath); } catch { /* none */ }
+  return { owner: true };
+}
+
+async function main() {
   const home = os.homedir();
   const allowedFile = defaultAllowedHostsFile(home);
   const runDir = path.join(home, ".agenthost", "run");
   const socketPath = process.env.AGENTHOST_BROWSER_SOCKET || path.join(runDir, "browser-extension.sock");
-  fs.mkdirSync(path.dirname(socketPath), { recursive: true, mode: 0o700 });
-  try { fs.unlinkSync(socketPath); } catch { /* none */ }
+  const { owner } = await claimSocket(socketPath);
 
   const relay = createRelay({
     getAllowedHosts: () => readAllowedHosts(allowedFile),
     toExtension: (frame) => process.stdout.write(frame)
   });
 
-  const server = net.createServer((socket) => {
+  const server = owner ? net.createServer((socket) => {
     const decoder = new FrameDecoder();
     socket.on("data", (chunk) => {
       let messages;
@@ -84,14 +107,14 @@ function main() {
       for (const message of messages) relay.fromClient(message, (body) => { if (!socket.destroyed) socket.write(encodeFrame(body)); });
     });
     socket.on("error", () => {});
-  });
-  server.listen(socketPath, () => { try { fs.chmodSync(socketPath, 0o600); } catch { /* best effort */ } });
+  }) : null;
+  if (server) server.listen(socketPath, () => { try { fs.chmodSync(socketPath, 0o600); } catch { /* best effort */ } });
 
   const decoder = new FrameDecoder();
   process.stdin.on("data", (chunk) => {
     try { for (const message of decoder.push(chunk)) relay.fromExtension(message); } catch (error) { log("bad frame from extension:", error.message); process.exit(1); }
   });
-  process.stdin.on("end", () => { relay.failAll("extension_disconnected"); server.close(); try { fs.unlinkSync(socketPath); } catch { /* gone */ } process.exit(0); });
+  process.stdin.on("end", () => { relay.failAll("extension_disconnected"); if (server) { server.close(); try { fs.unlinkSync(socketPath); } catch { /* gone */ } } process.exit(0); });
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) main();
+if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) main().catch((error) => { log("host failed:", error.message); process.exit(1); });

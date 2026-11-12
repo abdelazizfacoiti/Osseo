@@ -15,21 +15,55 @@ function hostAllowed(host, allowed) {
 }
 // END hostAllowed
 
-let port = null;
+// BEGIN backoff
+function backoffDelay(attempt) {
+  return Math.min(1000 * Math.pow(2, Math.max(0, attempt)), 60000);
+}
+// END backoff
 
-function connect() {
-  try {
-    port = chrome.runtime.connectNative(HOST_NAME);
-  } catch (error) {
-    port = null;
-    return;
-  }
-  port.onMessage.addListener((message) => { void handle(message); });
-  port.onDisconnect.addListener(() => { port = null; });
+let port = null;
+let attempt = 0;
+let retryTimer = null;
+let stableTimer = null;
+
+function scheduleReconnect() {
+  if (retryTimer !== null) return;
+  const delay = backoffDelay(attempt);
+  attempt += 1;
+  retryTimer = setTimeout(() => { retryTimer = null; connect(); }, delay);
 }
 
-function reply(id, body) {
-  if (port) port.postMessage({ id, ...body });
+function connect() {
+  if (port) return;
+  if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
+  let mine;
+  try {
+    mine = chrome.runtime.connectNative(HOST_NAME);
+  } catch (error) {
+    port = null;
+    scheduleReconnect();
+    return;
+  }
+  port = mine;
+  mine.onMessage.addListener((message) => { void handle(message, mine); });
+  mine.onDisconnect.addListener(() => {
+    void chrome.runtime.lastError; // read it so Chrome does not log an unchecked error
+    if (port === mine) port = null;
+    if (stableTimer !== null) { clearTimeout(stableTimer); stableTimer = null; }
+    scheduleReconnect();
+  });
+  // The connection counts as good once it survives two seconds; then the backoff starts over.
+  if (stableTimer !== null) clearTimeout(stableTimer);
+  stableTimer = setTimeout(() => { stableTimer = null; if (port === mine) attempt = 0; }, 2000);
+}
+
+// Answers on the port the request came in on. If that port is gone, connect once and answer on the new one;
+// when there is still no port the request cannot be answered here (the host fails the client itself).
+function replyVia(id, body, via) {
+  let target = via && via === port ? via : port;
+  if (!target) { connect(); target = port; }
+  if (!target) return;
+  try { target.postMessage({ id, ...body }); } catch { /* port closed meanwhile */ }
 }
 
 async function allowedHosts() {
@@ -38,7 +72,8 @@ async function allowedHosts() {
 }
 
 // Tabs on allowed hosts only, as { tabId, host, title }. Never a url, page content, cookies or storage.
-async function listTabs(id) {
+async function listTabs(id, via) {
+  const reply = (rid, body) => replyVia(rid, body, via);
   const allowed = await allowedHosts();
   let tabs;
   try { tabs = await chrome.tabs.query({}); } catch { return reply(id, { ok: false, reason: "tabs_unavailable" }); }
@@ -54,10 +89,12 @@ async function listTabs(id) {
   reply(id, { ok: true, tabs: out });
 }
 
-async function handle(message) {
+async function handle(message, via) {
   const id = message && message.id;
+  const reply = (rid, body) => replyVia(rid, body, via);
+  if (!port) { connect(); if (!port) return replyVia(id, { ok: false, reason: "extension_disconnected" }, via); }
   if (!message || !REQUEST_TYPES.includes(message.type)) return reply(id, { ok: false, reason: "unknown_type" });
-  if (message.type === "tabs") return listTabs(id);
+  if (message.type === "tabs") return listTabs(id, via);
   if (!Number.isSafeInteger(message.tabId)) return reply(id, { ok: false, reason: "bad_tab_id" });
   if (!isPlainHostname(message.host)) return reply(id, { ok: false, reason: "bad_host" });
   const allowed = await allowedHosts();
