@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- `agenthost selftest` proves in a few seconds that the installed build works: it starts the built server with no display, opens a local form in headless Chrome, fills it with `see`, `type` and `click` by number, and checks the result. It prints PASS or FAIL per step, stops at the first failure, exits 1 on any failure, and `--json` returns the steps.
+- `browser.own_tabs` now lists the tabs of the person's own browser. The extension protocol has a `tabs` request. The extension, the native host (through `allowed-hosts.json`) and the MCP tool (through `policy.toml` site rules) each keep only tabs on allowed hosts. Each tab is reported as tab id, hostname and title cut to 80 characters, never a URL or page content.
+- `agenthost shortcut status|install|remove` adds a GNOME custom keyboard shortcut (default Ctrl+Shift+Alt+Esc) that runs `agenthost agent stop` through a small wrapper in `~/.agenthost/bin`. It writes the stop file directly, so it works even if the host hangs. Preview by default; `--apply` changes it. Other desktops get the manual steps.
 - Added an opt-in host service (`AGENTHOST_HOST=1`): MCP clients connect through a thin shim to one per-user host over a private Unix socket. State-changing calls take a single host-wide lease with a 30 s busy limit, and `agenthost host status|start|stop` manages the host. The default in-process server is unchanged.
 - Added `agenthost journal show` and `agenthost journal save <name>`: the steps the agent took through numbered actions can be saved as a parameterized workflow after review. Typed text is never recorded; it becomes a parameter.
 - Numbered actions say what changed in the window's controls, in words (`field "Name" now reads "Ada"`, `dialog "Confirm" went away`). The check uses the accessibility outline; the pixel check is a secondary signal and the fallback when the outline is empty, unsupported, slow or from another window.
