@@ -1,4 +1,4 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { ensurePrivateDirectory } from "@agenthost/core";
 import { createScreenTools } from "./tools/screen.js";
 import { createGuideTools } from "./tools/guide.js";
@@ -9,6 +9,19 @@ import { renderResultText, type OutputVerbosity, type StateHolder } from "./lean
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+
+/** run/background-display.json holds {"display": ":N"} while a background display is up; removed when it is not. */
+async function writeBackgroundDisplayInfo(agentHostDir: string, display: string | undefined): Promise<void> {
+  const file = path.join(agentHostDir, "run", "background-display.json");
+  if (display === undefined) {
+    await rm(file, { force: true });
+    return;
+  }
+  await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
+  const temporary = `${file}.tmp-${process.pid}`;
+  await writeFile(temporary, `${JSON.stringify({ display })}\n`, { encoding: "utf8", mode: 0o600 });
+  await rename(temporary, file);
+}
 import os from "node:os";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -93,6 +106,7 @@ import { createAppTools } from "./tools/app.js";
 import { createUiTools } from "./tools/ui.js";
 import { createClipboardTools } from "./tools/clipboard.js";
 import { createBrowserTools } from "./tools/browser.js";
+import { createOwnBrowserTools } from "./tools/own-browser.js";
 import { createWorkflowTools } from "./tools/workflow.js";
 import { createMemoryTools } from "./tools/memory.js";
 import { createPushNotifier } from "./push-notify.js";
@@ -278,6 +292,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     const started = await startBackgroundDisplay();
     if (!started.ok) throw new Error(`background_display_unavailable: ${started.reason}`);
     backgroundDisplay = started;
+    // The viewer reads this to find the display; it holds only the display name.
+    await writeBackgroundDisplayInfo(config.agentHostDir, started.display).catch(() => undefined);
   }
   const desktopContext = { agentHostDir: config.agentHostDir, ...(backgroundDisplay === undefined ? {} : { env: backgroundDisplay.env }) };
   const sessionId = options.sessionId ?? createSessionId();
@@ -497,6 +513,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     ...createUiTools(),
     ...createClipboardTools(),
     ...createBrowserTools(),
+    ...createOwnBrowserTools(),
     ...createWorkflowTools(),
     ...createMemoryTools()
   ];
@@ -639,6 +656,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       await approvalOverlay?.close();
       await context.linux.browser?.close().catch(() => undefined);
       await backgroundDisplay?.stop().catch(() => undefined);
+      if (backgroundDisplay !== undefined) await writeBackgroundDisplayInfo(config.agentHostDir, undefined).catch(() => undefined);
       await actionOverlay.close();
       await actionTimeline?.close();
       await overlay.close();

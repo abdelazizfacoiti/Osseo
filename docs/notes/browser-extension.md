@@ -1,6 +1,6 @@
 # Browser extension bridge (Phase 8)
 
-Status: code and unit tests exist in `packages/browser-extension/`. Not connected to the MCP server. Never run in a real browser.
+Status: code and unit tests exist in `packages/browser-extension/`; connected to the MCP server (see the last section). Never run in a real browser.
 
 ## Parts
 
@@ -34,3 +34,17 @@ Content scripts cannot import modules, so the refusal predicate lives in `src/re
 - No `browser.*` route in the MCP server yet, and nothing writes `allowed-hosts.json` from `policy.toml`.
 - Firefox needs `background.scripts`; the manifest lists both keys and has not been checked on Firefox.
 - No store packaging or signing.
+
+## Connected to the MCP server
+
+The server now has `browser.own_snapshot`, `browser.own_click`, `browser.own_type`, `browser.own_select`, `browser.own_navigate`, `browser.own_read` and `browser.own_tabs` (`packages/mcp-server/src/tools/own-browser.ts`). `browser-extension-client.ts` sends one framed request per call to the native host's socket (`<agent home>/run/browser-extension.sock`, or `AGENTHOST_BROWSER_SOCKET`) and waits up to 15 s for the reply with the same id. The framing is a copy of `src/protocol.mjs`; a test compares the two.
+
+- Each call names `tabId`, `host` (a plain lower-case hostname, else `bad_host`) and the ref or value it needs.
+- A host is usable only when the first `site` rule in `policy.toml` that matches it (action `any`, any app) says `allow`. No rule, `ask` or `never` gives `host_not_allowed` before anything is sent. A suffix rule matches the host and its subdomains, never `evil-example.com`. A navigation target must pass the same check.
+- Click, select, type and navigate also go through the file rules for `click`, `type` and `navigate` on that host: `never` refuses (`policy_never`), `ask` needs a confirmation token. Snapshot and read are classified as `inspect` and go through the same safety evaluation as the dedicated browser.
+- Results are `{ ok, reason?, ... }`. On success the extension's fields are returned unchanged. On failure the reason is the extension's (`password_field`, `sensitive_autocomplete`, `sensitive_name`, `ref_stale`, `host_not_allowed`, `timeout`, `extension_not_running`, ...); a reason that is not short snake_case is replaced by `extension_error`. No field value is ever in an error.
+- Typed text and select values are never in the audit summary, only their length.
+- The server writes `<agent home>/browser-extension/allowed-hosts.json` (0600, atomic, only when the content changed) from the `site` allow rules, at the start of every `browser.own_*` call when `policy.toml` has a new mtime or size. It is not written at server start, only on the first call.
+- `browser.own_tabs` returns `unsupported`: the extension protocol has no tab-listing request, so the person must pass the tab id.
+
+Not tested: a real Chrome, the real native host process, and the permission prompt. Tests use a fake unix socket server.

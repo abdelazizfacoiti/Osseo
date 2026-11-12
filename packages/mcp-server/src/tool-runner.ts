@@ -53,7 +53,7 @@ export interface ToolPreviewEffect {
 }
 
 /** Tools that read what is on screen or the clipboard; refused while a human handoff is active. */
-const HANDOFF_BLOCKED_TOOLS = new Set(["see", "desktop.screenshot", "vision.find_text_on_screen", "ui.tree", "ui.find", "clipboard.get", "computer.wait_for", "computer.observe_state", "browser.snapshot", "browser.screenshot"]);
+const HANDOFF_BLOCKED_TOOLS = new Set(["see", "desktop.screenshot", "vision.find_text_on_screen", "ui.tree", "ui.find", "clipboard.get", "computer.wait_for", "computer.observe_state", "browser.snapshot", "browser.screenshot", "browser.own_snapshot", "browser.own_read"]);
 
 export interface AgentHostToolDefinition<Input, Output, Context = AgentHostMcpContext> {
   name: string;
@@ -738,7 +738,7 @@ const TASK_PHASES = new WeakMap<AgentHostMcpContext, string>();
 const OVERLAY_NOTED = new WeakSet<AgentHostMcpContext>();
 
 /** Tools whose results carry text written by someone else (a web page, document, or clipboard). */
-const UNTRUSTED_CONTENT_TOOLS = new Set(["see", "vision.analyze_image", "vision.find_text", "vision.find_target", "vision.find_text_on_screen", "ui.tree", "ui.find", "file.read", "file.read_many", "clipboard.get", "browser.snapshot", "browser.screenshot", "memory.search"]);
+const UNTRUSTED_CONTENT_TOOLS = new Set(["see", "vision.analyze_image", "vision.find_text", "vision.find_target", "vision.find_text_on_screen", "ui.tree", "ui.find", "file.read", "file.read_many", "clipboard.get", "browser.snapshot", "browser.screenshot", "browser.own_snapshot", "browser.own_read", "memory.search"]);
 /** Tool families that need a desktop adapter for the host OS. */
 const DESKTOP_FAMILIES = new Set(["desktop", "window", "app", "ui", "clipboard"]);
 const ACTION_COUNTS = new WeakMap<AgentHostMcpContext, number>();

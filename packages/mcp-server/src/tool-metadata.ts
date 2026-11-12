@@ -18,7 +18,7 @@ declare([
   "computer.observe_state", "computer.wait", "computer.wait_for", "file.exists", "file.list", "file.read", "file.read_many", "file.search", "system.get_info", "system.list_capabilities", "vision.analyze_image", "vision.find_target", "vision.find_text", "vision.find_text_on_screen", "window.list", "ui.tree", "ui.find", "clipboard.get", "browser.snapshot", "browser.wait_for", "browser.screenshot"
 ], readOnly());
 declare(["system.check_dependency"], diagnostic());
-declare(["agent.status", "screen.read"], readOnly());
+declare(["agent.status", "screen.read", "browser.own_snapshot", "browser.own_read", "browser.own_tabs"], readOnly());
 // The numbered actions only resolve a number and call an existing governed tool, which gates and audits the real effect.
 declare(["click", "type", "key", "scroll", "drag", "open", "windows", "wait", "ask", "steps", "status"], metadataOnly());
 declare(["agent.stop", "agent.takeover_begin", "agent.request_handoff", "guide.show", "guide.clear"], metadataOnly());
@@ -26,7 +26,7 @@ declare(["task.create", "task.status", "task.update", "task.update_status", "tas
 // see may take a picture (a file write), so it has the same class as desktop.screenshot.
 declare(["see"], directStateChanging());
 declare([
-  "app.open", "app.open_url", "computer.run_steps", "desktop.click", "desktop.hotkey", "desktop.pointer", "desktop.file_dialog_select", "desktop.screenshot", "desktop.set_field", "desktop.type_text", "file.copy", "file.ensure_dir", "file.move", "file.write", "shell.run", "window.focus", "ui.activate", "ui.set_text", "clipboard.set", "browser.open", "browser.click", "browser.type", "browser.navigate", "browser.close", "browser.select", "browser.fill"
+  "app.open", "app.open_url", "computer.run_steps", "desktop.click", "desktop.hotkey", "desktop.pointer", "desktop.file_dialog_select", "desktop.screenshot", "desktop.set_field", "desktop.type_text", "file.copy", "file.ensure_dir", "file.move", "file.write", "shell.run", "window.focus", "ui.activate", "ui.set_text", "clipboard.set", "browser.open", "browser.click", "browser.type", "browser.navigate", "browser.close", "browser.select", "browser.fill", "browser.own_click", "browser.own_type", "browser.own_select", "browser.own_navigate"
 ], directStateChanging());
 declare(["file.delete"], confirmedStateChanging());
 declare(["browser.upload"], confirmedStateChanging());
