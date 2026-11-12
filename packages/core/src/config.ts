@@ -167,6 +167,8 @@ const configFileSchema = z
     speech: speechSchema.optional(),
     // Accepted for old config files; it does nothing.
     optionalAdapters: z.unknown().optional(),
+    // Accepted for old config files (removed phone approvals); it does nothing.
+    phone: z.unknown().optional(),
     grants: z.array(capabilityGrantSchema).max(500).optional()
   })
   .strict();

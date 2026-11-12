@@ -1,5 +1,5 @@
 /*
- * Optional phone notification: one generic POST to a URL the operator chose
+ * Optional push notification: one generic POST to a URL the operator chose
  * (for example a private ntfy.sh topic). It says only that AgentHost is waiting.
  * It carries no preview, app name, task text, or token, because that URL belongs
  * to a third party. It cannot approve anything: approval stays at the computer,

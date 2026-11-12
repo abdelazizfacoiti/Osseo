@@ -146,7 +146,6 @@ You can answer in any of these ways:
 - In the chat: your MCP client asks you directly, and the agent cannot answer for you.
 - On screen: an approval card that only a real mouse press can accept.
 - In a terminal: `agenthost confirmations` lists pending requests, then `agenthost confirm <id>` or `agenthost deny <id>`.
-- From a paired phone, if you set it up with `agenthost phone pair`.
 
 Each approval covers one action and expires after 15 minutes.
 

@@ -5,13 +5,13 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, describeDesktopPlatform, acceptConfirmation, alwaysAllowFromConfirmation, createPhonePairing, readPhonePairing, removePhonePairing, isValidChannelUrl, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
+import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, describeDesktopPlatform, acceptConfirmation, alwaysAllowFromConfirmation, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
 import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
 import { COMMAND_USAGE, TOP_USAGE, wantsHelp } from "./help.js";
 import { attentionCli } from "./attention.js";
 import { parseFlags } from "./flags.js";
 import { policyCommand } from "./policy.js";
-import { physicalConsent, pressCheck } from "./phone.js";
+import { pressCheck } from "./press-check.js";
 import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
 import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@agenthost/os-linux";
 import { claudeHooksAdd, claudeHooksRemove, claudeHooksStatus } from "./hooks.js";
@@ -636,27 +636,6 @@ async function memoryCommand(sub: string | undefined, args: ReturnType<typeof pa
   }
   return fail("memory", "usage: agenthost memory list|delete <id>|clear [--yes]");
 }
-async function phoneCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
-  if (sub === undefined || sub === "status") {
-    const pairing = await readPhonePairing(agentHome);
-    return { ok: true, command: "phone status", data: pairing === undefined ? { paired: false } : { paired: true, disabled: pairing.disabled, codesLeft: pairing.codes.length, maxRisk: pairing.maxRisk, publishUrl: "[configured]", pairedAt: pairing.pairedAt } };
-  }
-  if (sub === "unpair") { await removePhonePairing(agentHome); return { ok: true, command: "phone unpair", data: { paired: false } }; }
-  if (sub !== "pair") return fail("phone", "usage: agenthost phone status|pair --publish <url> --poll <url> [--max-risk medium|high]|unpair");
-  const publishUrl = args.values.get("publish"); const pollUrl = args.values.get("poll"); const maxRisk = args.values.get("max-risk") ?? "medium";
-  if (publishUrl === undefined || pollUrl === undefined) return fail("phone pair", "usage: agenthost phone pair --publish <url> --poll <url> [--max-risk medium|high]");
-  if (!isValidChannelUrl(publishUrl) || !isValidChannelUrl(pollUrl)) return fail("phone pair", "phone_channel_url_invalid: use https");
-  if (maxRisk !== "medium" && maxRisk !== "high") return fail("phone pair", "phone_max_risk_invalid: medium or high");
-  // Pairing grants approval power, so an agent must not be able to do it. Its
-  // shell has no terminal, and it cannot press the card with synthetic input.
-  if (process.stdin.isTTY !== true || process.stdout.isTTY !== true) return fail("phone pair", "phone_pair_needs_terminal: run this yourself in a terminal");
-  const config = await loadAgentHostConfig({ env: process.env });
-  if (config.overlay?.allowSyntheticControl === true) return fail("phone pair", "phone_pair_refused: overlay.allowSyntheticControl lets synthetic clicks press the card");
-  const consent = await physicalConsent(agentHome, publishUrl);
-  if (consent !== "allowed") return fail("phone pair", `phone_pair_not_confirmed: ${consent}`);
-  const { codes, pairing } = await createPhonePairing(agentHome, { publishUrl, pollUrl, maxRisk });
-  return { ok: true, command: "phone pair", data: `Paired. Approvals up to ${pairing.maxRisk} risk can now be answered from your phone.\n\nOne-time codes, shown only now. Save them on your phone, then clear this terminal:\n\n${codes.join("\n")}\n\nReply on the channel with: approve <ref> <code>  or  deny <ref> <code>` };
-}
 function systemdUserDir(): string { return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"), "systemd", "user"); }
 const runSchtasks: SchtasksRunner = (schtasksArgs) => {
   const result = spawnSync("schtasks.exe", schtasksArgs, { encoding: "utf8", windowsHide: true });
@@ -748,7 +727,6 @@ async function main(): Promise<number> {
     else if (top === "workflow") result = await workflowCommand(sub, args);
     else if (top === "schedule") result = await scheduleCommand(sub, args);
     else if (top === "memory") result = await memoryCommand(sub, args);
-    else if (top === "phone") result = await phoneCommand(sub, args);
     else if (top === "policy") result = await policyCommand(agentHome, sub, args, json);
     else result = fail(top, "unknown_command");
   } catch (error) { result = fail(top ?? "agenthost", error instanceof Error ? error.message : "command_failed"); }

@@ -851,7 +851,7 @@ Main fields:
 | `logFile` | Audit log path |
 | `overlay` | Renderer mode, activity mode, theme, density, persistence, placement, width, monitor policy |
 | `execution` | `placement` (`foreground` default, `background` nested display), `yieldToUser` (default true), `maxActionsPerTask` (default 500; 0 = off) |
-| `notifications` | `pushUrl`: optional generic phone alert (https); never approves |
+| `notifications` | `pushUrl`: optional generic push alert (https); never approves |
 | `output` | `verbosity`: `lean` (default: compact results without server provenance, an empty approval block, or null fields; the state is sent once and then `stateUnchanged`) or `full` (every field, pretty-printed) |
 | `blockedApps` | Apps the operator never wants automated (substring match) |
 | `grants` | Capability-scoped allow/deny/guide-only rules |
@@ -897,7 +897,7 @@ configuration compatibility, but they do not register removed tools. Removed
 top-level config keys such as `runtimeActivityOverlay`, `browserBridge`,
 `controlRoom`, and `profile` are stripped before strict validation.
 
-## 12b. Background placement, Wayland, memory, and phone alerts
+## 12b. Background placement, Wayland, memory, and push alerts
 
 ### Background placement (nested display)
 
@@ -945,48 +945,11 @@ marked `untrustedContent` because a lesson can originate from a hostile page.
 Operators can inspect and erase everything: `agenthost memory
 list|delete <id>|clear --yes`.
 
-### Phone notifications and approvals
+### Push notifications
 
 `notifications.pushUrl` (https, opt-in) receives one fixed POST, at most every 30
 seconds, saying AgentHost is waiting at the computer. It carries no preview,
 app name, task text, or token, and it cannot approve anything.
-
-Phone approvals are a separate opt-in, off until paired:
-
-```bash
-agenthost phone pair --publish <url> --poll <url> [--max-risk medium|high]
-agenthost phone status
-agenthost phone unpair
-```
-
-The channel is any ntfy-style pair of URLs, for example private `ntfy.sh` topics.
-AgentHost makes outbound requests only and polls only while a request is pending.
-Each pending confirmation from this server is published with its redacted preview
-and a short reference. Reply `approve <ref> <code>` or `deny <ref> <code>`. That
-makes the same decision as `agenthost confirm|deny`: the agent may retry that one
-exact action, once. Requests above `--max-risk` (default `medium`) stay
-computer-only, and the card and CLI keep working.
-
-Trust model:
-
-- The machine stores only salted hashes of 20 one-time codes, so nothing an agent
-  can read on this computer can answer a request. Codes are shown once at
-  pairing. A code works once. Five wrong codes disable the channel.
-- Pairing needs a real terminal and a real-pointer press on a card, and it is
-  refused when `overlay.allowSyntheticControl` is on.
-
-Known risks, accepted by choosing to pair:
-
-- **Previews leave the machine.** Redacted summaries go to the channel's operator
-  and anyone who knows the topic name. Use a self-hosted server or long random
-  topic names.
-- **A spoofed request.** The channel URLs are readable on this machine, so an
-  agent could post a fake request to the channel showing a harmless preview with
-  the reference of a real one, and trick you into approving it. Approve only what
-  you just asked for; when in doubt, deny and check at the computer.
-- **Weaker than the card.** Approval no longer proves someone is at the machine.
-- **Codes on screen.** An agent with screen access could read codes left in the
-  terminal. Clear it after saving them, and `phone unpair` if in doubt.
 
 ### Dropped
 

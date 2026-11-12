@@ -97,7 +97,6 @@ import { createBrowserTools } from "./tools/browser.js";
 import { createWorkflowTools } from "./tools/workflow.js";
 import { createMemoryTools } from "./tools/memory.js";
 import { createPushNotifier } from "./push-notify.js";
-import { PhoneBridge } from "./phone-bridge.js";
 import { createComputerTools } from "./tools/computer.js";
 import { createFileTools } from "./tools/file.js";
 import { createShellTools } from "./tools/shell.js";
@@ -363,7 +362,6 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     })
     : undefined;
   const pushNotify = createPushNotifier(config.notifications?.pushUrl);
-  const phoneBridge = options.linux === undefined ? new PhoneBridge({ agentHostDir: config.agentHostDir, sessionId }) : undefined;
   const approvalOverlay = activityMode !== "off" && options.linux === undefined
     ? new ApprovalOverlay(overlay, { agentHostDir: config.agentHostDir, sessionId })
     : undefined;
@@ -646,7 +644,6 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       await taskActivity?.close();
       await handoffOverlay?.close();
       await approvalOverlay?.close();
-      phoneBridge?.close();
       await context.linux.browser?.close().catch(() => undefined);
       await backgroundDisplay?.stop().catch(() => undefined);
       await actionOverlay.close();

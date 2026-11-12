@@ -681,7 +681,7 @@ export interface AgentHostConfig {
   /** On first start, offer a password-prompted apt install of missing desktop packages (default true). */
   /** Apps the operator never wants automated; treated like credential/security apps. */
   blockedApps?: string[];
-  /** Optional phone notification; generic text only, it cannot approve anything. */
+  /** Optional push notification; generic text only, it cannot approve anything. */
   notifications?: { pushUrl?: string };
   /** lean (default): compact results without provenance or repeated state; full: everything, pretty-printed. */
   output?: { verbosity?: "lean" | "full" };

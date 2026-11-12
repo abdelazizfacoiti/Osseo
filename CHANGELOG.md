@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Removed phone approvals (pairing, the phone bridge and the phone command). Old config files with a phone key still load.
 - "Always allow here" on approval prompts. The approval card has a third button, chat has an "Always allow this kind of action in this app" checkbox, and `agenthost confirm <id> --always` does the same from a terminal. Each approves the action once and writes one `allow` rule to `policy.toml` for the app (and site) and action. It is refused, with a reason, for `any`, navigate, type and click, unknown apps, blocked actions and duplicates. The card button accepts only a physical press, like Approve.
 - `agenthost policy list|add|remove`: see rules with their line numbers (a parse error is shown with its line), add a rule and remove one by line. Add and remove preview unless `--apply` is given; writes are atomic and validated.
 - Confirmations now record what they are about (`policyTarget`). Shell commands that edit `policy.toml` or run `agenthost policy add|remove` are blocked.

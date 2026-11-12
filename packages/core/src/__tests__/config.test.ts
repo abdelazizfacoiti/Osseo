@@ -101,6 +101,16 @@ describe("loadAgentHostConfig", () => {
     await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
   });
 
+  it("loads an old config with a phone key and drops the key", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-phone-"));
+    const agentHostDir = path.join(homeDir, ".agenthost");
+    await mkdir(agentHostDir, { recursive: true });
+    const configPath = path.join(agentHostDir, "config.json");
+    await writeFile(configPath, JSON.stringify({ phone: { paired: true } }), "utf8");
+    const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
+    expect("phone" in config).toBe(false);
+  });
+
   it("loads persistent grants on the default policy", async () => {
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-grants-"));
     const agentHostDir = path.join(homeDir, ".agenthost");
