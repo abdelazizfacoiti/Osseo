@@ -30,7 +30,7 @@ const work = await mkdtemp(path.join(os.tmpdir(), "agenthost-winrel-"));
 try {
   const stage = path.join(work, top);
   // Left out: Linux-only files (the GTK overlay runtime, the apt package list), .bin shims (symlinks), the manifest (rewritten below).
-  const skip = new Set(["version.json", "requirements-linux.txt", "packages/app-overlay/runtime", "node_modules/@agenthost/app-overlay/runtime", "node_modules/.bin"]);
+  const skip = new Set(["version.json", "requirements-linux.txt", "packages/app-overlay/runtime", "packages/os-linux/runtime", "node_modules/@agenthost/app-overlay/runtime", "node_modules/@agenthost/os-linux/runtime", "node_modules/.bin"]);
   await cp(linuxStage, stage, {
     recursive: true,
     dereference: true,

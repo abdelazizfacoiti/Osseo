@@ -97,7 +97,10 @@ import {
   analyzeLinuxImage,
   readUserIdleMs,
   getBrowserSession,
-  startBackgroundDisplay
+  startBackgroundDisplay,
+  PortalSession,
+  createPortalDesktop,
+  shouldUseWaylandPortal
 } from "@agenthost/os-linux";
 import { WindowsHelperProcess, createWindowsDesktop } from "@agenthost/os-windows";
 import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator, type OverlayRenderer } from "@agenthost/app-overlay";
@@ -468,7 +471,14 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     };
   // On Windows the desktop methods come from the PowerShell helper; files, shell and the browser stay as they are.
   const windowsHelper = options.linux === undefined && platformReport.os === "windows" ? new WindowsHelperProcess({ agentHostDir: config.agentHostDir }) : undefined;
-  const linux: LinuxAutomation = windowsHelper === undefined ? baseLinux : { ...baseLinux, ...createWindowsDesktop(windowsHelper) };
+  // Opt-in (AGENTHOST_WAYLAND_PORTAL=1) on a Wayland session, when no background display is in use: input and
+  // screenshots go through the RemoteDesktop and ScreenCast portals after one consent. Tests that inject linux skip it.
+  const waylandPortal = options.linux === undefined && windowsHelper === undefined && backgroundDisplay === undefined && shouldUseWaylandPortal(process.env)
+    ? new PortalSession()
+    : undefined;
+  const linux: LinuxAutomation = windowsHelper !== undefined
+    ? { ...baseLinux, ...createWindowsDesktop(windowsHelper) }
+    : waylandPortal === undefined ? baseLinux : { ...baseLinux, ...createPortalDesktop(waylandPortal) };
   const serverModulePath = fileURLToPath(import.meta.url);
   const runtime = {
     version: SERVER_VERSION,
@@ -661,6 +671,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       await handoffOverlay?.close();
       await approvalOverlay?.close();
       await context.linux.browser?.close().catch(() => undefined);
+      await waylandPortal?.close().catch(() => undefined);
       await backgroundDisplay?.stop().catch(() => undefined);
       if (backgroundDisplay !== undefined) await writeBackgroundDisplayInfo(config.agentHostDir, undefined).catch(() => undefined);
       await actionOverlay.close();

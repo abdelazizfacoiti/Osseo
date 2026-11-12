@@ -42,6 +42,7 @@ for (const packageName of ["core", "mcp-server", "os-linux", "os-windows", "app-
   await copy(path.join(root, "packages", packageName, "package.json"), path.join(stage, "packages", packageName, "package.json"));
 }
 await copy(path.join(root, "packages", "app-overlay", "runtime"), path.join(stage, "packages", "app-overlay", "runtime"));
+await copy(path.join(root, "packages", "os-linux", "runtime"), path.join(stage, "packages", "os-linux", "runtime"));
 await copy(path.join(root, "README.md"), path.join(stage, "README.md"));
 await copy(path.join(root, "requirements-linux.txt"), path.join(stage, "requirements-linux.txt"));
 await copy(path.join(root, "CHANGELOG.md"), path.join(stage, "CHANGELOG.md"));

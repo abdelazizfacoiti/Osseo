@@ -7,7 +7,7 @@ What AgentHost can control, by operating system and session. Run
 |---|---|---|---|
 | Linux | X11 | Full: windows, input, screenshots, cards, accessibility | Daily use |
 | Linux | Wayland + XWayland | X11 (XWayland) windows only: list, focus, type, click, screenshot, cards | Headless GNOME compositor with `Xwayland` |
-| Linux | Native Wayland, no XWayland | None directly. Use `execution.placement: "background"` (Xephyr) | Headless GNOME compositor |
+| Linux | Native Wayland, no XWayland | Opt-in: `AGENTHOST_WAYLAND_PORTAL=1` sends input and screenshots through the desktop portal after one consent (not yet run on a real Wayland login). Otherwise `execution.placement: "background"` (Xephyr) | Headless GNOME compositor |
 | Linux | Headless | Only tools that need no display | Yes |
 | Windows | Native desktop (W2) | Windows, mouse, keyboard, screenshots, clipboard and accessibility (Windows UI Automation: `ui.*`, `screen.read`, label clicks, `set_field` read-back, `guide.show` labels) through a PowerShell helper (`packages/os-windows`); headless tools as in W1. No OCR fallback; windows running as administrator are refused (`elevated_window`) | Not yet verified on a Windows machine: run `scripts\windows-desktop-check.ps1` |
 | macOS | Native | Not implemented: desktop tools fail with `unsupported_platform` | No |
@@ -144,13 +144,18 @@ cannot. The remaining routes, and why each is not shipped yet:
   scale factor, and monitor layout. A wrong mapping clicks the wrong place, which
   is a safety problem, so it must be calibrated and verified on a real Wayland
   session before it ships. It also needs the user in the `uinput` group.
-- **Desktop portal screenshots** need a one-time permission prompt, and
-  `gnome-screenshot` already works for the screenshot tool on GNOME.
+- **Desktop portal (RemoteDesktop and ScreenCast)** gives input and screenshots
+  after one consent prompt. It ships as an opt-in path, `AGENTHOST_WAYLAND_PORTAL=1`,
+  and the shared screen is its only target; see `docs/notes/wayland-portal.md`.
 - **AT-SPI** can list apps and windows on Wayland but not screen coordinates for
   most toolkits.
 
-Until then, the supported ways to work with native Wayland apps are the nested
-display (`execution.placement: "background"`) or an X11 login.
+On a Wayland login, `AGENTHOST_WAYLAND_PORTAL=1` sends input and screenshots
+through the desktop portal, after one consent prompt. AgentHost does not list or
+focus windows there, and it has not yet been run on a real Wayland login:
+`agenthost portal check --start` is the check to run on one. Otherwise, the
+supported ways to work with native Wayland apps are the nested display
+(`execution.placement: "background"`) or an X11 login.
 
 ## Adding a Windows or macOS adapter
 

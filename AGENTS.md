@@ -69,6 +69,7 @@ packages/
 | `agenthost confirmations` / `confirm <tokenId>` / `deny <tokenId>` | Inspect and resolve exact-preview confirmation tokens |
 | `agenthost viewer start [--display :N] \| stop \| status` | Small GTK view of the background display (`packages/app-overlay/runtime/viewer.py`) with Pause, Resume and Stop; frames from `captureDisplayFrame` (scrot) into `run/viewer/`; the window only reads files |
 | `agenthost tray start \| stop \| status` | Status icon in the system tray (StatusNotifierItem, `packages/app-overlay/runtime/tray.py`) showing running, paused, stopped or waiting for approval, with a menu of Stop, Pause, Resume and Open viewer. A menu item runs only on a real pointer press (`on_item`, the viewer's helpers); Resume also needs physical hardware. GNOME needs the AppIndicator extension |
+| `agenthost portal check [--start]` | Checks the desktop portal that the Wayland path uses (`packages/os-linux/runtime/portal_helper.py`). Without `--start` it creates and closes one portal session and shows no dialog; `--start` asks the person once through the portal's own dialog and reports the granted screen. A real answer needs a Wayland login |
 | `agenthost journal show [--session <id>] \| save <name> [--session <id>] [--last <n>] [--apply]` | Steps the agent took through numbered actions, and a saved workflow built from them (preview unless `--apply`) |
 | `agenthost selftest [--json]` | Prove the installed build works in a few seconds: built server, headless Chrome, a local form filled by number; exit 0 when every step passes |
 | `npm run benchmark:suite` | 25 local-HTML browser tasks in headless Chrome, one isolated home per task; prints a table and the gate (success rate at least 0.9, zero unverified successes); `--tasks`, `--runs`, `--out`; needs no display |
@@ -189,9 +190,12 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
 - **Stale X displays**: a killed nested X server leaves `/tmp/.X<n>-lock` behind.
   `check:live` ignores locks whose process is gone; do the same in new scripts.
 
+- **Wayland portal (opt-in)**: `AGENTHOST_WAYLAND_PORTAL=1` on a Wayland session with no background display routes `desktop.click`, `type_text`, `hotkey` and `screenshot` through the RemoteDesktop and ScreenCast portals (`packages/os-linux/src/portal/`, helper `packages/os-linux/runtime/portal_helper.py`). `server.ts` builds a `PortalSession` and merges `createPortalDesktop` over the Linux adapter, as the Windows helper does. The first click, key press or screenshot asks the person once (reads such as the window context never do): one RemoteDesktop Start covers input and capture, and a refusal is kept for the process. The shared monitor is the one target (`portal-screen`); window listing and focus are refused, and pointer actions other than click and Teach waits are unavailable. The helper needs python3-gi (Gio and Gst) and GStreamer's `pipewiresrc`, `videoconvert` and `pngenc` or `jpegenc`. Not yet run on a real Wayland login (see `docs/notes/wayland-portal.md`).
+
 ## Testing quirks
 
 - Tests live in `__tests__/` dirs inside each package's `src/`
+- `packages/os-linux/src/__tests__/portal-fake-bus.test.ts` runs the real portal helper against `portal/fake_portal.py` on a private `dbus-run-session` bus (skipped without dbus or gi). `portal-session.test.ts` uses a Python stand-in for the helper; `portal-desktop.test.ts` uses a fake session.
 - Tests use Vitest (no separate config file; defaults from `vitest`)
 - `packages/mcp-server/src/__tests__/action-overlay.test.ts` — automatic action card lifecycle, controls, persistence, auto-hide, and redaction
 - `packages/app-overlay/src/__tests__/overlay-geometry.test.ts` — pure card/ring clamp, collision avoidance, and monitor selection
