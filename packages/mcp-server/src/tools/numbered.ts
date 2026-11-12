@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import { callGoverned } from "../nested.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import { recordNumbered } from "../journal.js";
 import { observeStructure } from "../see-diff.js";
 import { lookupTarget, viewForWindow, type SeenView, type TargetLookup, type ViewTarget } from "../view-registry.js";
 import { browserIsTarget, currentWindowBounds } from "./see.js";
@@ -120,7 +121,11 @@ function define<I extends { dryRun?: boolean | undefined; confirmationToken?: st
     auditOutputSummary: auditCounts(spec.name),
     safety: { actionType: "inspect" },
     delegatesExecutionArgs: true,
-    handler: spec.handler
+    handler: async (input, context) => {
+      const result = await spec.handler(input, context);
+      try { await recordNumbered(context, spec.name, input as Record<string, unknown>, result); } catch { /* a journal failure never changes the result */ }
+      return result;
+    }
   };
   return tool as AnyAgentHostToolDefinition<AgentHostMcpContext>;
 }

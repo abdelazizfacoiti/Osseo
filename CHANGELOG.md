@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added `agenthost journal show` and `agenthost journal save <name>`: the steps the agent took through numbered actions can be saved as a parameterized workflow after review. Typed text is never recorded; it becomes a parameter.
 - Numbered actions say what changed in the window's controls, in words (`field "Name" now reads "Ada"`, `dialog "Confirm" went away`). The check uses the accessibility outline; the pixel check is a secondary signal and the fallback when the outline is empty, unsupported, slow or from another window.
 - Added `browser.own_snapshot`, `own_click`, `own_type`, `own_select`, `own_navigate`, `own_read` and `own_tabs`: the MCP server can use the browser extension, limited to hosts that `policy.toml` allows by a `site` rule. Typed text is never logged. `own_tabs` is unsupported until the extension can list tabs.
 - Added `agenthost viewer start|stop|status`, a small live view of the background display with Pause, Resume and Stop. Background placement is still off by default.
