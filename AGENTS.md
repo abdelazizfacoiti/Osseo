@@ -41,6 +41,7 @@ packages/
   app-overlay/       GTK3 renderer + overlay manager + task progress card
   os-linux/          OS adapters (filesystem, desktop, dependencies, window mgmt)
   os-windows/        Windows desktop adapter (PowerShell helper, SendInput, GDI); selected in server.ts on win32
+  browser-extension/ Manifest V3 extension and native messaging host for the person's own browser (not connected to the MCP server yet)
 ```
 
 ## Key commands
@@ -66,6 +67,7 @@ packages/
 | `agenthost overlay hide [--orphans]` / `overlay status` / `overlay check-input` | Cross-process hide marker + renderer diagnostics; `check-input` shows a test card that only a real hardware press can accept |
 | `agenthost task export <id> [--format md\|html]` | Shareable redacted run report |
 | `agenthost confirmations` / `confirm <tokenId>` / `deny <tokenId>` | Inspect and resolve exact-preview confirmation tokens |
+| `agenthost replay build [--session <id> \| --task <id> \| --last] [--out <file>]` / `list` / `open <id>` / `delete <id> [--apply]` | Single-session HTML page from the audit log, summaries only (no screenshots, no typed text); stored in `~/.agenthost/replays`, pruned at 14 days or 50 MB |
 | `agenthost policy list\|add\|remove <line> [--apply]` | List, add and remove `policy.toml` rules; `add --action <a> --decision <allow\|ask\|never> [--app <name>] [--site <host>] [--note <text>]`; preview unless `--apply`; `confirm <id> --always` writes the "Always allow here" rule |
 | `agenthost task pause <id>` / `task resume <id>` | Task lifecycle transitions (not a stop-flag clear) |
 | `agenthost agent status` / `pause` / `stop` / `takeover-begin` / `resume --stop\|--takeover\|--pause` | Runtime pause/stop/takeover flags; resume is operator-only |
@@ -164,6 +166,8 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
   no box). The overlay manager keeps marks at most 300 s whatever `ttlSeconds` says. While a guide is
   up, `guideActive` makes window-only captures in `desktop.ts` use card suppression again
   (`windowCaptureClean`), because a mark over the window corrupts the capture. `waitForClick` uses `waitForPointerPress` (`packages/os-linux/src/pointer-watch.ts`), which only reads pointer state, and ignores presses within 1 s of the `input-active` guard file. The guide polls the stop flag once a second and removes its marks on Stop.
+- **Capability grants are gone**: the `grants` key in `config.json` must be absent or an empty array; rules go in `policy.toml`. The classifier's own `requiresConfirmationToken` replaces the old `grantDecision` field, and `safetyContext(context)` in `packages/mcp-server/src/context.ts` builds the per-call safety context.
+- **Browser extension** (`packages/browser-extension/`): a site is used only after the person allows it in the popup, and it then appears in `~/.agenthost/browser-extension/allowed-hosts.json`. The extension refuses password, one-time-code and card fields and never reads cookies or storage. `refusals.mjs` and the `hostAllowed` block are copied into the extension scripts; tests keep the copies equal.
 - **Stale X displays**: a killed nested X server leaves `/tmp/.X<n>-lock` behind.
   `check:live` ignores locks whose process is gone; do the same in new scripts.
 
@@ -186,6 +190,9 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
 - `packages/mcp-server/src/__tests__/see-e2e.test.ts` — built server over stdio, headless: 14 tools, then open a form, `see`, `type` and `click` by number in headless Chrome
 - `packages/os-linux/src/__tests__/pointer-watch.test.ts` — pointer-press watcher: fake child cases and one real press on a nested display
 - `packages/mcp-server/src/__tests__/screen-read.test.ts` — the text-free outline and its byte cap
+- `packages/mcp-server/src/__tests__/capability-catalog.test.ts` — the capability manifest equals the tools the server really registers (no `forge.*`, `policy.list_grants`)
+- `packages/agenthost-cli/src/__tests__/replay.test.ts` — session replay: grouping, outcomes, escaping, CSP, storage modes, prune limits
+- `packages/browser-extension/src/__tests__/protocol.test.ts` and `content-refusals.test.ts` — native-host framing, host allow-list, refusal predicate copies compared
 - `packages/mcp-server/src/__tests__/always-allow.test.ts` — chat "Always allow here": one rule written, next action needs no approval, refusals (any, navigate, unknown app, blocked, duplicate)
 - `packages/mcp-server/src/__tests__/approval-overlay.test.ts` — approval card, the `always` event, and that the renderer treats `always` like `accepted`
 - `packages/core/src/__tests__/policy-write.test.ts` — atomic writes, failed write leaves the old file, remove keeps comments

@@ -11,7 +11,7 @@
 USER GOAL
   -> understand / plan / inspect environment
   -> select capability (computer/browser/filesystem/shell/apps/MCP/vision/skills)
-  -> act (central runner: schema + metadata + policy/grants + stop/takeover gate
+  -> act (central runner: schema + metadata + policy file + stop/takeover gate
      + dry-run/confirmation envelope + exact-target check)
   -> observe (computer.observe_state, screenshots, a11y, browser/command state)
   -> verify (checkpoints, re-observation)
@@ -40,7 +40,7 @@ Core is app-agnostic. Linux and application implementations stay outside `packag
 
 ### `packages/core`
 
-Shared contracts and validators: runtime policy, grants, risk and sensitivity, redaction, logging shapes, execution metadata, optional-adapter policy, Forge manifest/runtime types, vision/evidence types, workflow/replay/checkpoint types, scheduler governance types, and capability registry.
+Shared contracts and validators: runtime policy, risk and sensitivity, redaction, logging shapes, execution metadata, vision/evidence types, workflow/replay/checkpoint types, scheduler governance types, and capability registry.
 
 ### `packages/mcp-server`
 
@@ -144,7 +144,7 @@ Generated Forge tool names never enter this set. Only the fixed Forge control to
 
 1. Resolve the live definition and validated execution metadata.
 2. Validate the input schema.
-3. Evaluate broad policy, grants, protected context, risk, and guide-only restrictions.
+3. Evaluate policy file, protected context, risk, and guide-only restrictions.
 4. Require the declared dry-run/confirmation contract for state-changing tools.
 5. Verify the session/tool/input confirmation envelope without consuming it.
 6. Invoke the domain handler.

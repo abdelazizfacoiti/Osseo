@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Capability grants are removed. A non-empty `grants` array in `config.json` now fails loading with a message pointing to `policy.toml`; an empty array or no key still loads.
+- The built-in communication-read allowance is now explicit code (`communicationInspectionAllowed`): observe, inspect and file reads in communication apps up to medium risk. Sends and external effects still need exact confirmation.
+- Vision no longer accepts images outside the screenshots and outputs folders. The `granted_path` source is gone.
+- The tool manifest no longer lists `policy.list_grants`, `policy.explain_decision` or `forge.*`. A test checks the manifest against the tools the server registers.
+- `agenthost replay build|list|open|delete` writes a single-session HTML page from the audit log. It holds summaries only: no screenshots and no typed text.
+- A browser extension and native messaging host (`packages/browser-extension`) for sites the person allows in their own browser. It refuses password, one-time-code and card fields and never reads cookies or storage. It is not connected to the MCP server yet.
+- The host service design is written (`docs/notes/host-service-design.md`). No code yet.
 - Removed phone approvals (pairing, the phone bridge and the phone command). Old config files with a phone key still load.
 - "Always allow here" on approval prompts. The approval card has a third button, chat has an "Always allow this kind of action in this app" checkbox, and `agenthost confirm <id> --always` does the same from a terminal. Each approves the action once and writes one `allow` rule to `policy.toml` for the app (and site) and action. It is refused, with a reason, for `any`, navigate, type and click, unknown apps, blocked actions and duplicates. The card button accepts only a physical press, like Approve.
 - `agenthost policy list|add|remove`: see rules with their line numbers (a parse error is shown with its line), add a rule and remove one by line. Add and remove preview unless `--apply` is given; writes are atomic and validated.
