@@ -192,6 +192,8 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
 
 - **Wayland portal (opt-in)**: `AGENTHOST_WAYLAND_PORTAL=1` on a Wayland session with no background display routes `desktop.click`, `type_text`, `hotkey` and `screenshot` through the RemoteDesktop and ScreenCast portals (`packages/os-linux/src/portal/`, helper `packages/os-linux/runtime/portal_helper.py`). `server.ts` builds a `PortalSession` and merges `createPortalDesktop` over the Linux adapter, as the Windows helper does. The first click, key press or screenshot asks the person once (reads such as the window context never do): one RemoteDesktop Start covers input and capture, and a refusal is kept for the process. The shared monitor is the one target (`portal-screen`); window listing and focus are refused, and pointer actions other than click and Teach waits are unavailable. The helper needs python3-gi (Gio and Gst) and GStreamer's `pipewiresrc`, `videoconvert` and `pngenc` or `jpegenc`. Not yet run on a real Wayland login (see `docs/notes/wayland-portal.md`).
 
+- **Overlay cards need a compositor**: the GTK renderer needs `screen.is_composited()` for transparent cards (`overlay_compositor_unavailable`). A bare Xephyr test display reports `overlay_not_visible` for cards. To test cards on a nested display, run `gnome-shell --x11 --replace` on that display, on a private bus. Never run it on `:0`.
+
 ## Testing quirks
 
 - Tests live in `__tests__/` dirs inside each package's `src/`
