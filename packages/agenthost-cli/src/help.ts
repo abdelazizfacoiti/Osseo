@@ -4,7 +4,7 @@
  * the runtime directory, so `agenthost <anything> --help` is always safe.
  */
 
-export const TOP_USAGE = "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|policy|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall|help";
+export const TOP_USAGE = "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|policy|replay|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall|help";
 
 export const COMMAND_USAGE: Record<string, string> = {
   version: "agenthost version",
@@ -22,6 +22,7 @@ export const COMMAND_USAGE: Record<string, string> = {
   workflow: "agenthost workflow list | show <name> | run <name> [--param k=v] [--unattended] | delete <name>",
   schedule: "agenthost schedule list | add <workflow> (--daily HH:MM | --weekdays HH:MM | --every 30m) [--param k=v] [--apply] | remove <workflow> [--apply]",
   memory: "agenthost memory list | delete <id> | clear [--yes]",
+  replay: "agenthost replay build [--session <id> | --task <id> | --last] [--out <file>] | list | open <id> | delete <id> [--apply]",
   policy: "agenthost policy list [--json] | add --action <a> --decision <allow|ask|never> [--app <name>] [--site <host>] [--note <text>] [--apply] | remove <line> [--apply]",
   capabilities: "agenthost capabilities [--markdown]",
   permissions: "agenthost permissions",
