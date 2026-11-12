@@ -87,6 +87,27 @@ describe("agenthost viewer", () => {
     expect(existsSync(path.join(agentHome, "run", "viewer.stop"))).toBe(false);
   });
 
+  it("start passes this agent home to the window and the frame loop, so both use its run folder", async () => {
+    const envs: NodeJS.ProcessEnv[] = [];
+    const agentHome = home();
+    const deps: ViewerDeps = {
+      spawnProcess: vi.fn((_command: string, _args: string[], env: NodeJS.ProcessEnv) => {
+        envs.push(env);
+        return { pid: 4100 + envs.length, unref: () => undefined };
+      }),
+      processAlive: () => true,
+      scriptPath: "/x/viewer.py", node: "/usr/bin/node", entry: "/x/index.js",
+      env: { DISPLAY: ":41", AGENTHOST_HOME: "/some/other/home" }
+    };
+    const result = await viewerCommand(["start", "--display", ":90"], agentHome, deps);
+    expect(result.ok).toBe(true);
+    expect(envs).toHaveLength(2);
+    for (const env of envs) {
+      expect(env.AGENTHOST_HOME).toBe(agentHome);
+      expect(env.DISPLAY).toBe(":41");
+    }
+  });
+
   it("shows usage for an unknown subcommand", async () => {
     expect((await viewerCommand(["bogus"], home(), stub().deps)).ok).toBe(false);
   });

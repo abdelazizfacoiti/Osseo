@@ -102,11 +102,13 @@ export async function viewerCommand(args: string[], agentHome: string, deps: Vie
     await ensureRunDir(framesDir(agentHome));
     await rm(stopPath(agentHome), { force: true });
     const frame = path.join(framesDir(agentHome), "frame.png");
-    // The window opens on the person's own display, so it inherits the caller's environment.
-    const viewer = spawnProcess("python3", [script, "--frame", frame, "--agent-home", agentHome, "--node", node, "--entry", entry], deps.env ?? process.env);
+    // The window opens on the person's own display, so it inherits the caller's environment. Both children
+    // also get this agent home, so the frame loop and the window use the same run folder as the server.
+    const childEnv: NodeJS.ProcessEnv = { ...(deps.env ?? process.env), AGENTHOST_HOME: agentHome };
+    const viewer = spawnProcess("python3", [script, "--frame", frame, "--agent-home", agentHome, "--node", node, "--entry", entry], childEnv);
     if (viewer.pid === undefined) return fail("viewer start", "viewer_spawn_failed");
     viewer.unref();
-    const frames = spawnProcess(node, [entry, "viewer", "frames", "--display", display, "--viewer-pid", String(viewer.pid)], deps.env ?? process.env);
+    const frames = spawnProcess(node, [entry, "viewer", "frames", "--display", display, "--viewer-pid", String(viewer.pid)], childEnv);
     frames.unref();
     await writePid(agentHome, { pid: viewer.pid, ...(frames.pid === undefined ? {} : { framesPid: frames.pid }), display, startedAt: new Date().toISOString() });
     return { ok: true, command: "viewer start", data: { running: true, pid: viewer.pid, display } };

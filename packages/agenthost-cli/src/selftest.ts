@@ -1,9 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync, chmodSync, statSync, accessSync, constants } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync, chmodSync, statSync, accessSync, constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { findXephyr } from "@agenthost/os-linux";
 import { parseFlags } from "./flags.js";
+import { viewerCommand } from "./viewer.js";
 
 /*
  * `agenthost selftest`: proves the installed server works end to end in a few seconds. It starts the
@@ -100,8 +102,9 @@ async function stop(server: ChildProcess): Promise<void> {
   clearTimeout(timer);
 }
 
-export async function selftestCommand(args: string[], _agentHome: string, deps: SelftestDeps = {}): Promise<Output> {
+export async function selftestCommand(args: string[], agentHome: string, deps: SelftestDeps = {}): Promise<Output> {
   const { flags } = parseFlags(args);
+  if (flags.has("viewer")) return selftestViewerCommand(args, agentHome, deps);
   const json = flags.has("json");
   const mcpEntry = deps.mcpEntry;
   const steps: SelftestStep[] = STEP_NAMES.map((name) => ({ name, status: "skipped", ms: 0, detail: "skipped" }));
@@ -193,6 +196,233 @@ export async function selftestCommand(args: string[], _agentHome: string, deps: 
     }
     return finish();
   } finally {
+    if (server !== undefined) await stop(server);
+    rmSync(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
+  }
+}
+
+/*
+ * `agenthost selftest --viewer`: the same form check, run on the background desktop (a nested display)
+ * that the viewer shows on the person's screen. It also checks that Send asks first (an approval, nothing
+ * sent) and that the viewer draws frames. It needs a screen (DISPLAY), Xephyr and Chrome.
+ */
+const VIEWER_STEP_NAMES = ["initialize", "viewer", "open", "see", "type", "click", "see again", "approval", "viewer frames"] as const;
+const VIEWER_FORM = FORM.replace('<p id="out"></p>', '<button id="send" type="button">Send</button>\n<p id="out"></p>');
+
+export interface ViewerSelftestDeps extends SelftestDeps {
+  /** Starts the viewer for the background display the server recorded. Default: agenthost viewer start. */
+  startViewer?: (agentHome: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Stops the viewer again. Default: agenthost viewer stop. */
+  stopViewer?: (agentHome: string) => Promise<unknown>;
+  /** How long to wait for the server to record its background display. */
+  displayWaitMs?: number;
+}
+
+async function waitForBackgroundDisplay(home: string, timeoutMs: number): Promise<string | undefined> {
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    try {
+      const value = JSON.parse(readFileSync(path.join(home, "run", "background-display.json"), "utf8")) as { display?: unknown };
+      if (typeof value.display === "string") return value.display;
+    } catch {
+      /* not written yet */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return undefined;
+}
+
+async function waitForFrame(home: string, timeoutMs: number): Promise<{ bytes: number; ageMs: number } | undefined> {
+  const file = path.join(home, "run", "viewer", "frame.png");
+  const end = Date.now() + timeoutMs;
+  while (Date.now() < end) {
+    try {
+      const info = statSync(file);
+      if (info.size > 0) return { bytes: info.size, ageMs: Date.now() - info.mtimeMs };
+    } catch {
+      /* no frame yet */
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  return undefined;
+}
+
+/** Approval records still waiting for an answer under the home (run/confirmations/*.json with status pending). */
+function pendingConfirmations(home: string): number {
+  const folder = path.join(home, "run", "confirmations");
+  let names: string[];
+  try {
+    names = readdirSync(folder).filter((name) => name.endsWith(".json"));
+  } catch {
+    return 0;
+  }
+  let count = 0;
+  for (const name of names) {
+    try {
+      if ((JSON.parse(readFileSync(path.join(folder, name), "utf8")) as { status?: unknown }).status === "pending") count += 1;
+    } catch {
+      /* unreadable record: not counted */
+    }
+  }
+  return count;
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Asks the viewer to stop, waits until its window process is gone, and ends it if it is not. Only then may the home go. */
+async function stopViewerAndWait(home: string, stopViewer: (target: string) => Promise<unknown>): Promise<void> {
+  let pid: number | undefined;
+  try {
+    const record = JSON.parse(readFileSync(path.join(home, "run", "viewer.pid"), "utf8")) as { pid?: unknown };
+    if (typeof record.pid === "number") pid = record.pid;
+  } catch {
+    /* no PID record: nothing to wait for */
+  }
+  await stopViewer(home).catch(() => undefined);
+  if (pid === undefined) return;
+  const end = Date.now() + 5_000;
+  while (Date.now() < end && processAlive(pid)) await new Promise((resolve) => setTimeout(resolve, 100));
+  if (processAlive(pid)) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      /* gone meanwhile */
+    }
+  }
+}
+
+export async function selftestViewerCommand(args: string[], agentHome: string, deps: ViewerSelftestDeps = {}): Promise<Output> {
+  const { flags } = parseFlags(args);
+  const json = flags.has("json");
+  const steps: SelftestStep[] = VIEWER_STEP_NAMES.map((name) => ({ name, status: "skipped", ms: 0, detail: "skipped" }));
+  const report = (): Output => {
+    const ok = steps.every((step) => step.status === "pass");
+    const passed = steps.filter((step) => step.status === "pass").length;
+    const lines = steps.map((step) => `${step.status === "pass" ? "PASS" : step.status === "fail" ? "FAIL" : "SKIP"}  ${step.name.padEnd(12)} ${String(step.ms).padStart(5)} ms  ${step.detail}`);
+    lines.push(ok ? `Viewer selftest passed: ${steps.length} of ${steps.length} steps.` : `Viewer selftest failed: ${passed} of ${steps.length} steps passed.`);
+    const text = lines.join("\n");
+    if (json) return { ok, command: "selftest --viewer", data: { steps, summary: lines[lines.length - 1] }, ...(ok ? {} : { error: "selftest_failed" }), exitCode: ok ? 0 : 1 };
+    return { ok, command: "selftest --viewer", ...(ok ? { data: text } : { error: `\n${text}` }), exitCode: ok ? 0 : 1 };
+  };
+  const fatal = (detail: string): Output => {
+    steps[0] = { ...steps[0]!, status: "fail", detail };
+    return report();
+  };
+
+  if ((process.env.DISPLAY ?? "") === "") return fatal("the viewer needs a screen: run this from your desktop session (DISPLAY is not set).");
+  if (deps.mcpEntry === undefined || !existsSync(deps.mcpEntry)) return fatal("built server not found; run npm run build");
+  if (findXephyr(process.env) === undefined) return fatal("Xephyr is not installed (apt package xserver-xephyr): the background desktop needs it.");
+  const chrome = deps.chromePath ?? findChrome();
+  if (chrome === undefined || !isExecutable(chrome)) return fatal("Chrome or Chromium not found on PATH");
+
+  const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-viewer-selftest-"));
+  chmodSync(root, 0o700);
+  const home = path.join(root, "home");
+  const work = path.join(root, "work");
+  const startViewer = deps.startViewer ?? (async (target: string) => (await viewerCommand(["start"], target)) as { ok: boolean; error?: string });
+  const stopViewer = deps.stopViewer ?? ((target: string) => viewerCommand(["stop"], target));
+  let server: ChildProcess | undefined;
+  let viewerStarted = false;
+  try {
+    mkdirSync(home, { mode: 0o700 });
+    mkdirSync(work, { mode: 0o700 });
+    const config = path.join(home, "config.json");
+    // Background placement: the agent works on a nested display, and the viewer shows that display to the person.
+    writeFileSync(config, JSON.stringify({ schemaVersion: 1, execution: { placement: "background" }, autoInstallDependencies: false }), { mode: 0o600 });
+    const formFile = path.join(work, "form.html");
+    writeFileSync(formFile, VIEWER_FORM);
+
+    const env: NodeJS.ProcessEnv = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config, AGENTHOST_TOOLS_PROFILE: "full" };
+    delete env.WAYLAND_DISPLAY;
+    delete env.AGENTHOST_HOST;
+    if (deps.chromePath !== undefined) env.PATH = `${path.dirname(deps.chromePath)}${path.delimiter}${env.PATH ?? ""}`;
+    server = spawn(process.execPath, [deps.mcpEntry], { env, stdio: ["pipe", "pipe", "pipe"] });
+    server.stderr!.resume();
+    const mcp = connect(server, deps.stepTimeoutMs ?? 30_000);
+
+    let nameN: number | undefined;
+    let saveN: number | undefined;
+    let sendN: number | undefined;
+    const plan: Array<() => Promise<string>> = [
+      async () => {
+        await mcp.initialize();
+        return "server answered initialize";
+      },
+      async () => {
+        const display = await waitForBackgroundDisplay(home, deps.displayWaitMs ?? 20_000);
+        if (display === undefined) throw new Error("the server did not start its background display");
+        const started = await startViewer(home);
+        if (!started.ok) throw new Error(`viewer did not start: ${oneLine(started.error ?? "error", 90)}`);
+        viewerStarted = true;
+        return `viewer shows the background display ${display}`;
+      },
+      async () => {
+        const r = await mcp.call("open", { url: pathToFileURL(formFile).href });
+        if (!r.ok) throw new Error(`open failed: ${r.code ?? oneLine(r.text, 80)}`);
+        return "form open on the background display";
+      },
+      async () => {
+        const r = await mcp.call("see", { picture: "none" });
+        if (!r.ok) throw new Error(`see failed: ${r.code ?? oneLine(r.text, 80)}`);
+        const list = String(r.data?.list ?? "");
+        nameN = numberFor(list, '"Name"');
+        saveN = numberFor(list, '"Save"');
+        sendN = numberFor(list, '"Send"');
+        if (nameN === undefined) throw new Error("the Name field is not in the list");
+        if (saveN === undefined) throw new Error("the Save button is not in the list");
+        if (sendN === undefined) throw new Error("the Send button is not in the list");
+        return `Name is [${nameN}], Save is [${saveN}], Send is [${sendN}]`;
+      },
+      async () => {
+        const r = await mcp.call("type", { n: nameN, text: "Ada" });
+        if (!r.ok) throw new Error(`type failed: ${r.code ?? oneLine(r.text, 80)}`);
+        return `typed into [${nameN}]`;
+      },
+      async () => {
+        const r = await mcp.call("click", { n: saveN });
+        if (!r.ok) throw new Error(`click failed: ${r.code ?? oneLine(r.text, 80)}`);
+        return `clicked [${saveN}]`;
+      },
+      async () => {
+        const r = await mcp.call("see", { picture: "none" });
+        if (!r.ok) throw new Error(`see failed: ${r.code ?? oneLine(r.text, 80)}`);
+        if (!String(r.data?.list ?? "").includes('= "Ada"')) throw new Error("the Name field does not read Ada");
+        return "Name reads Ada";
+      },
+      async () => {
+        const r = await mcp.call("click", { n: sendN });
+        if (r.code !== "confirmation_required") throw new Error(`Send did not ask first (${r.code ?? (r.ok ? "it ran" : "it failed")})`);
+        const waiting = pendingConfirmations(home);
+        if (waiting === 0) throw new Error("Send was refused, but no approval is waiting");
+        return `Send asks first: ${waiting} approval waiting, nothing was sent`;
+      },
+      async () => {
+        const frame = await waitForFrame(home, 10_000);
+        if (frame === undefined) throw new Error("the viewer has not drawn a frame");
+        return `viewer drew a frame (${frame.bytes} bytes, ${Math.round(frame.ageMs)} ms old)`;
+      }
+    ];
+    for (let index = 0; index < plan.length; index += 1) {
+      const started = Date.now();
+      try {
+        const detail = await plan[index]!();
+        steps[index] = { name: VIEWER_STEP_NAMES[index]!, status: "pass", ms: Date.now() - started, detail };
+      } catch (error) {
+        steps[index] = { name: VIEWER_STEP_NAMES[index]!, status: "fail", ms: Date.now() - started, detail: oneLine(error instanceof Error ? error.message : "failed") };
+        break;
+      }
+    }
+    return report();
+  } finally {
+    // The viewer goes first, then the server (which stops its nested display and the browser it opened).
+    if (viewerStarted) await stopViewerAndWait(home, stopViewer);
     if (server !== undefined) await stop(server);
     rmSync(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
   }

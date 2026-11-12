@@ -22,7 +22,7 @@ export const COMMAND_USAGE: Record<string, string> = {
   workflow: "agenthost workflow list | show <name> | run <name> [--param k=v] [--unattended] | delete <name>",
   schedule: "agenthost schedule list | add <workflow> (--daily HH:MM | --weekdays HH:MM | --every 30m) [--param k=v] [--apply] | remove <workflow> [--apply]",
   memory: "agenthost memory list | delete <id> | clear [--yes]",
-  selftest: "agenthost selftest [--json]. Prove this install works: start the built server, fill a local form in headless Chrome with see, type and click, check the values. A few seconds; no window opens.",
+  selftest: "agenthost selftest [--json] [--viewer]. Prove this install works: start the built server, fill a local form in headless Chrome with see, type and click, check the values. A few seconds; no window opens. --viewer runs the check on a background desktop that the viewer shows on your screen, and checks that Send asks first. It needs DISPLAY, Xephyr and Chrome.",
   shortcut: "agenthost shortcut status | install [--binding <accelerator>] [--apply] | remove [--apply]. GNOME Stop shortcut (default Ctrl+Shift+Alt+Esc) that runs agent stop; preview unless --apply.",
   host: "agenthost host status | start | stop | restart. The per-user host that MCP clients use when AGENTHOST_HOST=1. status shows pid, socket and connected sessions; start launches it detached and refuses if one is running; stop asks it to exit through its socket.",
   journal: "agenthost journal show [--session <id>] | save <name> [--session <id>] [--last <n>] [--description <text>] [--apply]. Saves the steps the agent took through numbered actions as a workflow; typed text becomes parameters, never values. Run it with agenthost workflow run <name> --param text_1=...",
