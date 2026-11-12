@@ -162,6 +162,7 @@ const configFileSchema = z
     notifications: z.object({ pushUrl: z.string().url().max(500).optional() }).strict().optional(),
     output: z.object({ verbosity: z.enum(["lean", "full"]).optional() }).strict().optional(),
     approvals: z.object({ chat: z.boolean().optional() }).strict().optional(),
+    tools: z.object({ profile: z.enum(["desktop", "full"]).optional() }).strict().optional(),
     autoInstallDependencies: z.boolean().optional(),
     speech: speechSchema.optional(),
     // Accepted for old config files; it does nothing.
@@ -355,6 +356,7 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     ...(fileConfig.notifications?.pushUrl === undefined ? {} : { notifications: { pushUrl: fileConfig.notifications.pushUrl } }),
     ...(fileConfig.output?.verbosity === undefined ? {} : { output: { verbosity: fileConfig.output.verbosity } }),
     ...(fileConfig.approvals?.chat === undefined ? {} : { approvals: { chat: fileConfig.approvals.chat } }),
+    tools: { profile: z.enum(["desktop", "full"]).parse(env.AGENTHOST_TOOLS_PROFILE ?? fileConfig.tools?.profile ?? "desktop") },
     autoInstallDependencies: fileConfig.autoInstallDependencies ?? true,
     speech,
     policy: getDefaultPolicy({ grants })

@@ -35,7 +35,7 @@ each action, then a delete request waiting on an approval card.
 
 More detail on how it stays accurate and visible:
 
-- Clicks can target a control by its visible name, or a point in a screenshot the agent just took. `desktop.set_field` types a value and reads it back.
+- The agent works from one numbered list: `see` returns the controls of a window as `[1] button "Save"`, and `click`, `type`, `scroll` and `drag` take a number. `type` reads the value back. The default tool list is 14 tools; the older tools still work by name (set `tools.profile` to `full` to list them).
 - A dock at the side of the screen shows a live timeline of what the agent did, the current task with its checklist, and Pause and Stop. Nothing floats over the work area.
 - Password, one-time-code and card fields are refused. Credential and security apps are blocked.
 - When a task finishes or the agent asks a question, the agent's own window comes back to the front (Claude Code).

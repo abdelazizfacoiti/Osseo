@@ -456,10 +456,11 @@ async function agentCommand(args: ReturnType<typeof parseFlags>): Promise<Output
 async function capabilitiesCommand(args?: ReturnType<typeof parseFlags>): Promise<Output> {
   if (args?.flags.has("markdown") === true) {
     const { buildCapabilityMarkdown } = await import("@agenthost/core");
+    const config = await loadAgentHostConfig().catch(() => undefined);
     return {
       ok: true,
       command: "capabilities",
-      data: buildCapabilityMarkdown({ version: AGENTHOST_VERSION })
+      data: buildCapabilityMarkdown({ version: AGENTHOST_VERSION, toolProfile: config?.tools?.profile ?? "desktop" })
         + "\nLive counts: call system.list_capabilities over MCP, or read agenthost://capabilities.\n"
     };
   }

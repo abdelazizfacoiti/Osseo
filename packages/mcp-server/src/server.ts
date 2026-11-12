@@ -2,6 +2,9 @@ import { mkdir } from "node:fs/promises";
 import { ensurePrivateDirectory } from "@agenthost/core";
 import { createScreenTools } from "./tools/screen.js";
 import { createGuideTools } from "./tools/guide.js";
+import { createSeeTool } from "./tools/see.js";
+import { createNumberedTools } from "./tools/numbered.js";
+import { hiddenToolHint, isDefaultTool, listedTools } from "./tool-profile.js";
 import { renderResultText, type OutputVerbosity, type StateHolder } from "./lean-output.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -121,6 +124,9 @@ const ACTION_PAUSE_REASON = ACTION_CARD_PAUSE_PREFIX;
 
 const SERVER_INSTRUCTIONS =
   "AgentHost is a universal local automation host. It provides desktop automation, file operations, shell commands, vision/OCR, and window management. Use GUI click/type as fallback when policy allows. Routine local actions execute directly. Consequential actions such as external sends/uploads, deletes, private-data reads, and financial effects require an exact dry-run preview and single-use confirmation token. Stop, takeover, and pause flags halt new state-changing calls. For fast decisions, inspect once, act, then verify; avoid repeating unchanged discovery.";
+
+const DESKTOP_INSTRUCTIONS =
+  "AgentHost gives an agent a permissioned body on a real computer. Loop: see (numbered list of what is on screen), act by number with click, type, key, scroll or drag, then see again. For web tasks open a url in the agent's own browser. Use guide.show for sensitive apps and ask for logins. Sends, uploads, deletes and payments return confirmation_required: repeat the same call with the confirmationToken after the person approves. Stop, takeover and pause flags halt actions.";
 
 let lastApprovalSignalAt = 0;
 let lastOverlaySignalAt = 0;
@@ -487,6 +493,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     ...createDesktopTools(),
     ...createScreenTools(),
     ...createGuideTools(),
+    createSeeTool(),
+    ...createNumberedTools(),
     ...createAppTools(),
     ...createComputerTools(),
     ...createTaskTools(),
@@ -503,6 +511,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   registry.syncTools(toolCapabilities(loadedTools));
   context.tools = new Map(loadedTools.map((tool) => [tool.name, tool]));
 
+  const toolProfile = config.tools?.profile ?? "desktop";
   const server = new Server(
     {
       name: "agenthost",
@@ -513,7 +522,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
         tools: {},
         resources: {}
       },
-      instructions: SERVER_INSTRUCTIONS
+      instructions: toolProfile === "desktop" ? DESKTOP_INSTRUCTIONS : SERVER_INSTRUCTIONS
     }
   );
 
@@ -534,7 +543,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   });
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: loadedTools.map((tool) => ({
+    tools: listedTools(loadedTools, toolProfile).map((tool) => ({
       name: tool.name,
       description: tool.description,
       inputSchema: tool.mcpInputSchema
@@ -589,6 +598,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       await hostAttention.resolveConfirmation();
     }
     const result = await runTool(tool, rawInput, context);
+    // Hidden tools stay callable. Name the tool to use instead, once.
+    if (toolProfile === "desktop" && !isDefaultTool(tool.name)) result.observations = [...result.observations, hiddenToolHint(tool.name)];
     if (result.error?.code === "confirmation_required") {
       signalApprovalRequired();
       void pushNotify("approval");

@@ -687,6 +687,8 @@ export interface AgentHostConfig {
   output?: { verbosity?: "lean" | "full" };
   /** chat: ask the person in their agent client (MCP elicitation) when a confirmation is pending. Default true. */
   approvals?: { chat?: boolean };
+  /** Which tools tools/list shows. Hidden tools stay callable. Default desktop. */
+  tools?: { profile: "desktop" | "full" };
   autoInstallDependencies?: boolean;
   speech?: SpeechConfig;
   policy: RuntimePolicy;

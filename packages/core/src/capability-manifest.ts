@@ -25,12 +25,42 @@ export interface CapabilityManifestInput {
   /** Omit for static briefs (CLI paste-into-config); live resources always fill it. */
   toolCount?: number;
   byExecutionClass?: Record<string, number>;
+  /** "desktop" lists the short numbered tool set; "full" (or omitted) the whole inventory. */
+  toolProfile?: "desktop" | "full";
   overlay?: OverlayActivityBrief;
 }
 
 /** One small pull for agent clients (Codex, Claude Code, Copilot, OpenCode)
  * instead of ingesting hundreds of tool schemas up front. */
+const DESKTOP_BRIEF_TOOLS = "see, click, type, key, scroll, drag, open, windows, wait, ask, steps, status, guide.show, guide.clear";
+
+function buildDesktopMarkdown(input: CapabilityManifestInput): string {
+  const inventory = input.toolCount === undefined ? "live tool inventory via MCP" : `${input.toolCount} tools`;
+  const overlay = input.overlay === undefined
+    ? ""
+    : `\nActivity overlay: mode \`${input.overlay.mode}\`; ${input.overlay.triggers.length === 0 ? "automatic cards are disabled" : `automatic cards cover ${input.overlay.triggers.join(", ")}`}. Fallback status: \`${input.overlay.fallback}\`.\n`;
+  return `# AgentHost capabilities (v${input.version}, ${inventory}, profile desktop)
+
+Tools: ${DESKTOP_BRIEF_TOOLS}.
+
+Loop: \`see\` returns numbered elements of a window ([1] button "Save"). Act by number with
+\`click\`, \`type\`, \`scroll\`, \`drag\`, or press \`key\`. Call \`see\` again after anything changes:
+numbers are only valid for the view that issued them. For web tasks \`open\` a url (the agent's own
+browser gives exact element refs). Use \`guide.show\` for sensitive apps and \`ask\` for logins,
+MFA, captchas and payments. \`steps\` runs a short plan; \`wait\` waits for text or a window.
+
+Sensitive fields show as (blocked) and are never read or typed into. Sends, uploads, deletes and
+payments return confirmation_required with a token: repeat the same call with confirmationToken
+once the person approves. Credential and security apps and protected paths stay blocked.
+\`agent.stop\` flags are read with \`status\`; only the operator clears them.
+
+Other tools (files, shell, tasks, memory, ui.*, vision.*) stay callable by name and are listed when
+\`tools.profile\` is \`full\`.
+${overlay}`;
+}
+
 export function buildCapabilityMarkdown(input: CapabilityManifestInput): string {
+  if (input.toolProfile === "desktop") return buildDesktopMarkdown(input);
   const families = (Object.keys(CAPABILITY_FAMILY_SUMMARIES) as AgentCapability[])
     .map((family) => {
       const info = CAPABILITY_FAMILY_SUMMARIES[family];
@@ -90,6 +120,7 @@ export function buildCapabilitiesJson(input: CapabilityManifestInput): Record<st
     version: input.version,
     ...(input.toolCount === undefined ? {} : { toolCount: input.toolCount }),
     ...(input.byExecutionClass === undefined ? {} : { byExecutionClass: input.byExecutionClass }),
+    ...(input.toolProfile === undefined ? {} : { toolProfile: input.toolProfile }),
     ...(input.overlay === undefined ? {} : { overlay: input.overlay }),
     families: CAPABILITY_FAMILY_SUMMARIES,
     loop: ["understand", "plan", "inspect", "act", "observe", "verify", "recover"],

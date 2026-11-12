@@ -51,7 +51,7 @@ export interface ToolPreviewEffect {
 }
 
 /** Tools that read what is on screen or the clipboard; refused while a human handoff is active. */
-const HANDOFF_BLOCKED_TOOLS = new Set(["desktop.screenshot", "vision.find_text_on_screen", "ui.tree", "ui.find", "clipboard.get", "computer.wait_for", "computer.observe_state", "browser.snapshot", "browser.screenshot"]);
+const HANDOFF_BLOCKED_TOOLS = new Set(["see", "desktop.screenshot", "vision.find_text_on_screen", "ui.tree", "ui.find", "clipboard.get", "computer.wait_for", "computer.observe_state", "browser.snapshot", "browser.screenshot"]);
 
 export interface AgentHostToolDefinition<Input, Output, Context = AgentHostMcpContext> {
   name: string;
@@ -70,6 +70,12 @@ export interface AgentHostToolDefinition<Input, Output, Context = AgentHostMcpCo
   };
   execution?: ToolExecutionMetadata;
   requiredGrantIds?: string[];
+  /**
+   * The tool only resolves its input and calls another governed tool. dryRun and confirmationToken
+   * then belong to that nested call: the runner leaves them in the input instead of handling them
+   * for this outer call.
+   */
+  delegatesExecutionArgs?: boolean;
 }
 
 export type AnyAgentHostToolDefinition<Context = AgentHostMcpContext> = AgentHostToolDefinition<any, any, Context>;
@@ -414,9 +420,10 @@ async function executeGoverned(
   const rawObject = rawInput !== null && typeof rawInput === "object" && !Array.isArray(rawInput)
     ? rawInput as Record<string, unknown>
     : undefined;
-  const dryRun = tool.preview?.isDryRun?.(rawInput as never)
-    ?? rawObject?.dryRun === true;
-  const providedToken = typeof rawObject?.confirmationToken === "string" ? rawObject.confirmationToken : undefined;
+  const delegating = tool.delegatesExecutionArgs === true;
+  const dryRun = delegating ? false : (tool.preview?.isDryRun?.(rawInput as never)
+    ?? rawObject?.dryRun === true);
+  const providedToken = !delegating && typeof rawObject?.confirmationToken === "string" ? rawObject.confirmationToken : undefined;
   const taskMetadata = parseRoutineTaskMetadata(rawObject?.task);
   if (taskMetadata.error !== undefined) {
     audit.inputSummary = "Invalid tool input";
@@ -425,8 +432,8 @@ async function executeGoverned(
   const parseInput = rawObject === undefined
     ? rawInput
     : Object.fromEntries(Object.entries(rawObject).filter(([key, value]) =>
-        !(key === "dryRun" && typeof value === "boolean") &&
-        !(key === "confirmationToken" && typeof value === "string") &&
+        !(!delegating && key === "dryRun" && typeof value === "boolean") &&
+        !(!delegating && key === "confirmationToken" && typeof value === "string") &&
         !(key === "task" && value !== undefined)));
 
   let parsedInput = parseInput;
@@ -710,14 +717,14 @@ const TASK_PHASES = new WeakMap<AgentHostMcpContext, string>();
 const OVERLAY_NOTED = new WeakSet<AgentHostMcpContext>();
 
 /** Tools whose results carry text written by someone else (a web page, document, or clipboard). */
-const UNTRUSTED_CONTENT_TOOLS = new Set(["vision.analyze_image", "vision.find_text", "vision.find_target", "vision.find_text_on_screen", "ui.tree", "ui.find", "file.read", "file.read_many", "clipboard.get", "browser.snapshot", "browser.screenshot", "memory.search"]);
+const UNTRUSTED_CONTENT_TOOLS = new Set(["see", "vision.analyze_image", "vision.find_text", "vision.find_target", "vision.find_text_on_screen", "ui.tree", "ui.find", "file.read", "file.read_many", "clipboard.get", "browser.snapshot", "browser.screenshot", "memory.search"]);
 /** Tool families that need a desktop adapter for the host OS. */
 const DESKTOP_FAMILIES = new Set(["desktop", "window", "app", "ui", "clipboard"]);
 const ACTION_COUNTS = new WeakMap<AgentHostMcpContext, number>();
 const LOOP_GUARD_REPEATS = 10;
 const REPEAT_TRACKER = new WeakMap<AgentHostMcpContext, Map<string, RepeatEntry>>();
 const REPEAT_EXEMPT = /^(?:task|agent|system|adapter|policy)\./;
-const REPEAT_EXEMPT_TOOLS = new Set(["desktop.screenshot", "computer.wait", "computer.wait_for", "computer.observe_state", "desktop.scroll"]);
+const REPEAT_EXEMPT_TOOLS = new Set(["see", "desktop.screenshot", "computer.wait", "computer.wait_for", "computer.observe_state", "desktop.scroll"]);
 const NAVIGATION_KEYS = new Set([
   "page_down", "page_up", "next", "prior", "down", "up", "left", "right", "tab", "home", "end", "space", "return", "enter", "escape"
 ]);

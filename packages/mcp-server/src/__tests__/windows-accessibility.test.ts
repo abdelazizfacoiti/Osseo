@@ -13,7 +13,7 @@ const FORM = { hwnd: "1001", title: "AgentHost Check Window", pid: 10, process: 
 const SAVE = { x: 220, y: 270, width: 120, height: 40 };
 const BOX = { x: 220, y: 220, width: 360, height: 24 };
 
-function helper(requests: Array<{ method: string; params: Record<string, unknown> }> = []) {
+function helper(requests: Array<{ method: string; params: Record<string, unknown> }> = []): any {
   return {
     async request(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
       requests.push({ method, params });

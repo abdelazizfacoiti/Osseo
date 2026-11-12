@@ -185,6 +185,8 @@ export interface AgentHostMcpContext {
   planApproval?: { planFingerprint: string; maxRisk: "low" | "medium" };
   /** One-based step position within the current computer.run_steps plan. */
   planStep?: { index: number; total: number };
+  /** Set while a plan is being previewed: nested calls resolve effects but never mint tokens. */
+  previewOnly?: boolean;
   grants: GrantStore;
   overlay?: OverlayManager;
   actionOverlay?: ToolActionOverlay;

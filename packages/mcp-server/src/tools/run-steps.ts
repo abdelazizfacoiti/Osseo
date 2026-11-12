@@ -32,7 +32,7 @@ const runStepsInput = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Plan input exceeds 64 KiB." });
   }
   for (const [index, step] of value.steps.entries()) {
-    if (step.tool === "computer.run_steps") {
+    if (step.tool === "computer.run_steps" || step.tool === "steps") {
       ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["steps", index, "tool"], message: "Nested run_steps is not allowed." });
     }
   }
@@ -150,7 +150,7 @@ function previewContext(context: AgentHostMcpContext): AgentHostMcpContext {
     planApproval: _planApproval,
     ...rest
   } = context;
-  return { ...rest, logger: { log: async () => undefined } };
+  return { ...rest, previewOnly: true, logger: { log: async () => undefined } };
 }
 
 export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpContext> {

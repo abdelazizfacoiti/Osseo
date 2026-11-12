@@ -1,7 +1,69 @@
 # AgentHost MCP Tools and Adapter Specification
 
+## Default tools and profiles
+
+The server lists 14 tools by default (config `tools.profile: "desktop"`). The loop is
+`see`, act by number, `see` again.
+
+| Tool | What it does | Calls underneath |
+|---|---|---|
+| `see` | Numbered list of what can be acted on in a window. Input: `window`, `filter`, `max` (1-150, default 60), `picture` (`auto`, `none`, `plain`, `marked`). Output: `view`, `window`, `source` (`dom`, `accessibility`, `ocr`, `none`), `count`, `truncated`, `list`. | accessibility tree, OCR, `browser.snapshot`, `desktop.screenshot` |
+| `click` | `n` (from `see`) or `x`,`y`; `button`, `double`. | `desktop.click`, `desktop.pointer`, `browser.click` |
+| `type` | `n`, `text`, `clear`, `submit`; without `n`, types into the focused control. | `desktop.set_field`, `browser.fill`, `browser.type`, `desktop.type_text` |
+| `key` | `keys`, `repeat`. | `desktop.hotkey` |
+| `scroll` | `n` or `x`,`y`, `direction`, `amount`. | `desktop.pointer` |
+| `drag` | `fromN` or `fromX`,`fromY`, `toN` or `toX`,`toY`. | `desktop.pointer` |
+| `open` | `app`, or `url` (agent browser by default, `in: "my-browser"` for the person's browser). | `app.open`, `browser.open`, `app.open_url` |
+| `windows` | List windows, or `focus` one by id. | `window.list`, `window.focus` |
+| `wait` | `text`, `window` or `gone`, `timeoutMs`. | `browser.wait_for`, `computer.wait_for`, a poll of the accessibility tree |
+| `ask` | `kind`, `message`: hand a step to the person. | `agent.request_handoff` |
+| `steps` | Up to 20 tool calls as one governed plan; step tools may be new or old names. | `computer.run_steps` |
+| `status` | Stop, pause, takeover and task state. | `agent.status` |
+| `guide.show`, `guide.clear` | Draw labelled boxes where the person should click. Never clicks. | none |
+
+Line format of `see` (a value is cut to 40 characters; no other page text):
+
+```
+[1] button "Save"
+[2] entry "Name" = "Ada"
+[3] check box "Subscribe" (checked)
+[4] button "Delete" (disabled)
+[5] password field (blocked)
+```
+
+Rules:
+
+- A `(blocked)` element is never read or acted on. Disabled, blocked, unknown and stale
+  numbers are refused with distinct codes (`target_disabled`, `target_blocked`,
+  `number_unknown`, `view_unknown`, `no_view`, `view_stale`) and nothing is done.
+- A view lasts five minutes. At most ten are kept, and the next `see` on a window replaces
+  that window's view. A screen target is stale once its window moved or resized.
+- The action tools pass `dryRun` and `confirmationToken` to the tool they call. A
+  `confirmation_required` result comes back under the new tool's name; repeat the same
+  call with the token. After a successful `click`, `type` or `key` the result says to call
+  `see` again.
+- Looking at credential and security apps is refused. `see` is blocked while a human
+  handoff is active, like `desktop.screenshot`.
+
+Profiles:
+
+| Profile | `tools/list` |
+|---|---|
+| `desktop` (default) | the 14 tools above |
+| `full` | the 14 plus every tool in the reference below |
+
+Set it in `config.json` (`{"tools": {"profile": "full"}}`) or with
+`AGENTHOST_TOOLS_PROFILE`. In both profiles every old tool name stays callable, so saved
+workflows, `computer.run_steps` plans and older prompts keep working. In the `desktop`
+profile a direct call to a hidden tool succeeds and adds one note naming the tool to use.
+`agenthost://capabilities`, `agenthost://capabilities.md` and `agenthost capabilities
+--markdown` follow the profile. `node scripts/measure-tools.mjs` prints the tool count and
+`tools/list` size for each profile.
+
+## Full profile
+
 All callable tools return `ToolResult`. MCP transport is stdio. The current
-minimal-v2 server exposes 67 base tools. This number is generated from the
+server loads 82 tools (the 14 default tools and the reference below). This number is generated from the
 loaded set at startup; treat `system.list_capabilities` and
 `agenthost://capabilities` as authoritative instead of hard-coding counts.
 

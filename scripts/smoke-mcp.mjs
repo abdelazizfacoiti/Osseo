@@ -6,6 +6,9 @@ import { createAgentHostMcpServer } from "../packages/mcp-server/dist/server.js"
 import { runTool } from "../packages/mcp-server/dist/tool-runner.js";
 import { listResourceEntries, readResource } from "../packages/mcp-server/dist/resources.js";
 
+// These scripts list and count tools, so they run the full tool list.
+process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
+
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverPath = path.join(rootDir, "packages", "mcp-server", "dist", "index.js");
 const smokeDir = path.join(rootDir, ".agenthost", "smoke");

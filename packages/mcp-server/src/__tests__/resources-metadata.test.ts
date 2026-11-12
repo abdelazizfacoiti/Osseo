@@ -48,7 +48,7 @@ function context(home: string, overlay?: { mode: "always" | "on_change" | "off" 
   } as unknown as CapabilityRegistrySnapshot;
   return {
     registry,
-    config: { agentHostDir: home, ...(overlay === undefined ? {} : { overlay }) } as never
+    config: { agentHostDir: home, tools: { profile: "full" }, ...(overlay === undefined ? {} : { overlay }) } as never
   };
 }
 

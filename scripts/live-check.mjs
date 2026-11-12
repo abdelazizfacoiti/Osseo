@@ -26,6 +26,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+// These scripts list and count tools, so they run the full tool list.
+process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
+
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CLI = path.join(REPO, "packages/agenthost-cli/dist/index.js");
 const SERVER = path.join(REPO, "packages/mcp-server/dist/index.js");

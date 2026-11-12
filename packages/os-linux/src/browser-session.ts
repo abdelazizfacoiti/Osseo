@@ -171,7 +171,7 @@ const SNAPSHOT_SCRIPT = `(max) => {
   const clean = (s) => String(s || '').replace(/\\s+/g, ' ').trim().slice(0, 80);
   const elements = found.slice(0, max).map((el, i) => {
     const tag = el.tagName.toLowerCase(); const type = el.getAttribute('type') || undefined;
-    const name = clean(el.getAttribute('aria-label') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || (type === 'submit' || type === 'button' ? el.value : '') || el.getAttribute('name'));
+    const name = clean(el.getAttribute('aria-label') || (el.labels && el.labels[0] && el.labels[0].innerText) || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || (type === 'submit' || type === 'button' ? el.value : '') || el.getAttribute('name'));
     const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'select' ? 'combobox' : tag === 'textarea' ? 'textbox' : tag === 'input' ? (type === 'checkbox' ? 'checkbox' : type === 'radio' ? 'radio' : type === 'submit' || type === 'button' ? 'button' : 'textbox') : tag);
     const item = { ref: 's' + snap + '-e' + i, role, name, tag };
     if (el.ownerDocument !== document) item.inFrame = true;
@@ -199,7 +199,7 @@ const DESCRIBE_SCRIPT = `(ref) => {
   const el = (${RESOLVE})(ref); if (!el) return null;
   const tag = el.tagName.toLowerCase(); const type = el.getAttribute('type') || undefined;
   const clean = (s) => String(s || '').replace(/\\s+/g, ' ').trim().slice(0, 80);
-  const name = clean(el.getAttribute('aria-label') || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || (type === 'submit' || type === 'button' ? el.value : '') || el.getAttribute('name'));
+  const name = clean(el.getAttribute('aria-label') || (el.labels && el.labels[0] && el.labels[0].innerText) || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || (type === 'submit' || type === 'button' ? el.value : '') || el.getAttribute('name'));
   const form = el.closest('form');
   const inForm = (sel) => !!(form && form.querySelector(sel));
   const ac = (el.getAttribute('autocomplete') || '').toLowerCase();

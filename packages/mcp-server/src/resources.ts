@@ -10,12 +10,16 @@ import {
   type ToolCapability
 } from "@agenthost/core";
 import { COMPUTER_ACTION_FAMILIES } from "./activity.js";
+import { DEFAULT_TOOL_NAMES } from "./tool-profile.js";
 
 const CAPABILITY_MIME = "application/json";
 const MARKDOWN_MIME = "text/markdown";
 
 function capabilityInput(registry: CapabilityRegistrySnapshot, config: AgentHostConfig) {
-  const tools = registry.listTools();
+  const profile = config.tools?.profile ?? "desktop";
+  const listed = new Set<string>(DEFAULT_TOOL_NAMES);
+  // The desktop profile lists only the default tools; the rest stay callable but are not advertised.
+  const tools = registry.listTools().filter((tool) => profile === "full" || listed.has(tool.name));
   const byExecutionClass = tools.reduce<Record<string, number>>((counts, tool) => {
     const name = tool.execution?.executionClass ?? "unclassified";
     counts[name] = (counts[name] ?? 0) + 1;
@@ -25,6 +29,7 @@ function capabilityInput(registry: CapabilityRegistrySnapshot, config: AgentHost
   return {
     version: AGENTHOST_VERSION,
     toolCount: tools.length,
+    toolProfile: profile,
     byExecutionClass,
     overlay: {
       mode,

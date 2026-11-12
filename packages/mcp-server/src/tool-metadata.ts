@@ -19,8 +19,12 @@ declare([
 ], readOnly());
 declare(["system.check_dependency"], diagnostic());
 declare(["agent.status", "screen.read"], readOnly());
+// The numbered actions only resolve a number and call an existing governed tool, which gates and audits the real effect.
+declare(["click", "type", "key", "scroll", "drag", "open", "windows", "wait", "ask", "steps", "status"], metadataOnly());
 declare(["agent.stop", "agent.takeover_begin", "agent.request_handoff", "guide.show", "guide.clear"], metadataOnly());
 declare(["task.create", "task.status", "task.update", "task.update_status", "task.add_event", "task.list", "workflow.save", "workflow.list", "workflow.get", "workflow.delete", "memory.save", "memory.search", "memory.delete"], metadataOnly());
+// see may take a picture (a file write), so it has the same class as desktop.screenshot.
+declare(["see"], directStateChanging());
 declare([
   "app.open", "app.open_url", "computer.run_steps", "desktop.click", "desktop.hotkey", "desktop.pointer", "desktop.file_dialog_select", "desktop.screenshot", "desktop.set_field", "desktop.type_text", "file.copy", "file.ensure_dir", "file.move", "file.write", "shell.run", "window.focus", "ui.activate", "ui.set_text", "clipboard.set", "browser.open", "browser.click", "browser.type", "browser.navigate", "browser.close", "browser.select", "browser.fill"
 ], directStateChanging());
