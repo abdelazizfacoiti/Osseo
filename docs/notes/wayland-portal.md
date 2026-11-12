@@ -29,9 +29,16 @@ The MCP server is Node, and the tree has no DBus binding for Node. The GTK rende
 - The full helper against `portal/fake_portal.py` on a private `dbus-run-session` bus. The fake uses the installed portal's method signatures, and GDBus enforces them. Cases: a grant (probe, open, pointer motion, press and release, keysyms, a screenshot that fails cleanly without PipeWire, close), a refusal (the session is closed and further input is refused), no answer (the caller's timeout ends the wait and the session is closed), a malformed line, and an unknown command. The helper never reaches the real session bus (`driver.py` refuses it).
 - 33 tests for the protocol helpers, the session (with a Python stand-in for the helper), the desktop override (with a fake session), the CLI check, and the private-bus run.
 
-## Not verified (needs a Wayland login and a person)
+## Checked on a real GNOME compositor (nested)
 
-- The consent dialog and the answer it gives, on GNOME (`xdg-desktop-portal-gnome`).
+`gnome-shell --nested --wayland` ran inside a Xephyr test window (display :41, not :0) on a private `dbus-run-session` bus with its own runtime folder. That gives a real Wayland socket (`ah-wl`) and the real portal services: `org.freedesktop.portal.Desktop` (xdg-desktop-portal), `org.gnome.Mutter.RemoteDesktop` and `org.gnome.Mutter.ScreenCast`.
+
+- `probe` against it: RemoteDesktop v2 (3 device types), ScreenCast v5 (7 source types), a session created and closed.
+- `open` with nobody answering: the portal never answered, so the helper returned `portal_timeout` after its limit and closed the session. The consent dialog was not clicked.
+
+## Not verified (needs a person at the consent dialog)
+
+- Granting the consent dialog, then input and capture through the grant. The grant needs a person to click Allow; the agent did not click it.
 - `ScreenCast.SelectSources` on a RemoteDesktop session, with the real portal. The spec allows it, and the fake accepts it.
 - PipeWire frames. The capture pipeline is built and its error path is tested, but there is no real node here.
 - Input through the compositor: the pointer mapping, and keysyms on non-US layouts. Hotkey names map to X11 keysyms.
@@ -42,6 +49,19 @@ The MCP server is Node, and the tree has no DBus binding for Node. The GTK rende
 - The shared screen is the one target (`portal-screen`). Verified-action effect checks that need window bounds report what they can.
 - Window listing and focus are refused. Pointer actions other than click are refused. Teach waits report unavailable (AgentHost cannot see pointer presses on Wayland).
 - Screenshots are full screen only: no region and no scale.
+
+## How to finish the grant check
+
+The nested session from the check above is still running on display :41 when this note was written. Its bus address is in `/tmp/ah-xdg-wl/bus`. Then, from the repository:
+
+```sh
+DBUS_SESSION_BUS_ADDRESS="$(cat /tmp/ah-xdg-wl/bus)" XDG_RUNTIME_DIR=/tmp/ah-xdg-wl WAYLAND_DISPLAY=ah-wl \
+  node packages/agenthost-cli/dist/index.js portal check --start
+```
+
+A consent dialog appears inside the nested shell window on :41. Click Allow to test the grant, or Cancel to test the refusal. To stop the session, run `pkill -f "wayland-display=ah-wl"` and close the "AgentHost test screen" window.
+
+On a real Wayland login, the same check works without the nested session:
 
 ## To check on a Wayland login
 
