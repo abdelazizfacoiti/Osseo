@@ -36,5 +36,5 @@ describe("scripts/install.ps1", () => {
   it.skipIf(pwsh === undefined)("parses with PowerShell", () => {
     const script = `$e=$null; $t=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('${path.join(ROOT, "scripts", "install.ps1")}',[ref]$t,[ref]$e); if ($e.Count -gt 0) { $e | ForEach-Object { $_.Message }; exit 1 }`;
     expect(spawnSync(pwsh!, ["-NoProfile", "-Command", script], { encoding: "utf8" }).status).toBe(0);
-  });
+  }, 60_000); // The first PowerShell start on Windows took 11 s on a cold machine; the default limit is 5 s.
 });
