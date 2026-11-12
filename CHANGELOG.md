@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Numbered actions say what changed in the window's controls, in words (`field "Name" now reads "Ada"`, `dialog "Confirm" went away`). The check uses the accessibility outline; the pixel check is a secondary signal and the fallback when the outline is empty, unsupported, slow or from another window.
+- Added `browser.own_snapshot`, `own_click`, `own_type`, `own_select`, `own_navigate`, `own_read` and `own_tabs`: the MCP server can use the browser extension, limited to hosts that `policy.toml` allows by a `site` rule. Typed text is never logged. `own_tabs` is unsupported until the extension can list tabs.
+- Added `agenthost viewer start|stop|status`, a small live view of the background display with Pause, Resume and Stop. Background placement is still off by default.
 - Added a benchmark suite of 25 headless-Chrome tasks (`npm run benchmark:suite`). It reports success, tool calls, result bytes and seconds per task, writes `benchmarks/suite/results/latest.json`, and fails when the success rate is below 0.9 or any success is unverified.
 - Capability grants are removed. A non-empty `grants` array in `config.json` now fails loading with a message pointing to `policy.toml`; an empty array or no key still loads.
 - The built-in communication-read allowance is now explicit code (`communicationInspectionAllowed`): observe, inspect and file reads in communication apps up to medium risk. Sends and external effects still need exact confirmation.
