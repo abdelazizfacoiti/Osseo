@@ -16,6 +16,7 @@ import { viewerCommand } from "./viewer.js";
 import { journalCommand } from "./journal-cli.js";
 import { hostCommand } from "./host.js";
 import { shortcutCommand } from "./shortcut.js";
+import { selftestCommand } from "./selftest.js";
 import { pressCheck } from "./press-check.js";
 import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
 import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@agenthost/os-linux";
@@ -735,6 +736,7 @@ async function main(): Promise<number> {
     else if (top === "policy") result = await policyCommand(agentHome, sub, args, json);
     else if (top === "replay") result = await replayCommand(args, agentHome);
     else if (top === "viewer") result = await viewerCommand(argv.slice(argv.indexOf("viewer") + 1), agentHome);
+    else if (top === "selftest") result = await selftestCommand(argv.slice(argv.indexOf("selftest") + 1), agentHome, { mcpEntry: mcpEntry() });
     else if (top === "shortcut") result = await shortcutCommand(argv.slice(argv.indexOf("shortcut") + 1), agentHome);
     else if (top === "host") result = await hostCommand(argv.slice(argv.indexOf("host") + 1), agentHome, { hostEntry: path.join(path.dirname(mcpEntry()), "host", "main.js") });
     else if (top === "journal") result = await journalCommand(argv.slice(argv.indexOf("journal") + 1), agentHome, { mcpEntry: mcpEntry() });
