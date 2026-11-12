@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added an opt-in host service (`AGENTHOST_HOST=1`): MCP clients connect through a thin shim to one per-user host over a private Unix socket. State-changing calls take a single host-wide lease with a 30 s busy limit, and `agenthost host status|start|stop` manages the host. The default in-process server is unchanged.
 - Added `agenthost journal show` and `agenthost journal save <name>`: the steps the agent took through numbered actions can be saved as a parameterized workflow after review. Typed text is never recorded; it becomes a parameter.
 - Numbered actions say what changed in the window's controls, in words (`field "Name" now reads "Ada"`, `dialog "Confirm" went away`). The check uses the accessibility outline; the pixel check is a secondary signal and the fallback when the outline is empty, unsupported, slow or from another window.
 - Added `browser.own_snapshot`, `own_click`, `own_type`, `own_select`, `own_navigate`, `own_read` and `own_tabs`: the MCP server can use the browser extension, limited to hosts that `policy.toml` allows by a `site` rule. Typed text is never logged. `own_tabs` is unsupported until the extension can list tabs.
