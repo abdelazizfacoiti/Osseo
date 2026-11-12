@@ -191,6 +191,9 @@ describe("shell control-plane protection", () => {
     expect(classifyShellCommand("agenthost task approve task_1", policy, context)).toMatchObject({ blocked: true });
     expect(classifyShellCommand("agenthost agent pause", policy, context)).toMatchObject({ blocked: true });
     expect(classifyShellCommand("agenthost confirm conf_12345678", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("agenthost policy add --action send --decision allow --apply", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("agenthost policy remove 3 --apply", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("echo x >> ~/.agenthost/policy.toml", policy, context)).toMatchObject({ blocked: true });
     expect(classifyShellCommand("cat ~/.agenthost/config.json", policy, context)).toMatchObject({ blocked: true });
     expect(classifyShellCommand("python3 -c 'print(1)'", policy, context)).toMatchObject({ riskLevel: "high" });
     expect(classifyShellCommand("cat /tmp/notes.txt", policy, context)).toMatchObject({ blocked: false });

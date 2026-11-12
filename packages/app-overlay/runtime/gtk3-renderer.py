@@ -41,7 +41,7 @@ except Exception as exc:
 VERSION = 1
 MAX_BYTES = 256 * 1024
 COMMANDS = {"hello", "capabilities", "show", "update", "dismiss", "clear", "emergency_hide", "state", "events", "close"}
-EVENTS = {"accepted", "rejected", "dismissed", "cancelled", "next", "back", "acknowledgement_checked", "emergency_stop_requested", "continue", "pause", "resume", "cancel", "acknowledge", "show_details", "hide", "retry_visual_render", "inspect_diagnostics", "open_control_room", "review_prepared_action", "emergency_hide", "close_control_surface"}
+EVENTS = {"accepted", "always", "rejected", "dismissed", "cancelled", "next", "back", "acknowledgement_checked", "emergency_stop_requested", "continue", "pause", "resume", "cancel", "acknowledge", "show_details", "hide", "retry_visual_render", "inspect_diagnostics", "open_control_room", "review_prepared_action", "emergency_hide", "close_control_surface"}
 SURFACE_TYPES = {"frame", "pointer", "arrow", "highlight", "spotlight"}
 RING_TYPES = {"target_ring"}
 CARD_TYPES = {"widget", "tooltip", "instruction_card", "approval_card", "warning", "progress", "checkpoint_result", "status_toast", "comparison", "cancel_control", "emergency_stop_control"}
@@ -56,8 +56,8 @@ TIMELINE_MAX_ROWS = 40
 TIMELINE_ID_PREFIX = "agenthost-timeline-"
 # Presses that grant something. Stop and Pause only ever halt the agent, so a
 # failed hardware check must never get in the way of them.
-TRUST_EVENTS = {"accepted", "continue", "resume"}
-CONTROL_EVENTS = {"pause", "resume", "continue", "accepted", "rejected", "emergency_stop_requested", "cancel", "cancelled"}
+TRUST_EVENTS = {"accepted", "always", "continue", "resume"}
+CONTROL_EVENTS = {"pause", "resume", "continue", "accepted", "always", "rejected", "emergency_stop_requested", "cancel", "cancelled"}
 INPUT_GUARD_SECONDS = 1.0
 DOCK_RELEASE_GRACE_MS = 1500
 STATUS_CAIRO = {
@@ -1016,7 +1016,7 @@ class Renderer:
             button.set_relief(Gtk.ReliefStyle.NONE)
             button.set_focus_on_click(False)
             button.get_style_context().add_class("ah-button")
-            if event in {"resume", "continue", "accepted"}:
+            if event in {"resume", "continue", "accepted", "always"}:
                 button.get_style_context().add_class("ah-primary")
             elif event in {"emergency_stop_requested", "cancel", "cancelled"}:
                 button.get_style_context().add_class("ah-stop")

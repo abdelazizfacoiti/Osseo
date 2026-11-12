@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { OverlayManager } from "@agenthost/app-overlay";
-import { acceptConfirmation, listConfirmations, redactSensitiveText, rejectConfirmation, type ConfirmationRecord, type OverlayWidget } from "@agenthost/core";
+import { acceptConfirmation, alwaysAllowFromConfirmation, listConfirmations, redactSensitiveText, rejectConfirmation, type ConfirmationRecord, type OverlayWidget } from "@agenthost/core";
 
 /*
  * Approve or deny a pending confirmation from the screen, the same decision
@@ -60,11 +60,12 @@ export class ApprovalOverlay {
         { type: "key_value", key: "Tool", value: record.tool.slice(0, 60) },
         { type: "text", text: `Allows this one exact action, once. Expires in ${minutes} min.${others > 0 ? ` ${others} more waiting.` : ""}` },
         { type: "button", label: "Approve", event: "accepted" },
+        { type: "button", label: "Always allow here", event: "always" },
         { type: "button", label: "Deny", event: "rejected" }
       ],
       placement: "top_center",
       style: { semantic: "warning", elevation: "high" },
-      interaction: { interactive: true, focus: "never", dismissible: false, allowedEvents: ["accepted", "rejected"] },
+      interaction: { interactive: true, focus: "never", dismissible: false, allowedEvents: ["accepted", "always", "rejected"] },
       sensitivity: "public",
       ttlMs: 900_000,
       persistent: true
@@ -86,8 +87,19 @@ export class ApprovalOverlay {
           await this.#hide();
         } else {
           const events = await this.#manager.pollEvents(shown.widgetId);
-          const decision = events.find((event) => event.overlayId === shown.widgetId && (event.event === "accepted" || event.event === "rejected"));
+          const decision = events.find((event) => event.overlayId === shown.widgetId && (event.event === "accepted" || event.event === "always" || event.event === "rejected"));
           if (decision !== undefined) {
+            if (decision.event === "always") {
+              // The renderer treats `always` like `accepted`: only a physical press gets here.
+              // Approve this one action first; the rule is written only after that succeeds.
+              const accepted = await acceptConfirmation(this.#options.agentHostDir, shown.tokenId).catch(() => undefined);
+              await this.#hide();
+              if (accepted !== undefined) {
+                const policy = await alwaysAllowFromConfirmation(this.#options.agentHostDir, accepted);
+                await this.#notice(policy.written ? `Always allowed. Rule ${policy.index} was added to policy.toml. Remove it with agenthost policy remove.` : policy.message);
+              }
+              return;
+            }
             await (decision.event === "accepted" ? acceptConfirmation : rejectConfirmation)(this.#options.agentHostDir, shown.tokenId).catch(() => undefined);
             await this.#hide();
             return;
@@ -104,6 +116,24 @@ export class ApprovalOverlay {
       /* The card is advisory; the CLI can always resolve a confirmation. */
     } finally {
       this.#busy = false;
+    }
+  }
+
+  /** A short card that says what "Always allow here" did. Best effort. */
+  async #notice(text: string): Promise<void> {
+    try {
+      await this.#manager.showWidget({
+        widgetId: `${cardId(this.#options.sessionId, "notice")}-${Date.now().toString(36)}`,
+        title: "Approved",
+        components: [{ type: "text", text: text.slice(0, 300) }],
+        placement: "top_center",
+        style: { semantic: "info", elevation: "medium" },
+        interaction: { interactive: false, focus: "never", dismissible: false, allowedEvents: [] },
+        sensitivity: "public",
+        ttlMs: 10_000
+      });
+    } catch {
+      /* The notice is advisory. */
     }
   }
 

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -18,7 +18,7 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((directory) 
 function setup(home: string) {
   const manager = new OverlayManager(new HeadlessOverlayRenderer(), { sessionId: SESSION }, { hideMarkerPath: null });
   const overlay = new ApprovalOverlay(manager, { agentHostDir: home, sessionId: SESSION, pollMs: 3_600_000 });
-  const press = (name: "accepted" | "rejected") => manager.pushEvent({ eventId: `event_${name}_${Math.random()}`, overlayId: overlay.widgetId ?? "missing", event: name, createdAt: new Date().toISOString(), ownerSessionId: SESSION });
+  const press = (name: "accepted" | "always" | "rejected", overlayId?: string) => manager.pushEvent({ eventId: `event_${name}_${Math.random()}`, overlayId: overlayId ?? overlay.widgetId ?? "missing", event: name, createdAt: new Date().toISOString(), ownerSessionId: SESSION });
   return { manager, overlay, press };
 }
 const request = (home: string, summary: string, sessionId: string = SESSION) => prepareConfirmation({ agentHostDir: home, tool: "file.delete", riskLevel: "high", args: { path: summary }, summary, sessionId });
@@ -76,5 +76,91 @@ describe("approval card", () => {
       await overlay.close();
       await manager.close();
     }
+  });
+
+  const slackSend = (home: string, category: "send" | "any" = "send") => prepareConfirmation({ agentHostDir: home, tool: "desktop.click", riskLevel: "high", args: { n: Math.random() }, summary: "Send the message", sessionId: SESSION, policyTarget: { app: "Slack", category } });
+  const hasFile = (home: string) => stat(path.join(home, "policy.toml")).then(() => true, () => false);
+
+  it("offers Always allow here as a third button the renderer will accept", async () => {
+    const home = await tempHome();
+    const { manager, overlay } = setup(home);
+    try {
+      await slackSend(home);
+      await overlay.tick();
+      const shown = manager.suppressionSnapshot().find((entry) => entry.overlayId === overlay.widgetId)?.payload as { components: Array<{ type: string; label?: string; event?: string }>; interaction: { allowedEvents: string[] } };
+      expect(shown.components.filter((entry) => entry.type === "button").map((entry) => [entry.label, entry.event])).toEqual([["Approve", "accepted"], ["Always allow here", "always"], ["Deny", "rejected"]]);
+      expect(shown.interaction.allowedEvents).toEqual(["accepted", "always", "rejected"]);
+    } finally {
+      await overlay.close();
+      await manager.close();
+    }
+  });
+
+  it("the always event approves once and writes the rule", async () => {
+    const home = await tempHome();
+    const { manager, overlay, press } = setup(home);
+    try {
+      const record = await slackSend(home);
+      await overlay.tick();
+      press("always");
+      await overlay.tick();
+      expect((await listConfirmations(home)).find((entry) => entry.tokenId === record.tokenId)?.status).toBe("accepted");
+      const text = await readFile(path.join(home, "policy.toml"), "utf8");
+      expect(text.split("\n").filter((line) => line.includes("added from an approval prompt"))).toHaveLength(1);
+      expect(text).toContain("app = \"Slack\"\naction = \"send\"\ndecision = \"allow\"");
+    } finally {
+      await overlay.close();
+      await manager.close();
+    }
+  });
+
+  it("always on a category that cannot be remembered approves once and writes nothing", async () => {
+    const home = await tempHome();
+    const { manager, overlay, press } = setup(home);
+    try {
+      const record = await slackSend(home, "any");
+      await overlay.tick();
+      press("always");
+      await overlay.tick();
+      expect((await listConfirmations(home)).find((entry) => entry.tokenId === record.tokenId)?.status).toBe("accepted");
+      expect(await hasFile(home)).toBe(false);
+    } finally {
+      await overlay.close();
+      await manager.close();
+    }
+  });
+
+  it("an event for another card, or no event at all, changes nothing", async () => {
+    const home = await tempHome();
+    const { manager, overlay, press } = setup(home);
+    try {
+      const record = await slackSend(home);
+      await overlay.tick();
+      press("always", "agenthost-approval-someone-else");
+      await overlay.tick();
+      expect((await listConfirmations(home)).find((entry) => entry.tokenId === record.tokenId)?.status).toBe("pending");
+      expect(await hasFile(home)).toBe(false);
+    } finally {
+      await overlay.close();
+      await manager.close();
+    }
+  });
+
+  it("the renderer treats always like accepted: physical press only", async () => {
+    const source = await readFile(new URL("../../../app-overlay/runtime/gtk3-renderer.py", import.meta.url), "utf8");
+    const setOf = (name: string): string[] => {
+      const match = new RegExp(`^${name} = \\{([^}]*)\\}`, "m").exec(source);
+      expect(match, name).not.toBeNull();
+      return [...match![1]!.matchAll(/"([a-z_]+)"/g)].map((entry) => entry[1]!);
+    };
+    for (const name of ["EVENTS", "TRUST_EVENTS", "CONTROL_EVENTS"]) expect(setOf(name), name).toContain("always");
+    // Every set that holds accepted also holds always, so no check applies to one and not the other.
+    for (const name of ["EVENTS", "TRUST_EVENTS", "CONTROL_EVENTS"]) {
+      const set = setOf(name);
+      expect(set.includes("accepted"), name).toBe(set.includes("always"));
+    }
+    // The press checks themselves are unchanged and still cover TRUST_EVENTS.
+    expect(source).toContain("if event in TRUST_EVENTS and not self.visual.get(\"allowSyntheticControl\", False) and not physical_pointer_source():\n            return");
+    expect(source).toContain("if event in CONTROL_EVENTS and (not pointer_activated() or self.agent_input_active()):\n            return");
   });
 });

@@ -19,6 +19,7 @@ import {
   requestPause,
   ACTION_CARD_PAUSE_PREFIX,
   type ApprovalInfo,
+  type ConfirmationPolicyTarget,
   type RiskLevel,
   type ToolConfirmationInfo,
   type ToolExecutionMetadata,
@@ -387,6 +388,7 @@ async function prepareForTool(input: {
   context: AgentHostMcpContext;
   riskLevel: RiskLevel;
   effect: ToolPreviewEffect;
+  policyTarget?: ConfirmationPolicyTarget | undefined;
 }): Promise<{ tokenId: string; expiresAt: string }> {
   const effectTarget = targetFingerprint(input.effect.targetFingerprint);
   const record = await prepareConfirmation({
@@ -396,7 +398,8 @@ async function prepareForTool(input: {
     args: input.parsedInput,
     summary: input.effect.summary ?? inputSummaryForAudit(input.tool, input.parsedInput),
     ...(effectTarget === undefined ? {} : { targetFingerprint: effectTarget }),
-    sessionId: input.context.sessionId
+    sessionId: input.context.sessionId,
+    ...(input.policyTarget === undefined ? {} : { policyTarget: input.policyTarget })
   });
   return { tokenId: record.tokenId, expiresAt: record.expiresAt };
 }
@@ -510,10 +513,12 @@ async function executeGoverned(
   // Decision order: built-in floors, then policy.toml (first match wins), then the classifier's
   // own decision, which is already in `effect`.
   let policyAllows = false;
+  let policyTarget: ConfirmationPolicyTarget | undefined;
   try {
     const gated = await applyFilePolicy(tool, parsedInput, effect, context);
     effect = gated.effect;
     policyAllows = gated.allowedByRule;
+    policyTarget = gated.policyTarget;
     audit.policySource = gated.source;
     if (gated.note !== undefined) audit.policyNote = gated.note;
   } catch {
@@ -547,7 +552,7 @@ async function executeGoverned(
   if (dryRun === true) {
     let confirmation: ToolConfirmationInfo | undefined;
     if (requiresConfirmation && !previewOnly) {
-      const pending = await prepareForTool({ tool, parsedInput, context, riskLevel, effect });
+      const pending = await prepareForTool({ tool, parsedInput, context, riskLevel, effect, policyTarget });
       confirmation = confirmationInfo("previewGenerated", {
         tokenId: pending.tokenId,
         expiresAt: pending.expiresAt,
@@ -604,7 +609,7 @@ async function executeGoverned(
 
     if (tokenId === undefined) {
       if (!allowPending) {
-        const pending = await prepareForTool({ tool, parsedInput, context, riskLevel, effect });
+        const pending = await prepareForTool({ tool, parsedInput, context, riskLevel, effect, policyTarget });
         const confirmation = confirmationInfo("previewGenerated", {
           tokenId: pending.tokenId,
           expiresAt: pending.expiresAt,
@@ -638,7 +643,7 @@ async function executeGoverned(
       }
 
       const effectTarget = targetFingerprint(effect.targetFingerprint);
-      const prepared = await prepareForTool({ tool, parsedInput, context, riskLevel, effect });
+      const prepared = await prepareForTool({ tool, parsedInput, context, riskLevel, effect, policyTarget });
       await consumeConfirmation({
         agentHostDir: context.config.agentHostDir,
         tokenId: prepared.tokenId,

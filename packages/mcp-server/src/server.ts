@@ -116,7 +116,7 @@ import { bootstrapRequirements } from "./requirements-bootstrap.js";
 import { ActionTimeline } from "./action-timeline.js";
 import { HandoffOverlay } from "./handoff-overlay.js";
 import { ApprovalOverlay } from "./approval-overlay.js";
-import { askInChat, type ElicitFn } from "./chat-approval.js";
+import { askInChatDetailed, type ElicitFn } from "./chat-approval.js";
 import { TaskActivityOverlay } from "./task-overlay.js";
 import { shouldShowActionCard, shouldShowActivityCard } from "./activity.js";
 
@@ -609,7 +609,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       void hostAttention?.requestConfirmation();
       const tokenId = result.confirmation?.tokenId;
       if (tokenId !== undefined && config.approvals?.chat !== false && server.getClientCapabilities()?.elicitation !== undefined) {
-        const outcome = await askInChat({
+        const { outcome, policy } = await askInChatDetailed({
           agentHostDir: config.agentHostDir,
           sessionId: context.sessionId,
           tokenId,
@@ -618,6 +618,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
         if (outcome === "approved") {
           await hostAttention?.resolveConfirmation();
           result.observations.push(`The person approved this in chat. Repeat the same call with confirmationToken ${tokenId}.`);
+          if (policy !== undefined) result.observations.push(policy.written ? `The person chose Always allow here: this kind of action now runs without a prompt (policy.toml rule ${policy.index}).` : policy.message);
         } else if (outcome === "denied") {
           result.observations.push("The person denied this action in chat. Do not retry it.");
         }

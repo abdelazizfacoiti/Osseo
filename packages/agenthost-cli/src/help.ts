@@ -4,7 +4,7 @@
  * the runtime directory, so `agenthost <anything> --help` is always safe.
  */
 
-export const TOP_USAGE = "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|phone|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall|help";
+export const TOP_USAGE = "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|phone|policy|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall|help";
 
 export const COMMAND_USAGE: Record<string, string> = {
   version: "agenthost version",
@@ -15,7 +15,7 @@ export const COMMAND_USAGE: Record<string, string> = {
   status: "agenthost status",
   task: "agenthost task list | status <id> | watch <id> [--follow] [--notify] [--overlay] | approve <id> [--max-risk low|medium] | pause <id> | resume <id> | export <id> [--format md|html]",
   confirmations: "agenthost confirmations [list]",
-  confirm: "agenthost confirm <tokenId>",
+  confirm: "agenthost confirm <tokenId> [--always]\n  --always also writes one rule to policy.toml so this kind of action in this app needs no prompt next time.",
   deny: "agenthost deny <tokenId>",
   agent: "agenthost agent status | pause [--reason text] | stop [--reason text] | takeover-begin [--reason text] | resume [--stop] [--takeover] [--pause]\n  resume with no flag clears a pause, and names any stop or takeover still active with its exact command.",
   attention: "agenthost attention request --source <client> --reason <permission|confirmation|idle|done> | clear [--restore] | status",
@@ -23,6 +23,7 @@ export const COMMAND_USAGE: Record<string, string> = {
   schedule: "agenthost schedule list | add <workflow> (--daily HH:MM | --weekdays HH:MM | --every 30m) [--param k=v] [--apply] | remove <workflow> [--apply]",
   memory: "agenthost memory list | delete <id> | clear [--yes]",
   phone: "agenthost phone status | pair --publish <url> --poll <url> [--max-risk medium|high] | unpair",
+  policy: "agenthost policy list [--json] | add --action <a> --decision <allow|ask|never> [--app <name>] [--site <host>] [--note <text>] [--apply] | remove <line> [--apply]",
   capabilities: "agenthost capabilities [--markdown]",
   permissions: "agenthost permissions",
   sessions: "agenthost sessions",

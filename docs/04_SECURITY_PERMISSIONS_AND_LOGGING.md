@@ -138,6 +138,43 @@ Persistent grants are validated and scoped by capability. A grant does not
 replace a confirmation token for a high-risk, external, destructive, or
 private-data effect.
 
+## Policy file
+
+`~/.agenthost/policy.toml` lets a person change which actions ask, run, or are
+refused. It is plain text with `[[rule]]` tables. Each rule has an `action`
+(`any`, `send`, `upload`, `delete`, `pay`, `navigate`, `type`, `click`), a
+`decision` (`allow`, `ask`, `never`), and optionally `app`, `site` (browser
+tools only) and `note`. The first matching rule decides.
+
+Precedence is fixed:
+
+1. Floors. Blocked actions, typing into password, one-time-code and card
+   fields, password-manager apps, and the control plane. No rule changes them.
+2. File rules, top to bottom.
+3. The classifier's own decision.
+
+An `allow` rule removes a prompt only when it names `send`, `upload`, `delete`
+or `pay` exactly. `allow` with `action = "any"` never removes one. Without a
+file, those four ask. A file with a syntax error is ignored from that point:
+the last good rules stay in use, and `agenthost policy list` shows the error and
+its line. Every audit entry has `policySource`: `floor`, `policy_rule:<line>`
+or `classifier`, plus the rule's note when it has one.
+
+Only the host process writes the file, by writing a temporary file in the same
+directory and renaming it over `policy.toml`. Its path is in the control plane,
+so file tools cannot write it, and shell commands that edit it or run
+`agenthost policy add|remove` are blocked.
+
+"Always allow here" is the one way a prompt writes a rule. The person chooses
+it on the approval card (button), in chat (checkbox) or with
+`agenthost confirm <id> --always`. The action is approved once, and one
+`allow` rule is added with the app (and site, for browser tools), the action,
+and the note "added from an approval prompt". Nothing is written for `any`,
+`navigate`, `type` or `click`, when the app and site are unknown, for a
+blocked action, or when the same rule already exists. The card button counts as
+an approval press: only a physical pointer press is accepted. Remove a rule
+with `agenthost policy remove <line> --apply`.
+
 ## Task approval
 
 `agenthost task approve <taskId> [--max-risk low|medium]` creates a 30-minute

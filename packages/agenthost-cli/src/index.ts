@@ -5,11 +5,12 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, describeDesktopPlatform, acceptConfirmation, createPhonePairing, readPhonePairing, removePhonePairing, isValidChannelUrl, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
+import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, describeDesktopPlatform, acceptConfirmation, alwaysAllowFromConfirmation, createPhonePairing, readPhonePairing, removePhonePairing, isValidChannelUrl, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
 import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
 import { COMMAND_USAGE, TOP_USAGE, wantsHelp } from "./help.js";
 import { attentionCli } from "./attention.js";
 import { parseFlags } from "./flags.js";
+import { policyCommand } from "./policy.js";
 import { physicalConsent, pressCheck } from "./phone.js";
 import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
 import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@agenthost/os-linux";
@@ -393,12 +394,18 @@ async function confirmationsCommand(args: ReturnType<typeof parseFlags>): Promis
       createdAt: record.createdAt
     })) } };
   }
-  const tokenId = args.positional[2];
+  // `--always` is a switch, but parseFlags reads a word after it as its value. Put it back if it was the token.
+  const alwaysValue = args.values.get("always");
+  const always = args.flags.has("always") || alwaysValue !== undefined;
+  const tokenId = args.positional[2] ?? (alwaysValue !== undefined && alwaysValue.startsWith("conf_") ? alwaysValue : undefined);
   if (tokenId === undefined) return fail(`confirmations ${action}`, `usage: agenthost ${action} <tokenId>`);
   if (action !== "confirm" && action !== "deny") return fail("confirmations", "usage: agenthost confirmations [list]|confirm <tokenId>|deny <tokenId>");
+  if (always && action !== "confirm") return fail(action, "--always works only with confirm");
   try {
     const record = action === "confirm" ? await acceptConfirmation(agentHome, tokenId) : await rejectConfirmation(agentHome, tokenId);
-    return { ok: true, command: action, data: { tokenId: record.tokenId, tool: record.tool, status: record.status, summary: redact(record.summary), expiresAt: record.expiresAt } };
+    // Approve once first; the rule is written only after that succeeded.
+    const policy = always ? await alwaysAllowFromConfirmation(agentHome, record) : undefined;
+    return { ok: true, command: action, data: { tokenId: record.tokenId, tool: record.tool, status: record.status, summary: redact(record.summary), expiresAt: record.expiresAt, ...(policy === undefined ? {} : { alwaysAllow: policy.written ? { written: true, rule: policy.index, note: "Added to policy.toml. Remove it with agenthost policy remove." } : { written: false, reason: policy.reason, message: policy.message } }) } };
   } catch (error) {
     return fail(action, error instanceof Error ? error.message : "confirmation_failed");
   }
@@ -742,6 +749,7 @@ async function main(): Promise<number> {
     else if (top === "schedule") result = await scheduleCommand(sub, args);
     else if (top === "memory") result = await memoryCommand(sub, args);
     else if (top === "phone") result = await phoneCommand(sub, args);
+    else if (top === "policy") result = await policyCommand(agentHome, sub, args, json);
     else result = fail(top, "unknown_command");
   } catch (error) { result = fail(top ?? "agenthost", error instanceof Error ? error.message : "command_failed"); }
   await print(result, json); return result.ok ? 0 : (result as { exitCode?: number }).exitCode ?? 1;

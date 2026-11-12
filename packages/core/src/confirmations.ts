@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { PolicyAction } from "./policy-file.js";
 import type { RiskLevel } from "./types.js";
 
 export const DEFAULT_CONFIRMATION_TTL_MS = 15 * 60_000;
@@ -8,6 +9,13 @@ export const MAX_CONFIRMATION_TTL_MS = 60 * 60_000;
 const MAX_PENDING_CONFIRMATIONS = 100;
 
 export type ConfirmationRecordStatus = "pending" | "accepted" | "rejected" | "used";
+
+/** What an approval is about, kept so "Always allow here" can write one exact rule. */
+export interface ConfirmationPolicyTarget {
+  app?: string;
+  site?: string;
+  category: PolicyAction;
+}
 
 export interface ConfirmationRecord {
   tokenId: string;
@@ -18,6 +26,8 @@ export interface ConfirmationRecord {
   summary: string;
   taskId?: string;
   sessionId?: string;
+  /** Absent on records made before "Always allow here" existed. */
+  policyTarget?: ConfirmationPolicyTarget;
   createdAt: string;
   expiresAt: string;
   status: ConfirmationRecordStatus;
@@ -139,6 +149,7 @@ export async function prepareConfirmation(input: {
   targetFingerprint?: string;
   taskId?: string;
   sessionId?: string;
+  policyTarget?: ConfirmationPolicyTarget;
   ttlMs?: number;
 }): Promise<ConfirmationRecord> {
   const now = Date.now();
@@ -162,7 +173,8 @@ export async function prepareConfirmation(input: {
     status: "pending",
     ...(input.targetFingerprint === undefined ? {} : { targetFingerprint: input.targetFingerprint }),
     ...(input.taskId === undefined ? {} : { taskId: input.taskId }),
-    ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId })
+    ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
+    ...(input.policyTarget === undefined ? {} : { policyTarget: input.policyTarget })
   };
   await writeRecord(input.agentHostDir, record);
   return record;

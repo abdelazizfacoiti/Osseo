@@ -1,6 +1,7 @@
 import {
   classifyAppSensitivity,
   decidePolicy,
+  type ConfirmationPolicyTarget,
   auditPolicySource,
   loadPolicy,
   summarizeForLog,
@@ -33,6 +34,8 @@ export interface PolicyGateResult {
   note?: string;
   /** A file rule removed the approval this call would otherwise need. */
   allowedByRule: boolean;
+  /** What the approval would be about; stored on the confirmation for "Always allow here". */
+  policyTarget?: ConfirmationPolicyTarget;
 }
 
 function hostOf(value: unknown): string | undefined {
@@ -123,7 +126,12 @@ export async function applyFilePolicy(
   const loaded = await loadPolicy(context.config.agentHostDir);
   const outcome = decidePolicy(loaded.rules, { tool: tool.name, input, target, classification });
   const source = auditPolicySource(outcome);
-  if (outcome.source !== "policy_rule" || outcome.decision === undefined) return { effect, source, allowedByRule: false };
+  const policyTarget: ConfirmationPolicyTarget = {
+    ...(target.app === undefined ? {} : { app: target.app }),
+    ...(target.site === undefined ? {} : { site: target.site }),
+    category: outcome.category
+  };
+  if (outcome.source !== "policy_rule" || outcome.decision === undefined) return { effect, source, allowedByRule: false, policyTarget };
 
   const note = outcome.note === undefined ? undefined : summarizeForLog(outcome.note);
   const where = `policy.toml line ${outcome.line ?? "?"}${note === undefined ? "" : ` (${note})`}`;
@@ -132,7 +140,8 @@ export async function applyFilePolicy(
       effect: { ...effect, blocked: true, blockedCode: "policy_never", reasons: [`Refused by ${where}.`, ...(effect.reasons ?? [])] },
       source,
       ...(note === undefined ? {} : { note }),
-      allowedByRule: false
+      allowedByRule: false,
+      policyTarget
     };
   }
   if (outcome.decision === "ask") {
@@ -140,10 +149,11 @@ export async function applyFilePolicy(
       effect: { ...effect, requiresConfirmation: true, reasons: [`Approval required by ${where}.`, ...(effect.reasons ?? [])] },
       source,
       ...(note === undefined ? {} : { note }),
-      allowedByRule: false
+      allowedByRule: false,
+      policyTarget
     };
   }
   // allow
   const removes = outcome.exact === true && APPROVABLE.has(outcome.category);
-  return { effect, source, ...(note === undefined ? {} : { note }), allowedByRule: removes };
+  return { effect, source, ...(note === undefined ? {} : { note }), allowedByRule: removes, policyTarget };
 }

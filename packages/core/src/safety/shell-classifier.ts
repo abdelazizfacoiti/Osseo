@@ -97,13 +97,13 @@ const SHELL_RULES: ShellRule[] = [
   },
   {
     id: "shell.agenthost_control_bypass",
-    pattern: /\b(?:agenthost(?:-cli)?|agenthost-mcp)\b[\s\S]*\b(?:task\s+(?:approve|stop)|confirm|deny|pause|resume|stop|takeover|overlay\s+hide|integrations[\s\S]*--apply)\b/i,
+    pattern: /\b(?:agenthost(?:-cli)?|agenthost-mcp)\b[\s\S]*\b(?:task\s+(?:approve|stop)|policy\s+(?:add|remove)|confirm|deny|pause|resume|stop|takeover|overlay\s+hide|integrations[\s\S]*--apply)\b/i,
     riskLevel: "blocked",
     reason: "AgentHost operator control commands cannot be run by the agent."
   },
   {
     id: "shell.agenthost_control_path",
-    pattern: /\.agenthost[\\/](?:run|logs|setup|tasks[\\/]approvals)(?:[\\/]|\b)|\.agenthost[\\/]config\.json\b/i,
+    pattern: /\.agenthost[\\/](?:run|logs|setup|tasks[\\/]approvals)(?:[\\/]|\b)|\.agenthost[\\/]policy\.toml\b|\.agenthost[\\/]config\.json\b/i,
     riskLevel: "blocked",
     reason: "AgentHost control-plane files are operator-only."
   }

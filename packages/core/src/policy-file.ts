@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import type { ConfirmationRecord } from "./confirmations.js";
 import type { RiskLevel } from "./types.js";
 
 /*
@@ -504,7 +505,8 @@ export function removeRuleText(text: string, index: number): string {
   if (rule === undefined) throw new Error(`There is no rule ${index}. The file has ${rules.length}.`);
   const lines = text.split("\n");
   let end = rule.endLine; // 1-based, inclusive
-  if (lines[end]?.trim() === "") end += 1;
+  // The last element after a final newline is not a blank line of the file; keep it so the newline stays.
+  if (end < lines.length - 1 && lines[end]?.trim() === "") end += 1;
   return [...lines.slice(0, rule.line - 1), ...lines.slice(end)].join("\n");
 }
 
@@ -555,9 +557,11 @@ export async function removeRule(agentHostDir: string, index: number): Promise<v
 
 export type AlwaysAllowResult =
   | { written: true; index: number; rule: NewPolicyRule }
-  | { written: false; reason: "no_category" | "unknown_app" | "already_allowed" | "policy_invalid" | "write_failed"; message: string };
+  | { written: false; reason: "no_category" | "not_approvable" | "blocked" | "unknown_app" | "already_allowed" | "policy_invalid" | "write_failed"; message: string };
 
 export const ALWAYS_ALLOW_NOTE = "added from an approval prompt";
+/** Only these ever need an approval, so only these can be remembered. */
+export const REMEMBERABLE_ACTIONS: readonly PolicyAction[] = ["send", "upload", "delete", "pay"];
 
 /**
  * Writes the one rule behind "Always allow here". The caller has already shown the person the
@@ -571,21 +575,29 @@ export async function applyAlwaysAllow(
   if (category === undefined || category === "any" || !(POLICY_ACTIONS as readonly string[]).includes(category)) {
     return { written: false, reason: "no_category", message: "This kind of action has no category a rule can name, so it was approved once only." };
   }
+  if (!(REMEMBERABLE_ACTIONS as readonly string[]).includes(category)) {
+    return { written: false, reason: "not_approvable", message: `${category} actions never need an approval, so there is nothing to remember. Approved once only.` };
+  }
   const app = record.appName?.trim();
-  if (app === undefined || app.length === 0 || app.includes("*") || validateNewRule({ app, action: "any", decision: "allow" }) !== undefined) {
+  const site = record.site?.trim();
+  const hasSite = site !== undefined && site.length > 0;
+  const hasApp = app !== undefined && app.length > 0;
+  if ((!hasApp && !hasSite) || (hasApp && (app.includes("*") || validateNewRule({ app, action: "any", decision: "allow" }) !== undefined))) {
     return { written: false, reason: "unknown_app", message: "The app is not known, so it was approved once only." };
   }
   const rule: NewPolicyRule = {
-    app,
-    ...(record.site === undefined ? {} : { site: record.site }),
+    ...(hasApp ? { app } : {}),
+    ...(hasSite ? { site } : {}),
     action: category as PolicyAction,
     decision: "allow",
     note: ALWAYS_ALLOW_NOTE
   };
+  const problem = validateNewRule(rule);
+  if (problem !== undefined) return { written: false, reason: "policy_invalid", message: `${problem}. Approved once only.` };
   try {
     const text = await readPolicyText(agentHostDir);
     const existing = parsePolicy(text);
-    const target: PolicyTarget = { app, site: record.site };
+    const target: PolicyTarget = { app: hasApp ? app : undefined, site: hasSite ? site.toLowerCase().replace(/^\*?\./, "") : undefined };
     const decided = existing.find((entry) => ruleMatches(entry, category as PolicyAction, target));
     if (decided?.decision === "allow" && decided.action === category) {
       return { written: false, reason: "already_allowed", message: "A rule already allows this, so it was approved once only." };
@@ -596,6 +608,21 @@ export async function applyAlwaysAllow(
     const invalid = error instanceof PolicyParseError;
     return { written: false, reason: invalid ? "policy_invalid" : "write_failed", message: invalid ? `${error.message}. Fix policy.toml first. Approved once only.` : "policy.toml could not be written. Approved once only." };
   }
+}
+
+/** The one function all three surfaces (chat, card, CLI) call after the person chose "Always allow here". */
+export async function alwaysAllowFromConfirmation(
+  agentHostDir: string,
+  record: Pick<ConfirmationRecord, "policyTarget" | "riskLevel">
+): Promise<AlwaysAllowResult> {
+  if (record.riskLevel === "blocked") {
+    return { written: false, reason: "blocked", message: "Blocked actions cannot be allowed by a rule. Approved once only." };
+  }
+  const target = record.policyTarget;
+  if (target === undefined) {
+    return { written: false, reason: "no_category", message: "This approval did not record what it was about, so it was approved once only." };
+  }
+  return applyAlwaysAllow(agentHostDir, { appName: target.app, site: target.site, category: target.category });
 }
 
 export function describeRule(rule: PolicyRule, index: number): string {
