@@ -163,3 +163,74 @@ def dock_layout(area_height, timeline_height, bottom_heights, margin=24, bottom_
         room = usable - used - (margin if bottom else 0)
         timeline = max(min_timeline, min(timeline_wanted, room))
     return {"timeline": timeline, "bottom": bottom}
+
+
+RAIL_WIDTH = 48
+RAIL_COLLAPSE_MS = 800
+
+
+def rail_rects(monitor, side="right", dock_width=240, rail_width=RAIL_WIDTH):
+    """Rectangles of the opt-in rail layout on one monitor `(x, y, width, height)`.
+
+    `collapsed` is the always-visible strip on the chosen edge; it is also the
+    only part that reserves work area (`strut` pixels from that edge). `expanded`
+    is the panel that holds the dock content; it sits beside the strip, toward
+    the middle of the screen, so the two never overlap.
+    """
+    x, y, width, height = (int(value) for value in monitor[:4])
+    rail = max(1, min(int(rail_width), width))
+    panel = max(1, min(int(dock_width), width - rail))
+    if side == "left":
+        collapsed_x, expanded_x = x, x + rail
+    else:
+        collapsed_x, expanded_x = x + width - rail, x + width - rail - panel
+    return {
+        "collapsed": (collapsed_x, y, rail, height),
+        "expanded": (expanded_x, y, panel, height),
+        "strut": rail,
+    }
+
+
+def rail_expanded(hovering, since_left_ms, attention=False, error=False, collapse_ms=RAIL_COLLAPSE_MS):
+    """Decide whether the rail shows the dock content.
+
+    Expanded while the pointer is over it, while an approval wait or an error is
+    present, and for `collapse_ms` after the pointer left (`since_left_ms` is
+    None when it never left or is still inside).
+    """
+    if hovering or attention or error:
+        return True
+    return since_left_ms is not None and since_left_ms < collapse_ms
+
+
+def rail_words(text, count=3, width=7):
+    """The current action in at most `count` words, each cut to `width` characters; "Idle" when empty."""
+    words = [word for word in str(text or "").split() if word]
+    if not words:
+        return "Idle"
+    return " ".join(word if len(word) <= width else word[: width - 1] + "." for word in words[:count])
+
+
+def rail_status(components):
+    """Return `(status, action, attention, error)` from a timeline card's components.
+
+    `status` is one of running, paused, stopped, waiting, idle, read from the
+    same status badge and entries the dock timeline shows.
+    """
+    badge = ""
+    entries = []
+    for component in components or []:
+        if not isinstance(component, dict):
+            continue
+        if component.get("type") == "status_badge":
+            badge = str(component.get("text", ""))
+        elif component.get("type") == "timeline" and isinstance(component.get("entries"), list):
+            entries = [entry for entry in component["entries"] if isinstance(entry, dict)]
+    status = {"Waiting for you": "waiting", "Stopped": "stopped", "Paused": "paused", "Working": "running"}.get(badge, "idle")
+    action = "Idle"
+    for entry in entries:
+        if entry.get("state") == "running":
+            action = rail_words(entry.get("label"))
+            break
+    failed = bool(entries) and entries[0].get("state") in {"failed", "halted"}
+    return status, action, status == "waiting", status == "stopped" or failed

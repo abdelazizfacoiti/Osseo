@@ -310,7 +310,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     : undefined);
   const policy = options.policy ?? config.policy;
   const activityMode = config.overlay?.mode ?? "always";
-  const dockLayout = (config.overlay?.layout ?? "dock") === "dock";
+  // The rail is a dock-style layout: it holds the same strut and the same timeline and bottom cards.
+  const dockLayout = (config.overlay?.layout ?? "dock") === "dock" || config.overlay?.layout === "rail";
   const actionPill = config.overlay?.actionPill ?? !dockLayout;
   const pillAutoHideMs = config.overlay?.pillAutoHideMs ?? 30_000;
   const overlay = new VisualSurfaceCoordinator(createOverlayRenderer(config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto", {
@@ -357,7 +358,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     // Keep the action card, its frame and ring up between actions while an explicit task is open.
     holdVisible: () => taskActivity?.hasOpenTask() === true
   });
-  const actionTimeline = activityMode !== "off" && (config.overlay?.layout ?? "dock") === "dock" && config.overlay?.timeline !== false
+  const actionTimeline = activityMode !== "off" && dockLayout && config.overlay?.timeline !== false
     ? new ActionTimeline(overlay, {
       sessionId: sessionId.replace(/[^A-Za-z0-9._-]/g, "_"),
       readAlerts: async () => {

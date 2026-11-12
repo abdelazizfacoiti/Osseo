@@ -196,6 +196,19 @@ describe("loadAgentHostConfig", () => {
     await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
   });
 
+  it("accepts the opt-in rail layout and keeps dock as the default", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-overlay-rail-"));
+    const agentHostDir = path.join(homeDir, ".agenthost");
+    await mkdir(agentHostDir, { recursive: true });
+    const configPath = path.join(agentHostDir, "config.json");
+    await writeFile(configPath, JSON.stringify({ overlay: { layout: "rail", dockSide: "left" } }), "utf8");
+    expect((await loadAgentHostConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ layout: "rail", dockSide: "left", dockReserveSpace: true, frame: false });
+    await writeFile(configPath, JSON.stringify({ overlay: {} }), "utf8");
+    expect((await loadAgentHostConfig({ env: {}, homeDir, configPath })).overlay?.layout).toBe("dock");
+    await writeFile(configPath, JSON.stringify({ overlay: { layout: "strip" } }), "utf8");
+    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
+  });
+
   it("allows explicitly selecting the local overlay renderer mode", async () => {
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-overlay-"));
     const config = await loadAgentHostConfig({ env: { AGENTHOST_OVERLAY_MODE: "gtk3-x11" }, homeDir });

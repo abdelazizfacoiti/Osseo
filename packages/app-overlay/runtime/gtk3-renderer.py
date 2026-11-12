@@ -15,7 +15,7 @@ import sys
 import time
 import uuid
 
-from overlay_geometry import card_position, dock_layout, ring_placement
+from overlay_geometry import RAIL_COLLAPSE_MS, card_position, dock_layout, rail_expanded, rail_rects, rail_status, ring_placement
 from overlay_input import device_node_from_props, node_is_physical
 
 try:
@@ -274,6 +274,7 @@ class Renderer:
         self.command_queue = []
         self.queue_scheduled = False
         self.dock_window = None
+        self.rail = None
         self.dock_concealed = False
         self.dock_release_source = None
         self.input_guard_path = None
@@ -377,7 +378,7 @@ class Renderer:
         if not isinstance(value, dict):
             return
         layout = value.get("layout")
-        if layout in {"ambient", "dock"}:
+        if layout in {"ambient", "dock", "rail"}:
             self.visual["layout"] = layout
         dock_side = value.get("dockSide")
         if dock_side in {"left", "right"}:
@@ -399,7 +400,7 @@ class Renderer:
         self.destroy_dock()
 
     def dock_geometry(self):
-        if self.visual.get("layout") != "dock":
+        if self.visual.get("layout") not in {"dock", "rail"}:
             return None
         display = Gdk.Display.get_default()
         if display is None:
@@ -412,12 +413,18 @@ class Renderer:
         geometry = monitor.get_geometry()
         width = max(240, int(geometry.width * int(self.visual.get("dockWidthPercent", 20)) / 100))
         width = min(width, geometry.width)
+        if self.visual.get("layout") == "rail":
+            # The panel that holds the dock content when the rail is expanded.
+            return rail_rects((geometry.x, geometry.y, geometry.width, geometry.height), self.visual.get("dockSide", "right"), width)["expanded"]
         x = geometry.x if self.visual.get("dockSide") == "left" else geometry.x + geometry.width - width
         return (x, geometry.y, width, geometry.height)
 
     def ensure_dock(self):
-        if self.visual.get("layout") != "dock" or self.emergency_hidden:
+        if self.visual.get("layout") not in {"dock", "rail"} or self.emergency_hidden:
             self.destroy_dock()
+            return
+        if self.visual.get("layout") == "rail":
+            self.ensure_rail()
             return
         if self.dock_window is not None:
             if self.dock_concealed:
@@ -488,7 +495,182 @@ class Renderer:
             except Exception:
                 pass
 
+    # ---- Rail (opt-in layout): a 48 px strip, expanded on demand ----
+
+    def rail_monitor(self):
+        display = Gdk.Display.get_default()
+        monitor = display.get_primary_monitor() if display is not None else None
+        if monitor is None and display is not None:
+            monitor = display.get_monitor(0)
+        if monitor is None:
+            return None
+        geometry = monitor.get_geometry()
+        return (geometry.x, geometry.y, geometry.width, geometry.height)
+
+    def ensure_rail(self):
+        if self.dock_window is not None:
+            if self.dock_concealed:
+                self.dock_window.set_opacity(1.0)
+                self.dock_concealed = False
+            return
+        monitor = self.rail_monitor()
+        panel = self.dock_geometry()
+        if monitor is None or panel is None:
+            return
+        rects = rail_rects(monitor, self.visual.get("dockSide", "right"), panel[2])
+        x, y, width, height = rects["collapsed"]
+        window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
+        window.set_decorated(False)
+        window.set_title("AgentHost Rail")
+        window.set_keep_above(True)
+        window.set_skip_taskbar_hint(True)
+        window.set_skip_pager_hint(True)
+        window.set_accept_focus(False)
+        window.set_focus_on_map(False)
+        window.set_app_paintable(True)
+        try:
+            window.set_type_hint(Gdk.WindowTypeHint.DOCK)
+        except Exception:
+            pass
+        screen = Gdk.Screen.get_default()
+        if screen is not None:
+            window.set_screen(screen)
+            self.ensure_widget_css(screen)
+            visual = screen.get_rgba_visual()
+            if visual is not None:
+                window.set_visual(visual)
+        window.get_style_context().add_class("ah-rail")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        dot = self.label("●", "ah-rail-dot ah-rail-idle", 2)
+        action = self.label("Idle", "ah-rail-action", 8)
+        action.set_justify(Gtk.Justification.CENTER)
+        stop = Gtk.Button(label="■")
+        stop.get_style_context().add_class("ah-rail-stop")
+        stop.set_focus_on_click(False)
+        stop.set_can_focus(False)
+        stop.set_tooltip_text("Stop")
+        # The Stop press goes through the same guard as every card button.
+        stop.connect("clicked", lambda _button: self.rail_stop())
+        box.pack_start(dot, False, False, 0)
+        box.pack_start(action, False, False, 0)
+        box.pack_end(stop, False, False, 0)
+        window.add(box)
+        window.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
+        window.connect("enter-notify-event", self.rail_enter)
+        window.connect("leave-notify-event", self.rail_leave)
+        window.move(x, y)
+        window.set_default_size(width, height)
+        window.realize()
+        gdk_window = window.get_window()
+        if gdk_window is not None and self.visual.get("dockReserveSpace", True):
+            self.set_dock_strut(gdk_window, x, y, width, height)
+        window.show_all()
+        self.dock_window = window
+        self.rail = {"dot": dot, "action": action, "stop": stop, "hover": False, "left_at": None, "expanded": None, "status": "idle", "attention": False, "error": False, "source": GLib.timeout_add(150, self.rail_tick)}
+        self.rail_refresh()
+
+    def rail_enter(self, _window, _event):
+        if self.rail is not None:
+            self.rail["hover"] = True
+            self.rail["left_at"] = None
+            self.rail_apply()
+        return False
+
+    def rail_leave(self, _window, event):
+        # Leaving toward the expanded panel is not leaving the rail.
+        if self.rail is not None and not self.rail_pointer_inside():
+            self.rail["hover"] = False
+            self.rail["left_at"] = time.monotonic()
+        return False
+
+    def rail_pointer_inside(self):
+        display = Gdk.Display.get_default()
+        monitor = self.rail_monitor()
+        if display is None or monitor is None:
+            return False
+        try:
+            _screen, px, py = display.get_default_seat().get_pointer().get_position()
+        except Exception:
+            return False
+        rects = rail_rects(monitor, self.visual.get("dockSide", "right"), self.dock_geometry()[2])
+        for key in ("collapsed", "expanded"):
+            x, y, width, height = rects[key]
+            if key == "expanded" and not (self.rail or {}).get("expanded"):
+                continue
+            if x <= px < x + width and y <= py < y + height:
+                return True
+        return False
+
+    def rail_stop(self):
+        # Reuse the card Stop path: any live card that allows the stop event.
+        for record in self.records.values():
+            if "emergency_stop_requested" in self.allowed_events(record):
+                self.on_footer_click(record, "emergency_stop_requested")
+                return
+
+    def rail_refresh(self):
+        rail = self.rail
+        if rail is None:
+            return
+        status, action, attention, error = "idle", "Idle", False, False
+        for overlay_id, record in self.records.items():
+            if str(overlay_id).startswith(TIMELINE_ID_PREFIX):
+                payload = record.get("payload") or {}
+                status, action, attention, error = rail_status(component_rows(payload))
+        rail["status"], rail["attention"], rail["error"] = status, attention, error
+        if rail["action"].get_text() != action:
+            rail["action"].set_text(action)
+        context = rail["dot"].get_style_context()
+        for name in ("idle", "running", "paused", "stopped", "waiting"):
+            context.remove_class("ah-rail-" + name)
+        context.add_class("ah-rail-" + status)
+        rail["stop"].set_sensitive(any("emergency_stop_requested" in self.allowed_events(record) for record in self.records.values()))
+        self.rail_apply()
+
+    def rail_apply(self):
+        rail = self.rail
+        if rail is None:
+            return
+        left = rail["left_at"]
+        since = None if left is None else (time.monotonic() - left) * 1000
+        wanted = rail_expanded(rail["hover"], since, rail["attention"], rail["error"], RAIL_COLLAPSE_MS)
+        if wanted == rail["expanded"]:
+            return
+        rail["expanded"] = wanted
+        if wanted:
+            self.layout_dock()
+        else:
+            self.rail_visibility()
+
+    def rail_visibility(self):
+        wanted = bool(self.rail and self.rail["expanded"])
+        for overlay_id, card in self.cards.items():
+            record = self.records.get(overlay_id)
+            if record is not None and self.is_dock_card(record):
+                if wanted:
+                    card["window"].show_all()
+                else:
+                    card["window"].hide()
+
+    def rail_tick(self):
+        rail = self.rail
+        if rail is None:
+            return False
+        if rail["hover"] is False and self.rail_pointer_inside():
+            rail["hover"] = True
+            rail["left_at"] = None
+        self.rail_refresh()
+        return True
+
     def destroy_dock(self):
+        if self.rail is not None:
+            try:
+                GLib.source_remove(self.rail["source"])
+            except Exception:
+                pass
+            self.rail = None
         if self.dock_window is not None:
             try:
                 self.dock_window.destroy()
@@ -652,6 +834,14 @@ class Renderer:
         .ah-stop:hover { background-color: rgba(235,70,70,0.30); }
         .ah-close { background-image: none; background-color: transparent; border-style: none; color: #9aa6bc; font-size: 16px; padding-left: 4px; padding-right: 4px; }
         .ah-close:hover { color: #f0f4ff; }
+        .ah-rail { background-color: rgba(18,22,32,0.96); border-width: 0px; }
+        .ah-rail-dot { font-size: 22px; }
+        .ah-rail-idle { color: #7b8699; }
+        .ah-rail-running { color: #5b9dff; }
+        .ah-rail-paused, .ah-rail-waiting { color: #ffbc4a; }
+        .ah-rail-stopped { color: #ff7878; }
+        .ah-rail-action { color: #dfe6f3; font-size: 10px; }
+        .ah-rail-stop { padding: 4px; min-width: 0px; color: #ff9a9a; background-image: none; background-color: rgba(194,47,47,0.35); }
         .ah-timeline-row { padding-top: 4px; padding-bottom: 4px; padding-left: 6px; padding-right: 6px; border-radius: 8px; }
         .ah-timeline-current { background-color: rgba(91,157,255,0.12); }
         .ah-timeline-label { color: #dfe6f3; font-size: 13px; }
@@ -1293,6 +1483,8 @@ class Renderer:
         if timeline is not None:
             card, full, chrome = timeline
             self.place_card(card, x, area.y + CARD_MARGIN, width, layout["timeline"], full, chrome)
+        if self.rail is not None:
+            self.rail_visibility()
 
     def card_key(self, _widget, event, record):
         if event.keyval == Gdk.KEY_Escape:
@@ -1757,7 +1949,7 @@ class Renderer:
         return {"ok": True, **self.operation_ack("dismiss", "dismissed", overlay_id, "gtk3_overlay_dismissed")}
 
     def is_dock_record(self, record):
-        if self.visual.get("layout") != "dock" or record.get("type", "widget") not in CARD_TYPES:
+        if self.visual.get("layout") not in {"dock", "rail"} or record.get("type", "widget") not in CARD_TYPES:
             return False
         payload = record.get("payload") or {}
         return str(record.get("overlayId", "")).startswith(TIMELINE_ID_PREFIX) or str(payload.get("placement", "top_right")).startswith("bottom")

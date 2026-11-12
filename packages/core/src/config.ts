@@ -21,7 +21,7 @@ const overlaySchema = z.object({
   preferredPosition: z.enum(["top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right"]).optional(),
   maxWidth: z.number().int().min(240).max(1200).optional(),
   multiMonitor: z.enum(["primary", "all"]).optional(),
-  layout: z.enum(["ambient", "dock"]).optional(),
+  layout: z.enum(["ambient", "dock", "rail"]).optional(),
   dockSide: z.enum(["left", "right"]).optional(),
   dockWidthPercent: z.number().int().min(10).max(40).optional(),
   dockReserveSpace: z.boolean().optional(),
@@ -139,7 +139,7 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     (env.AGENTHOST_OVERLAY_MODE ?? fileConfig.overlay?.rendererMode ?? fileConfig.overlayRendererMode ?? "auto") as OverlayRendererMode
   );
   // In dock layout nothing floats over the work area by default (see workWindowCaptureClean in server.ts).
-  const dockLayout = (fileConfig.overlay?.layout ?? "dock") === "dock";
+  const dockLayout = (fileConfig.overlay?.layout ?? "dock") !== "ambient";
   const overlay: OverlayPublicConfig = {
     rendererMode: overlayRendererMode,
     mode: fileConfig.overlay?.mode ?? "always",
