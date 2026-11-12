@@ -2179,6 +2179,9 @@ export interface AuditLogEntry {
   /** Non-reversible audit reference; never the confirmable token ID. */
   confirmationTokenId?: string;
   confirmationReason?: string;
+  /** What decided this call: floor, policy_rule:<line of policy.toml>, or classifier. */
+  policySource?: string;
+  policyNote?: string;
   receiptId?: string;
   matchedGrantIds?: string[];
   deniedGrantIds?: string[];

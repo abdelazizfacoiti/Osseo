@@ -20,6 +20,7 @@ import {
   JsonlAuditLogger,
   JsonlTraceLogger,
   loadAgentHostConfig,
+  ensurePolicyFile,
   describeDesktopPlatform,
   setUserBlockedApps,
   summarizeForLog,
@@ -270,6 +271,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   // Desktop commands run with this as their working directory; on a fresh install it may not exist yet.
   // Owner-only: mode 0700 on POSIX, an access list (icacls) on Windows where file modes do nothing.
   await ensurePrivateDirectory(config.agentHostDir).catch(() => undefined);
+  // The commented default policy.toml, written once and never over an existing file.
+  await ensurePolicyFile(config.agentHostDir).catch(() => undefined);
   // Background placement: all desktop work happens on a nested display. If it
   // cannot start, fail loudly: quietly acting on the person's screen is what
   // they asked to avoid.

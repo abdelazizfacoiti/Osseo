@@ -30,6 +30,7 @@ import type { AgentHostMcpContext } from "./context.js";
 import type { ToolActionHandle, ToolActionTarget } from "./action-overlay.js";
 import { shouldShowActionCard } from "./activity.js";
 import { createSafetyEvaluationContext } from "./grants.js";
+import { applyFilePolicy } from "./policy-gate.js";
 import { withStateChangingLane } from "./execution-gate.js";
 import { injectsInput, markAgentInput } from "./input-guard.js";
 import { waitForHumanToPause } from "./human-presence.js";
@@ -92,6 +93,9 @@ interface AuditMeta {
   inputSummary: string;
   preview: boolean;
   confirmation?: ToolConfirmationInfo;
+  /** floor, policy_rule:<line> or classifier. */
+  policySource?: string;
+  policyNote?: string;
   timings: ExecutionTimings;
 }
 
@@ -503,10 +507,22 @@ async function executeGoverned(
       observations: ["No action was executed."]
     });
   }
+  // Decision order: built-in floors, then policy.toml (first match wins), then the classifier's
+  // own decision, which is already in `effect`.
+  let policyAllows = false;
+  try {
+    const gated = await applyFilePolicy(tool, parsedInput, effect, context);
+    effect = gated.effect;
+    policyAllows = gated.allowedByRule;
+    audit.policySource = gated.source;
+    if (gated.note !== undefined) audit.policyNote = gated.note;
+  } catch {
+    audit.policySource = "classifier";
+  }
   const riskLevel = resolveRisk(effect, tool.riskLevel);
   const approval = resolveApproval(effect);
   await traceEvent(context, tool.name, "preview", startedAt, { riskLevel, ok: effect.blocked !== true });
-  const requiresConfirmation = (
+  const requiresConfirmation = !policyAllows && (
     tool.execution?.requiresConfirmationToken === true ||
     effect.requiresConfirmation === true ||
     approval.required ||
@@ -665,7 +681,8 @@ async function executeGoverned(
     });
   }
 
-  const handlerContext = confirmationAccepted && context.confirmationSatisfied !== true
+  // An allow rule that named this action stands in for the confirmation the handler's own recheck looks for.
+  const handlerContext = (confirmationAccepted || policyAllows) && context.confirmationSatisfied !== true
     ? { ...context, confirmationSatisfied: true }
     : context;
   advancePhase("handler");
@@ -976,6 +993,8 @@ export async function runTool<Input>(
             ...(audit.confirmation.tokenId === undefined ? {} : { confirmationTokenId: tokenAuditRef(audit.confirmation.tokenId) }),
             confirmationReason: summarizeForLog(audit.confirmation.reason)
           }),
+      ...(audit.policySource === undefined ? {} : { policySource: audit.policySource }),
+      ...(audit.policyNote === undefined ? {} : { policyNote: audit.policyNote }),
       inputSummary: audit.inputSummary,
       approvalStatus: result.approval.status,
       ok: result.ok,

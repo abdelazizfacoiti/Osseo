@@ -134,7 +134,8 @@ function controlPlaneRoots(agentHostDir: string | undefined, protectedPaths: str
           api.join(agentHostDir, "tasks", "approvals"),
           api.join(agentHostDir, "logs"),
           api.join(agentHostDir, "setup"),
-          api.join(agentHostDir, "config.json")
+          api.join(agentHostDir, "config.json"),
+          api.join(agentHostDir, "policy.toml")
         ]),
     ...(protectedPaths ?? [])
   ];

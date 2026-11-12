@@ -1,6 +1,6 @@
 import path from "node:path";
 import { readFile, writeFile, mkdir, rm, readdir, stat, copyFile, rename } from "node:fs/promises";
-import { toolFailure, toolSuccess, normalizePathForPolicy, evaluateSafety, type ToolResult, type FileExistsResult } from "@agenthost/core";
+import { toolFailure, toolSuccess, normalizePathForPolicy, evaluateSafety, isAgentHostControlPath, type ToolResult, type FileExistsResult } from "@agenthost/core";
 import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
@@ -89,6 +89,12 @@ function sourceCheck(tool: string, filePath: string, context: AgentHostMcpContex
     context.policy,
     createSafetyEvaluationContext(context)
   );
+}
+
+/** A move removes its source, so a control-plane source (config, policy.toml, run state) is checked as a write, not a read. */
+function moveSourceCheck(tool: string, filePath: string, context: AgentHostMcpContext) {
+  const platform = createSafetyEvaluationContext(context);
+  return isAgentHostControlPath(filePath, platform) ? safetyCheck(tool, "file_write", filePath, context) : sourceCheck(tool, filePath, context);
 }
 
 function failure(tool: string, safety: ReturnType<typeof evaluateSafety>): ToolResult<never> {
@@ -392,14 +398,14 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
       resolveEffect: (i, context) => {
         const src = resolvedPath(i.source, context);
         const dst = resolvedPath(i.destination, context);
-        const safety = combinedRisk(sourceCheck("file.move", src, context), safetyCheck("file.move", "file_write", dst, context));
+        const safety = combinedRisk(moveSourceCheck("file.move", src, context), safetyCheck("file.move", "file_write", dst, context));
         return { summary: `Move ${src} to ${dst}`, targetFingerprint: `${src}->${dst}`, riskLevel: safety.riskLevel, approval: safety.approval, blocked: safety.blocked, reasons: safety.reasons, data: { source: src, destination: dst } };
       }
     },
     async handler(input, context) {
       const src = resolvedPath(input.source, context);
       const dst = resolvedPath(input.destination, context);
-      const safety = combinedRisk(sourceCheck("file.move", src, context), safetyCheck("file.move", "file_write", dst, context));
+      const safety = combinedRisk(moveSourceCheck("file.move", src, context), safetyCheck("file.move", "file_write", dst, context));
       if (!safety.allowed) return failure("file.move", safety);
       try {
         await rename(src, dst);

@@ -1,0 +1,301 @@
+{
+  "context": {
+    "homeDir": "/home/tester",
+    "agentHostDir": "/home/tester/.agenthost",
+    "platform": "linux"
+  },
+  "cases": [
+    {
+      "name": "file.read in project",
+      "input": {
+        "tool": "file.read",
+        "actionType": "file_read",
+        "filePath": "/home/tester/project/a.txt"
+      },
+      "expected": {
+        "riskLevel": "low",
+        "approvalRequired": false,
+        "approvalStatus": "not_required",
+        "blocked": false,
+        "allowed": true,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "file.write in project",
+      "input": {
+        "tool": "file.write",
+        "actionType": "file_write",
+        "filePath": "/home/tester/project/a.txt"
+      },
+      "expected": {
+        "riskLevel": "medium",
+        "approvalRequired": false,
+        "approvalStatus": "not_required",
+        "blocked": false,
+        "allowed": true,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "file.delete in project",
+      "input": {
+        "tool": "file.delete",
+        "actionType": "file_delete",
+        "filePath": "/home/tester/project/a.txt",
+        "destructive": true
+      },
+      "expected": {
+        "riskLevel": "high",
+        "approvalRequired": true,
+        "approvalStatus": "required",
+        "blocked": false,
+        "allowed": false,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "file.write to config.json",
+      "input": {
+        "tool": "file.write",
+        "actionType": "file_write",
+        "filePath": "/home/tester/.agenthost/config.json"
+      },
+      "expected": {
+        "riskLevel": "blocked",
+        "approvalRequired": false,
+        "approvalStatus": "denied",
+        "blocked": true,
+        "allowed": false,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "file.read ssh key",
+      "input": {
+        "tool": "file.read",
+        "actionType": "file_read",
+        "filePath": "/home/tester/.ssh/id_rsa"
+      },
+      "expected": {
+        "riskLevel": "blocked",
+        "approvalRequired": false,
+        "approvalStatus": "denied",
+        "blocked": true,
+        "allowed": false,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "desktop.click in text editor",
+      "input": {
+        "tool": "desktop.click",
+        "actionType": "gui_click",
+        "appName": "gedit"
+      },
+      "expected": {
+        "riskLevel": "medium",
+        "approvalRequired": false,
+        "approvalStatus": "not_required",
+        "blocked": false,
+        "allowed": true,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "desktop.click in Slack",
+      "input": {
+        "tool": "desktop.click",
+        "actionType": "gui_click",
+        "appName": "Slack"
+      },
+      "expected": {
+        "riskLevel": "high",
+        "approvalRequired": true,
+        "approvalStatus": "required",
+        "blocked": false,
+        "allowed": false,
+        "appSensitivity": "communication"
+      }
+    },
+    {
+      "name": "desktop.type_text in Gmail",
+      "input": {
+        "tool": "desktop.type_text",
+        "actionType": "gui_type",
+        "appName": "Gmail"
+      },
+      "expected": {
+        "riskLevel": "high",
+        "approvalRequired": true,
+        "approvalStatus": "required",
+        "blocked": false,
+        "allowed": false,
+        "appSensitivity": "communication"
+      }
+    },
+    {
+      "name": "desktop.type_text in 1Password",
+      "input": {
+        "tool": "desktop.type_text",
+        "actionType": "gui_type",
+        "appName": "1Password"
+      },
+      "expected": {
+        "riskLevel": "blocked",
+        "approvalRequired": false,
+        "approvalStatus": "denied",
+        "blocked": true,
+        "allowed": false,
+        "appSensitivity": "credential_or_security"
+      }
+    },
+    {
+      "name": "desktop.click in PayPal",
+      "input": {
+        "tool": "desktop.click",
+        "actionType": "gui_click",
+        "appName": "PayPal"
+      },
+      "expected": {
+        "riskLevel": "high",
+        "approvalRequired": true,
+        "approvalStatus": "required",
+        "blocked": false,
+        "allowed": false,
+        "appSensitivity": "financial"
+      }
+    },
+    {
+      "name": "browser.click on shop page",
+      "input": {
+        "tool": "browser.click",
+        "actionType": "browser_action",
+        "appName": "Chrome",
+        "url": "https://shop.example.com/cart"
+      },
+      "expected": {
+        "riskLevel": "medium",
+        "approvalRequired": false,
+        "approvalStatus": "not_required",
+        "blocked": false,
+        "allowed": true,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "browser.navigate to login page",
+      "input": {
+        "tool": "browser.navigate",
+        "actionType": "browser_action",
+        "appName": "Chrome",
+        "url": "https://accounts.example.com/login"
+      },
+      "expected": {
+        "riskLevel": "blocked",
+        "approvalRequired": false,
+        "approvalStatus": "denied",
+        "blocked": true,
+        "allowed": false,
+        "appSensitivity": "credential_or_security"
+      }
+    },
+    {
+      "name": "browser.upload a file",
+      "input": {
+        "tool": "browser.upload",
+        "actionType": "upload",
+        "appName": "Chrome",
+        "url": "https://shop.example.com/cart",
+        "filePath": "/home/tester/project/a.txt"
+      },
+      "expected": {
+        "riskLevel": "high",
+        "approvalRequired": true,
+        "approvalStatus": "required",
+        "blocked": false,
+        "allowed": false,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "shell.run ls",
+      "input": {
+        "tool": "shell.run",
+        "actionType": "shell_command",
+        "shellCommand": "ls -la"
+      },
+      "expected": {
+        "riskLevel": "medium",
+        "approvalRequired": false,
+        "approvalStatus": "not_required",
+        "blocked": false,
+        "allowed": true,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "shell.run rm -rf /",
+      "input": {
+        "tool": "shell.run",
+        "actionType": "shell_command",
+        "shellCommand": "rm -rf /"
+      },
+      "expected": {
+        "riskLevel": "high",
+        "approvalRequired": true,
+        "approvalStatus": "required",
+        "blocked": false,
+        "allowed": false,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "app.open firefox",
+      "input": {
+        "tool": "app.open",
+        "actionType": "app_launch",
+        "appName": "firefox"
+      },
+      "expected": {
+        "riskLevel": "medium",
+        "approvalRequired": false,
+        "approvalStatus": "not_required",
+        "blocked": false,
+        "allowed": true,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "see a normal window",
+      "input": {
+        "tool": "see",
+        "actionType": "inspect",
+        "appName": "gedit"
+      },
+      "expected": {
+        "riskLevel": "low",
+        "approvalRequired": false,
+        "approvalStatus": "not_required",
+        "blocked": false,
+        "allowed": true,
+        "appSensitivity": "unknown"
+      }
+    },
+    {
+      "name": "desktop.screenshot",
+      "input": {
+        "tool": "desktop.screenshot",
+        "actionType": "observe"
+      },
+      "expected": {
+        "riskLevel": "observe",
+        "approvalRequired": false,
+        "approvalStatus": "not_required",
+        "blocked": false,
+        "allowed": true,
+        "appSensitivity": "unknown"
+      }
+    }
+  ]
+}

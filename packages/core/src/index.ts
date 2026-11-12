@@ -26,3 +26,4 @@ export * from "./memory.js";
 export * from "./phone-approvals.js";
 export * from "./platform.js";
 export * from "./private-directory.js";
+export * from "./policy-file.js";
