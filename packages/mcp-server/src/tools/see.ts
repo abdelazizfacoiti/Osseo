@@ -25,7 +25,7 @@ const seeInput = z.object({
 type SeeInput = z.infer<typeof seeInput>;
 type Source = "dom" | "accessibility" | "ocr" | "none";
 
-interface Element {
+export interface Element {
   role: string;
   name: string;
   value?: string;
@@ -37,7 +37,7 @@ interface Element {
   ref?: string;
 }
 
-interface SeenWindow {
+export interface SeenWindow {
   id: string;
   title: string;
   app: string;
@@ -95,7 +95,7 @@ export function formatLine(n: number, element: Element): string {
   return `[${n}] ${role}${name}${value}${flags}`;
 }
 
-function matchesFilter(element: Element, filter: string | undefined): boolean {
+export function matchesFilter(element: Element, filter: string | undefined): boolean {
   if (filter === undefined) return true;
   const needle = filter.toLowerCase();
   return element.name.toLowerCase().includes(needle) || element.role.toLowerCase().includes(needle) || roleLabel(element.role).toLowerCase().includes(needle);
@@ -108,7 +108,7 @@ function within(bounds: Box, outer: Box | undefined): boolean {
   return cx >= outer.x && cx < outer.x + outer.width && cy >= outer.y && cy < outer.y + outer.height;
 }
 
-function flattenTree(root: AccessibilityTreeNode | undefined, outer: Box | undefined): Element[] {
+export function flattenTree(root: AccessibilityTreeNode | undefined, outer: Box | undefined): Element[] {
   const found: Element[] = [];
   const visit = (node: AccessibilityTreeNode): void => {
     if (node.hidden === true) return;
@@ -150,7 +150,7 @@ export async function currentWindowBounds(context: AgentHostMcpContext, windowId
   return undefined;
 }
 
-async function resolveWindow(context: AgentHostMcpContext, windowId: string | undefined): Promise<SeenWindow | undefined> {
+export async function resolveWindow(context: AgentHostMcpContext, windowId: string | undefined): Promise<SeenWindow | undefined> {
   const active = await currentActive(context);
   if (windowId === undefined || windowId === active?.id) {
     if (active === undefined || active.id === undefined) return undefined;
@@ -373,7 +373,9 @@ export function createSeeTool(): AnyAgentHostToolDefinition<AgentHostMcpContext>
         windowKey,
         ...(window?.bounds === undefined || useDom ? {} : { windowBounds: window.bounds }),
         source,
-        targets
+        targets,
+        // What the model saw, kept so the next numbered action can say what changed.
+        ...(source === "accessibility" ? { outline: lines, ...(input.filter === undefined ? {} : { filter: input.filter }), max } : {})
       });
       if (truncated) observations.push(`Showing ${elements.length} of ${total}. Use filter or a larger max.`);
       if (elements.length === 0) observations.push(source === "none" ? "Nothing to number in this window. Use the picture, or guide.show for the person." : "No element matches.");

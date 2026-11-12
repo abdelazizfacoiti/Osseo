@@ -3,7 +3,8 @@ import { z } from "zod";
 import type { AgentHostMcpContext } from "../context.js";
 import { callGoverned } from "../nested.js";
 import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
-import { lookupTarget, type TargetLookup, type ViewTarget } from "../view-registry.js";
+import { observeStructure } from "../see-diff.js";
+import { lookupTarget, viewForWindow, type SeenView, type TargetLookup, type ViewTarget } from "../view-registry.js";
 import { browserIsTarget, currentWindowBounds } from "./see.js";
 
 /**
@@ -43,6 +44,43 @@ function finish(tool: string, result: ToolResult, note: boolean): ToolResult {
   return renamed;
 }
 
+/** Which view an action was taken from: the one its number came from, or the active window's. */
+type Basis = { view?: SeenView | undefined; windowId?: string | undefined };
+
+/**
+ * `finish`, plus the structure check for a successful state-changing action: what changed in the
+ * window's controls, in words. When the outline cannot be compared the result says why
+ * (`structure: "unavailable"`) and the pixel check from the nested tool stays as it was.
+ * Only counts go to the audit (see `auditOutputSummary`); sentences and values never do.
+ */
+async function settle(tool: string, result: ToolResult, context: AgentHostMcpContext, basis: Basis, note = true): Promise<ToolResult> {
+  const done = finish(tool, result, note);
+  if (!result.ok || result.preview === true) return done;
+  const view = basis.view ?? (basis.windowId === undefined ? undefined : viewForWindow(basis.windowId));
+  const seen = await observeStructure(context, view, basis.windowId);
+  const data = result.data !== null && typeof result.data === "object" && !Array.isArray(result.data) ? result.data as Record<string, unknown> : {};
+  if (seen.structure === "used") {
+    done.data = { ...data, changes: seen.changes, changeCount: seen.changeCount, structure: "used" };
+    // The pixel check is a secondary signal: do not let "no visible change" contradict controls that did change.
+    if (seen.changeCount > 0) done.observations = done.observations.map((line) => line.replace(/ No visible change in the window:.*$/s, ""));
+  } else {
+    done.data = { ...data, changes: [], changeCount: 0, structure: "unavailable", structureReason: seen.reason };
+    done.observations = [...done.observations, `The window's controls could not be compared (${seen.reason}); judged by pixels.`];
+  }
+  return done;
+}
+
+/** Audit line: the plain completion, plus the counts only. */
+function auditCounts(tool: string) {
+  return (result: ToolResult<unknown>): string => {
+    if (!result.ok) return `${result.error?.code ?? "tool_failed"}`;
+    const data = result.data as { structure?: unknown; changeCount?: unknown } | null;
+    return data?.structure === "used" || data?.structure === "unavailable"
+      ? `${tool} completed. structure: ${data.structure}, changeCount: ${typeof data.changeCount === "number" ? data.changeCount : 0}`
+      : `${tool} completed.`;
+  };
+}
+
 async function resolve(context: AgentHostMcpContext, input: { view?: string | undefined; n: number }): Promise<TargetLookup> {
   return lookupTarget(input, async (view) => view.windowKey === "browser" ? undefined : currentWindowBounds(context, view.windowKey));
 }
@@ -79,6 +117,7 @@ function define<I extends { dryRun?: boolean | undefined; confirmationToken?: st
     mcpInputSchema: { type: "object", properties: { ...spec.properties, ...execMcp }, ...(spec.required === undefined ? {} : { required: spec.required }), additionalProperties: false },
     inputSummary: spec.summary,
     auditInputSummary: () => spec.summary,
+    auditOutputSummary: auditCounts(spec.name),
     safety: { actionType: "inspect" },
     delegatesExecutionArgs: true,
     handler: spec.handler
@@ -205,24 +244,25 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
       if (input.n === undefined) {
         const window = await activeWindowFor(context);
         if (window === undefined) return fail("click", "active_window_unavailable", "No active window to click in.");
+        const basis = { windowId: window.windowId };
         if (input.double === true || wantsRight) {
-          return finish("click", await callGoverned(context, "desktop.pointer", { action: input.double === true ? "double_click" : "right_click", x: input.x, y: input.y, activeWindow: window, ...pass }), true);
+          return settle("click", await callGoverned(context, "desktop.pointer", { action: input.double === true ? "double_click" : "right_click", x: input.x, y: input.y, activeWindow: window, ...pass }), context, basis);
         }
-        return finish("click", await callGoverned(context, "desktop.click", { x: input.x, y: input.y, ...(input.button === undefined ? {} : { button: input.button }), activeWindow: window, ...pass }), true);
+        return settle("click", await callGoverned(context, "desktop.click", { x: input.x, y: input.y, ...(input.button === undefined ? {} : { button: input.button }), activeWindow: window, ...pass }), context, basis);
       }
       const found = await resolve(context, { view: input.view, n: input.n });
       if (!found.ok) return refuse("click", found);
       const target = found.target;
       if (target.kind === "dom") {
         if (input.double === true || input.button === "right" || input.button === "middle") return fail("click", "unsupported_for_browser", "Browser elements take a plain click only.");
-        return finish("click", await callGoverned(context, "browser.click", { ref: target.ref, ...pass }), true);
+        return settle("click", await callGoverned(context, "browser.click", { ref: target.ref, ...pass }), context, { view: found.view });
       }
       const point = center(target);
       const window = { windowId: target.windowId };
       if (input.double === true || wantsRight) {
-        return finish("click", await callGoverned(context, "desktop.pointer", { action: input.double === true ? "double_click" : "right_click", ...point, target: window, ...pass }), true);
+        return settle("click", await callGoverned(context, "desktop.pointer", { action: input.double === true ? "double_click" : "right_click", ...point, target: window, ...pass }), context, { view: found.view });
       }
-      return finish("click", await callGoverned(context, "desktop.click", { ...point, ...(input.button === undefined ? {} : { button: input.button }), target: window, ...pass }), true);
+      return settle("click", await callGoverned(context, "desktop.click", { ...point, ...(input.button === undefined ? {} : { button: input.button }), target: window, ...pass }), context, { view: found.view });
     }
   });
 
@@ -237,17 +277,18 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     async handler(input, context) {
       const pass = passArgs(input);
       const preview = input.dryRun === true;
-      const pressReturn = async (first: ToolResult, window: Args): Promise<ToolResult> => {
-        if (input.submit !== true || !first.ok || preview || first.preview === true) return finish("type", first, true);
+      const pressReturn = async (first: ToolResult, window: Args, basis: Basis): Promise<ToolResult> => {
+        if (input.submit !== true || !first.ok || preview || first.preview === true) return settle("type", first, context, basis);
         const enter = await callGoverned(context, "desktop.hotkey", { keys: ["Return"], ...window });
-        if (!enter.ok) return { ...finish("type", first, true), observations: [...first.observations, `Typed, but pressing Return failed: ${enter.error?.code ?? "failed"}.`, SEE_AGAIN] };
-        return finish("type", first, true);
+        const settled = await settle("type", first, context, basis);
+        if (!enter.ok) return { ...settled, observations: [...settled.observations.filter((line) => line !== SEE_AGAIN), `Typed, but pressing Return failed: ${enter.error?.code ?? "failed"}.`, SEE_AGAIN] };
+        return settled;
       };
       if (input.n === undefined) {
         const window = await activeWindowFor(context);
         if (window === undefined) return fail("type", "active_window_unavailable", "No active window to type into.");
         const typed = await callGoverned(context, "desktop.type_text", { text: input.text, activeWindow: window, ...pass });
-        return pressReturn(typed, { activeWindow: window });
+        return pressReturn(typed, { activeWindow: window }, { windowId: window.windowId });
       }
       const found = await resolve(context, { view: input.view, n: input.n });
       if (!found.ok) return refuse("type", found);
@@ -255,14 +296,14 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
       if (target.kind === "dom") {
         // browser.fill reads the value back; browser.type is needed to append or press Enter.
         if (input.submit === true || input.clear === false) {
-          return finish("type", await callGoverned(context, "browser.type", { ref: target.ref, text: input.text, clear: input.clear !== false, ...(input.submit === true ? { submit: true } : {}), ...pass }), true);
+          return settle("type", await callGoverned(context, "browser.type", { ref: target.ref, text: input.text, clear: input.clear !== false, ...(input.submit === true ? { submit: true } : {}), ...pass }), context, { view: found.view });
         }
-        return finish("type", await callGoverned(context, "browser.fill", { fields: [{ ref: target.ref, text: input.text }], ...pass }), true);
+        return settle("type", await callGoverned(context, "browser.fill", { fields: [{ ref: target.ref, text: input.text }], ...pass }), context, { view: found.view });
       }
       const point = center(target);
       const window = { target: { windowId: target.windowId } };
       const set = await callGoverned(context, "desktop.set_field", { ...point, text: input.text, replace: input.clear !== false, ...window, ...pass });
-      return pressReturn(set, window);
+      return pressReturn(set, window, { view: found.view });
     }
   });
 
@@ -277,7 +318,7 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     async handler(input, context) {
       const window = await activeWindowFor(context);
       if (window === undefined) return fail("key", "active_window_unavailable", "No active window to send keys to.");
-      return finish("key", await callGoverned(context, "desktop.hotkey", { keys: typeof input.keys === "string" ? [input.keys] : input.keys, ...(input.repeat === undefined ? {} : { repeat: input.repeat }), activeWindow: window, ...passArgs(input) }), true);
+      return settle("key", await callGoverned(context, "desktop.hotkey", { keys: typeof input.keys === "string" ? [input.keys] : input.keys, ...(input.repeat === undefined ? {} : { repeat: input.repeat }), activeWindow: window, ...passArgs(input) }), context, { windowId: window.windowId });
     }
   });
 
@@ -295,11 +336,11 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
         const found = await resolve(context, { view: input.view, n: input.n });
         if (!found.ok) return refuse("scroll", found);
         if (found.target.kind === "dom") return fail("scroll", "unsupported_for_browser", "Scroll a browser page with key (page_down, space).");
-        return finish("scroll", await callGoverned(context, "desktop.pointer", { ...base, ...center(found.target), target: { windowId: found.target.windowId } }), false);
+        return settle("scroll", await callGoverned(context, "desktop.pointer", { ...base, ...center(found.target), target: { windowId: found.target.windowId } }), context, { view: found.view }, false);
       }
       const window = await activeWindowFor(context);
       if (window === undefined) return fail("scroll", "active_window_unavailable", "No active window to scroll.");
-      return finish("scroll", await callGoverned(context, "desktop.pointer", { ...base, ...(input.x === undefined ? {} : { x: input.x, y: input.y }), activeWindow: window }), false);
+      return settle("scroll", await callGoverned(context, "desktop.pointer", { ...base, ...(input.x === undefined ? {} : { x: input.x, y: input.y }), activeWindow: window }), context, { windowId: window.windowId }, false);
     }
   });
 
@@ -312,6 +353,7 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     summary: "Drag",
     async handler(input, context) {
       let windowId: string | undefined;
+      let seenView: SeenView | undefined;
       const point = async (n: number | undefined, x: number | undefined, y: number | undefined): Promise<{ x: number; y: number } | ToolResult> => {
         if (n === undefined) return { x: x!, y: y! };
         const found = await resolve(context, { view: input.view, n });
@@ -319,6 +361,7 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
         if (found.target.kind === "dom") return fail("drag", "unsupported_for_browser", "Browser elements cannot be dragged by number.");
         if (windowId !== undefined && windowId !== found.target.windowId) return fail("drag", "windows_differ", "Both ends of a drag must be in one window.");
         windowId = found.target.windowId;
+        seenView = found.view;
         return center(found.target);
       };
       const from = await point(input.fromN, input.fromX, input.fromY);
@@ -327,7 +370,8 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
       if ("ok" in to) return to;
       const window = windowId !== undefined ? { target: { windowId } } : { activeWindow: await activeWindowFor(context) };
       if ("activeWindow" in window && window.activeWindow === undefined) return fail("drag", "active_window_unavailable", "No active window to drag in.");
-      return finish("drag", await callGoverned(context, "desktop.pointer", { action: "drag", startX: from.x, startY: from.y, endX: to.x, endY: to.y, ...window, ...passArgs(input) }), true);
+      const activeId = "activeWindow" in window ? window.activeWindow?.windowId : undefined;
+      return settle("drag", await callGoverned(context, "desktop.pointer", { action: "drag", startX: from.x, startY: from.y, endX: to.x, endY: to.y, ...window, ...passArgs(input) }), context, seenView !== undefined ? { view: seenView } : { windowId: activeId });
     }
   });
 

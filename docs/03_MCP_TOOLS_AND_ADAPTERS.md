@@ -42,6 +42,22 @@ Rules:
   `confirmation_required` result comes back under the new tool's name; repeat the same
   call with the token. After a successful `click`, `type` or `key` the result says to call
   `see` again.
+- After a successful `click`, `type`, `key`, `scroll` or `drag`, the window's accessibility
+  outline is read again (same filter and size as the last `see`, budget 1.5 s, 600 nodes) and
+  compared with the outline the model last saw. `data.changes` lists the differences in
+  words, for example `field "Name" now reads "Ada"`, `button "Save" appeared`,
+  `dialog "Confirm" went away`, `check box "Subscribe" is now checked`; with no difference it
+  holds `no change in the window's controls`. `data.structure` is `used`, with `changeCount`.
+  Values of ordinary fields are cut to 40 characters; a sensitive field never shows a value
+  and a change to one reads `protected field changed`. The pixel check (`effect.screenChanged`)
+  stays as a secondary signal. When the outline cannot be compared (empty, unsupported, over
+  budget, the browser page, a window other than the one `see` looked at, no earlier `see`),
+  `data.structure` is `unavailable`, `data.structureReason` names why
+  (`empty`, `unsupported`, `timeout`, `browser_page`, `window_differs`, `window_gone`,
+  `no_view`, `no_baseline`, `blocked`), `changes` is `[]`, and the pixel result is the judge.
+  The new outline replaces the stored one, so the next action diffs against it; the numbers
+  stay those of the last `see` and the result still says to call `see` again. The audit line
+  holds only `structure` and `changeCount`.
 - Looking at credential and security apps is refused. `see` is blocked while a human
   handoff is active, like `desktop.screenshot`.
 

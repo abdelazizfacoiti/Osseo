@@ -22,6 +22,11 @@ export interface SeenView {
   windowBounds?: Box;
   source: "dom" | "accessibility" | "ocr" | "none";
   targets: Map<number, ViewTarget>;
+  /** The numbered lines the model saw (accessibility views only), updated after each action. */
+  outline?: string[];
+  /** The filter and max `see` used, so a later read lists the same things. */
+  filter?: string;
+  max?: number;
 }
 
 export const VIEW_TTL_MS = 5 * 60 * 1000;
@@ -101,6 +106,25 @@ export function lookupTarget(
     }
     return { ok: true, view, target };
   })();
+}
+
+/** The newest view of one window, if it is still alive. */
+export function viewForWindow(windowKey: string, now = Date.now()): SeenView | undefined {
+  expire(now);
+  let found: SeenView | undefined;
+  for (const view of views.values()) {
+    if (view.windowKey === windowKey && (found === undefined || view.createdAt >= found.createdAt)) found = view;
+  }
+  return found;
+}
+
+/**
+ * Replaces the stored outline of a view after an action. The numbers (targets) are NOT renewed:
+ * they stay those of the last `see`, so a number never silently points at another element.
+ */
+export function setOutline(viewId: string, outline: string[]): void {
+  const view = views.get(viewId);
+  if (view !== undefined) view.outline = outline;
 }
 
 /** Test support: forget everything. */
