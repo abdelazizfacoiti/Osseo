@@ -16,6 +16,29 @@ describe("visual surface coordinator", () => {
     expect(foreign.ok).toBe(false);
     await coordinator.close();
   });
+  it("waits for a card that is still being shown before the capture clears, so the card is neither captured nor a failure", async () => {
+    // The renderer is slow to show: the card is still in flight when the capture starts.
+    type Show = ReturnType<HeadlessOverlayRenderer["show"]>;
+    class SlowRenderer extends HeadlessOverlayRenderer {
+      // The base show answers at once. This one answers later, the way a real window does; the coordinator awaits it.
+      override show(record: Parameters<HeadlessOverlayRenderer["show"]>[0]): Show {
+        const later = new Promise<Awaited<Show>>((resolve) => setTimeout(() => resolve(super.show(record)), 150));
+        return later as unknown as Show;
+      }
+    }
+    const coordinator = new VisualSurfaceCoordinator(new SlowRenderer(), { sessionId: "surface-owner" });
+    const pending = coordinator.showWidget({ widgetId: "card", title: "Card", sensitivity: "public", components: [{ type: "text", text: "Visible" }] });
+    let overlaysAtEndOfCapture = -1;
+    await coordinator.withScreenshotSuppressed(async () => {
+      // Stands in for a screenshot that takes time: a card that finishes showing during it would be in the picture.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      overlaysAtEndOfCapture = (await coordinator.state()).overlays.length;
+    });
+    await pending;
+    expect(overlaysAtEndOfCapture).toBe(0);
+    await coordinator.close();
+  });
+
   it("suppresses and restores all projected surfaces without actions", async () => {
     const coordinator = new VisualSurfaceCoordinator(new HeadlessOverlayRenderer(), { sessionId: "surface-owner" });
     await coordinator.showSurface(surface("surface_one"));

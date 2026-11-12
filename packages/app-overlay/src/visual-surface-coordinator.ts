@@ -94,6 +94,8 @@ export class VisualSurfaceCoordinator extends BaseOverlayManager {
   readonly #options: { maxActiveSurfaces: number; reducedMotion: boolean; targetResolver?: OverlayTargetResolver | undefined };
   #captureQueue: Promise<unknown> = Promise.resolve();
   #suppressed = false;
+  /** Shows that have started but not yet recorded their overlay. A capture waits for these before it clears. */
+  #inFlightShows = 0;
   constructor(renderer: OverlayRenderer, owner: OverlayOwner, options: VisualSurfaceCoordinatorOptions = {}) {
     super(renderer, owner);
     this.#options = { maxActiveSurfaces: Math.min(12, Math.max(1, options.maxActiveSurfaces ?? 8)), reducedMotion: options.reducedMotion ?? false, targetResolver: options.targetResolver };
@@ -103,21 +105,31 @@ export class VisualSurfaceCoordinator extends BaseOverlayManager {
   override async showPrimitive(input: OverlayPrimitive, resolver?: OverlayTargetResolver, reducedMotion = this.#options.reducedMotion) {
     // Frames and target rings are full-screen surfaces; painting one mid-capture would leak into the screenshot.
     if (this.#suppressed) return { ok: false, errors: ["visual_surface_suppressed"] };
-    const result = await super.showPrimitive(input, resolver, reducedMotion);
-    if (result.ok && result.overlay !== undefined) {
-      this.#surfaces.set(result.overlay.overlayId, compatibilitySurface(input, result.overlay.overlayId, result.overlay.expiresAt, this.rendererEpoch(), this.ownerSessionId()));
+    this.#inFlightShows += 1;
+    try {
+      const result = await super.showPrimitive(input, resolver, reducedMotion);
+      if (result.ok && result.overlay !== undefined) {
+        this.#surfaces.set(result.overlay.overlayId, compatibilitySurface(input, result.overlay.overlayId, result.overlay.expiresAt, this.rendererEpoch(), this.ownerSessionId()));
+      }
+      return result;
+    } finally {
+      this.#inFlightShows -= 1;
     }
-    return result;
   }
 
   /** Compatibility projection for legacy stores that still call OverlayManager methods directly. */
   override async showWidget(input: OverlayWidget, resolver?: OverlayTargetResolver, reducedMotion = this.#options.reducedMotion) {
     if (this.#suppressed) return { ok: false, errors: ["visual_surface_suppressed"] };
-    const result = await super.showWidget(input, resolver, reducedMotion);
-    if (result.ok && result.overlay !== undefined) {
-      this.#surfaces.set(result.overlay.overlayId, compatibilitySurface(input, result.overlay.overlayId, result.overlay.expiresAt, this.rendererEpoch(), this.ownerSessionId()));
+    this.#inFlightShows += 1;
+    try {
+      const result = await super.showWidget(input, resolver, reducedMotion);
+      if (result.ok && result.overlay !== undefined) {
+        this.#surfaces.set(result.overlay.overlayId, compatibilitySurface(input, result.overlay.overlayId, result.overlay.expiresAt, this.rendererEpoch(), this.ownerSessionId()));
+      }
+      return result;
+    } finally {
+      this.#inFlightShows -= 1;
     }
-    return result;
   }
 
   override async updateWidget(input: OverlayWidget, reducedMotion = this.#options.reducedMotion): Promise<OverlayOperationResult> {
@@ -195,11 +207,21 @@ export class VisualSurfaceCoordinator extends BaseOverlayManager {
   override async close() { this.#surfaces.clear(); await super.close(); }
   surfaceSnapshot(): VisualSurfaceProtocolEnvelope[] { if (this.#suppressed) return []; return [...this.#surfaces.values()].filter((item) => item.state !== "hidden" && Date.parse(item.expiresAt) > Date.now()).sort((a, b) => visualSurfacePriorityValue(b.priority) - visualSurfacePriorityValue(a.priority) || a.createdAt.localeCompare(b.createdAt) || a.surfaceId.localeCompare(b.surfaceId)); }
   surfaceState(): { surfaces: VisualSurfaceProtocolEnvelope[]; suppressed: boolean } { return { surfaces: this.surfaceSnapshot(), suppressed: this.#suppressed }; }
+  /** Waits until every show that started before suppression has recorded its overlay (or the wait times out). */
+  async #waitForInFlightShows(timeoutMs = 3_000): Promise<void> {
+    const end = Date.now() + timeoutMs;
+    while (this.#inFlightShows > 0 && Date.now() < end) await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+
   async withScreenshotSuppressed<T>(capture: () => Promise<T>): Promise<T> {
     const previous = this.#captureQueue;
     const run = previous.catch(() => undefined).then(async () => {
-      const snapshot = super.suppressionSnapshot();
+      // Stop new shows, then let the shows already in flight finish. A card that recorded after the clear would
+      // otherwise fail the check below (screenshot_surface_unknown) or be captured. The snapshot is taken after the
+      // wait so those cards are restored too.
       this.#suppressed = true;
+      await this.#waitForInFlightShows();
+      const snapshot = super.suppressionSnapshot();
       try {
         await super.clear();
         if ((await super.state()).overlays.length > 0) throw new Error("screenshot_surface_unknown");
