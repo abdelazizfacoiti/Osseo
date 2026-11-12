@@ -1,3 +1,4 @@
+import { triggerReplay } from "./replay-trigger.js";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
 import { ensurePrivateDirectory } from "@agenthost/core";
 import { createScreenTools } from "./tools/screen.js";
@@ -399,10 +400,12 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       persistent: config.overlay?.persistent ?? true,
       ...(config.overlay?.persistent === false ? { autoHideMs: config.overlay?.autoHideMs ?? 15_000 } : {}),
       // Task finished: close the action card, the dock history, and hand focus back to the assistant.
-      onFinished: async () => {
+      onFinished: async (task) => {
         await actionOverlay.dismiss().catch(() => undefined);
         await actionTimeline?.reset().catch(() => undefined);
         await hostAttention?.bringHostForward().catch(() => undefined);
+        // Opt-in: build the replay in a detached CLI process; never blocks or fails the task.
+        triggerReplay({ enabled: config.replay?.onTaskFinish === true, taskId: task.taskId, serverDir: path.dirname(fileURLToPath(import.meta.url)) });
       }
     });
     if (process.env.NODE_ENV !== "test") await overlay.prewarm();

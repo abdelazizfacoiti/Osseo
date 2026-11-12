@@ -129,8 +129,10 @@ export async function buildReplay(agentHostDir: string, options: BuildReplayOpti
   const count = (o: ReplayOutcome): number => items.filter((i) => i.outcome === o).length;
   const startedAt = entries[0]!.timestamp, endedAt = entries.at(-1)!.timestamp;
   const short = sessionId.replace(/^session_/, "").replace(/[^A-Za-z0-9]/g, "").slice(0, 8) || "unknown";
+  // A task build adds the task id's first 8 characters so two tasks of one session never share a file.
+  const taskShort = options.taskId === undefined ? "" : `_${options.taskId.replace(/^task_/, "").replace(/[^A-Za-z0-9]/g, "").slice(0, 8)}`;
   return {
-    id: `replay_${short}_${stamp(startedAt)}`, sessionId: clean(sessionId), startedAt, endedAt, items, approvals,
+    id: `replay_${short}_${stamp(startedAt)}${taskShort === "_" ? "" : taskShort}`, sessionId: clean(sessionId), startedAt, endedAt, items, approvals,
     counts: { actions: items.length, ok: count("ok"), failed: count("failed"), blocked: count("blocked"), waitingApproval: count("waiting_approval"), approvalsAsked: approvals.filter((a) => a.kind === "asked").length, approvalsGiven: approvals.filter((a) => a.kind === "given").length }
   };
 }

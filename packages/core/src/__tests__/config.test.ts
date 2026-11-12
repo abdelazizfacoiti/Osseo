@@ -218,4 +218,20 @@ describe("loadAgentHostConfig", () => {
     const fromEnv = await loadAgentHostConfig({ env: { AGENTHOST_EXECUTION_PLACEMENT: "foreground" }, homeDir, configPath: path.join(agentHostDir, "config.json") });
     expect(fromEnv.execution).toEqual({ placement: "foreground", yieldToUser: true, maxActionsPerTask: 500 });
   });
+
+  describe("replay", () => {
+    it("defaults onTaskFinish to false and loads true", async () => {
+      const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-replay-"));
+      expect((await loadAgentHostConfig({ env: {}, homeDir })).replay).toEqual({ onTaskFinish: false });
+      await mkdir(path.join(homeDir, ".agenthost"), { recursive: true });
+      await writeFile(path.join(homeDir, ".agenthost", "config.json"), JSON.stringify({ replay: { onTaskFinish: true } }));
+      expect((await loadAgentHostConfig({ env: {}, homeDir })).replay).toEqual({ onTaskFinish: true });
+    });
+    it("refuses an unknown key under replay", async () => {
+      const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-replay-bad-"));
+      await mkdir(path.join(homeDir, ".agenthost"), { recursive: true });
+      await writeFile(path.join(homeDir, ".agenthost", "config.json"), JSON.stringify({ replay: { onTaskFinsh: true } }));
+      await expect(loadAgentHostConfig({ env: {}, homeDir })).rejects.toThrow();
+    });
+  });
 });

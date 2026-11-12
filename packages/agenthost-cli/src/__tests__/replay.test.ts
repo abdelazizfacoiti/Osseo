@@ -56,6 +56,13 @@ describe("buildReplay", () => {
     expect((await buildReplay(home, { taskId: "task_demo" }))!.sessionId).toBe("session_bbbb2222-y");
     expect(await buildReplay(home, { sessionId: "nope" })).toBeUndefined();
   });
+  it("gives task builds their own id and fails quietly for an unknown task", async () => {
+    await fixture();
+    expect((await buildReplay(home, { taskId: "task_demo" }))!.id).toMatch(/^replay_bbbb2222_\d{12}_demo$/);
+    const r = await replayCommand(["replay", "build", "--task", "task_missing"], home);
+    expect(r.ok).toBe(false);
+    expect(await listReplays(home)).toEqual([]);
+  });
 });
 
 describe("html", () => {
