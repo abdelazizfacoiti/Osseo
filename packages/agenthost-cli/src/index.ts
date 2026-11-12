@@ -12,6 +12,7 @@ import { attentionCli } from "./attention.js";
 import { parseFlags } from "./flags.js";
 import { policyCommand } from "./policy.js";
 import { replayCommand } from "./replay.js";
+import { viewerCommand } from "./viewer.js";
 import { pressCheck } from "./press-check.js";
 import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
 import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@agenthost/os-linux";
@@ -730,6 +731,7 @@ async function main(): Promise<number> {
     else if (top === "memory") result = await memoryCommand(sub, args);
     else if (top === "policy") result = await policyCommand(agentHome, sub, args, json);
     else if (top === "replay") result = await replayCommand(args, agentHome);
+    else if (top === "viewer") result = await viewerCommand(argv.slice(argv.indexOf("viewer") + 1), agentHome);
     else result = fail(top, "unknown_command");
   } catch (error) { result = fail(top ?? "agenthost", error instanceof Error ? error.message : "command_failed"); }
   await print(result, json); return result.ok ? 0 : (result as { exitCode?: number }).exitCode ?? 1;

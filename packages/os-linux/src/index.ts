@@ -17,3 +17,4 @@ export * from "./cdp.js";
 export * from "./browser-session.js";
 export * from "./background-display.js";
 export * from "./effect.js";
+export * from "./viewer-frames.js";
