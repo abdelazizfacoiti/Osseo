@@ -332,6 +332,32 @@ function summarize(route, stats, outcome, seconds) {
   };
 }
 
+function numberOf(list, needle) {
+  const line = list.split("\n").find((item) => item.includes(needle));
+  const match = line === undefined ? null : /^\s*\[(\d+)\]/.exec(line);
+  return match === null ? undefined : Number(match[1]);
+}
+
+/**
+ * The numbered route, with only the new tools: open, see, type, click, key and wait. see gives the numbers, type and
+ * click use them. The country is chosen with keys, because the numbered tools have no option picker. wait reads the
+ * result text, since static text is not in the numbered list.
+ */
+async function numberedRoute(mcp) {
+  await mcp.call("open", { url: pathToFileURL(FIXTURE).toString() });
+  const first = await mcp.call("see", { picture: "none" });
+  await mcp.call("type", { n: numberOf(String(first.body?.data?.list ?? ""), '"Name"'), text: "Ada Lovelace" });
+  // Typing the name shows a notice that moves the form down, so the numbers are read again.
+  const second = await mcp.call("see", { picture: "none" });
+  await mcp.call("click", { n: numberOf(String(second.body?.data?.list ?? ""), '"Country"') });
+  await mcp.call("key", { keys: "Down", repeat: 2 });
+  // Save draft is disabled until the country is chosen, so its number comes from a look after the choice.
+  const third = await mcp.call("see", { picture: "none" });
+  await mcp.call("click", { n: numberOf(String(third.body?.data?.list ?? ""), '"Save draft"') });
+  const done = await mcp.call("wait", { text: EXPECTED, timeoutMs: 8000 });
+  return { misclicks: 0, finalOk: done.ok === true };
+}
+
 async function main() {
   for (const required of [SERVER, FIXTURE]) {
     if (!existsSync(required)) {
@@ -346,6 +372,7 @@ async function main() {
     results.push(await runPixelRoute("pixel-before", freeDisplay(131), pixelBefore, root));
     results.push(await runPixelRoute("pixel-after", freeDisplay(140), pixelAfter, root));
     results.push(await runBrowserRoute(root));
+    results.push(await runPixelRoute("numbered", freeDisplay(149), numberedRoute, root));
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -364,7 +391,12 @@ async function main() {
   console.log(`browser vs pixel-before:     calls -${Math.round(saved(browser, "calls") * 100)}%, bytes -${Math.round(saved(browser, "bytes") * 100)}%`);
   const gate = saved(after, "calls") >= 0.5 && saved(after, "bytes") >= 0.4 && after.unverified === 0 && after.failed === 0 && after.finalOk;
   console.log(`gate (>=50% fewer calls, >=40% fewer bytes, 0 unverified, correct final state): ${gate ? "PASS" : "FAIL"}`);
-  process.exitCode = gate ? 0 : 1;
+  // The plan asks for the same gate with only the new tools (see, click, type, key, wait).
+  const numbered = results.find((row) => row.route === "numbered");
+  console.log(`numbered vs pixel-before:    calls -${Math.round(saved(numbered, "calls") * 100)}%, bytes -${Math.round(saved(numbered, "bytes") * 100)}%`);
+  const numberedGate = saved(numbered, "calls") >= 0.5 && saved(numbered, "bytes") >= 0.4 && numbered.unverified === 0 && numbered.failed === 0 && numbered.finalOk;
+  console.log(`gate with only the new tools (numbered, same thresholds): ${numberedGate ? "PASS" : "FAIL"}`);
+  process.exitCode = gate && numberedGate ? 0 : 1;
 }
 
 main().catch((error) => {

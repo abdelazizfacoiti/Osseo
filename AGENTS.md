@@ -54,11 +54,11 @@ packages/
 | `node scripts/measure-tools.mjs` | Start the built server in each tool profile and print the tool count and `tools/list` bytes (desktop: 14 tools; full: all) |
 | `npm start:mcp` | Run MCP server |
 | `npm run smoke:mcp` | Smoke test |
-| `npm run check:live` | End-to-end check of this build (80 checks): CLI help and resume, verified clicks, typing, labels, set_field and screenshot ids on a nested display, self-pause, headless-Chrome forms with an iframe, session end (cards close when the client disconnects), file dialogs, and plan expectations. Opens a small window on your screen for about a minute. |
+| `npm run check:live` | End-to-end check of this build (80 checks, plus the numbered-action section, which `LIVE_CHECK_ONLY=numbered` runs alone): CLI help and resume, verified clicks, typing, labels, set_field and screenshot ids on a nested display, self-pause, headless-Chrome forms with an iframe, session end (cards close when the client disconnects), file dialogs, and plan expectations. Opens a small window on your screen for about a minute. |
 | `npm run release:build:windows` | Build `release/agenthost-v<version>-win-x64.zip` (+ fixed-name copy) from the Linux release stage with Node only; run after `release:build` |
 | `npm run test:windows` | The unit tests that do not assume Linux (run in the `windows-headless` CI job and by `scripts\windows-check.ps1`) |
 | `node scripts/windows-smoke.mjs` | The built server over stdio on any OS: tools, files, protected paths, shell classification, browser, tasks |
-| `npm run benchmark:form` | One form task three ways (pixel before, pixel after, browser) with the gate: 50% fewer calls, 40% fewer bytes, no unverified successes. The pixel routes need headed Chrome, Xephyr, and GTK. |
+| `npm run benchmark:form` | One form task four ways (pixel before, pixel after, browser, and numbered: only see, type, click, key and wait) with the gate: 50% fewer calls, 40% fewer bytes, no unverified successes. The pixel routes need headed Chrome, Xephyr, and GTK. |
 | `npm run benchmark:agent` | Non-destructive runner/plan overhead benchmark in an isolated home |
 | `npm run benchmark:desktop` | Non-destructive Linux desktop-backend latency benchmark |
 | `agenthost integrations <client> add\|status\|remove [--apply]` | Register/preview/remove the MCP server for opencode, Claude, Codex, Copilot (VS Code + CLI), or Cursor |

@@ -662,7 +662,74 @@ async function fileDialogChecks(root) {
   }
 }
 
+// Numbered actions in headless Chrome: see lists the page with numbers, and click, type and read back by number.
+// It needs no display, so LIVE_CHECK_ONLY=numbered runs this section alone (the rest opens windows on your screen).
+const NUMBERED_FORM = `<!doctype html><meta charset="utf-8"><title>Numbered form</title>
+<label for="name">Name</label> <input id="name" type="text" value="">
+<button id="save" type="button" onclick="document.getElementById('out').textContent = 'Saved: ' + document.getElementById('name').value">Save</button>
+<button id="nothing" type="button">Nothing</button>
+<button id="send" type="button">Send</button>
+<p id="out"></p>`;
+
+function numberOf(list, needle) {
+  const line = list.split("\n").find((item) => item.includes(needle));
+  const match = line === undefined ? null : /^\s*\[(\d+)\]/.exec(line);
+  return match === null ? undefined : Number(match[1]);
+}
+
+async function numberedChecks(mcp, work) {
+  const form = path.join(work, "numbered.html");
+  writeFileSync(form, NUMBERED_FORM);
+  const opened = await mcp.call("browser.open", { url: pathToFileURL(form).toString(), headless: true });
+  check("browser.open loads a page for numbered actions", opened.ok, opened.body?.error?.message ?? "");
+  const seen = await mcp.call("see", { picture: "none" });
+  const list = String(seen.body?.data?.list ?? "");
+  const name = numberOf(list, '"Name"');
+  const save = numberOf(list, '"Save"');
+  const nothing = numberOf(list, '"Nothing"');
+  const send = numberOf(list, '"Send"');
+  check("see numbers the Name field and the Save, Nothing and Send buttons", [name, save, nothing, send].every((item) => item !== undefined), list.slice(0, 160));
+
+  const typed = await mcp.call("type", { n: name, text: "Ada" });
+  check("type by number fills the field", typed.ok, typed.body?.error?.message ?? "");
+  const idle = await mcp.call("click", { n: nothing });
+  check("a numbered click on a control that does nothing reports no change", idle.ok && idle.body?.data?.domChanged === false, JSON.stringify(idle.body?.data ?? idle.body?.error ?? "").slice(0, 160));
+  const saved = await mcp.call("click", { n: save });
+  check("a numbered click on Save reports the change", saved.ok && saved.body?.data?.domChanged === true, JSON.stringify(saved.body?.data ?? saved.body?.error ?? "").slice(0, 160));
+  const after = await mcp.call("see", { picture: "none" });
+  check("see again shows the field reading Ada", String(after.body?.data?.list ?? "").includes('= "Ada"'), String(after.body?.data?.list ?? "").slice(0, 160));
+  const asked = await mcp.call("click", { n: send });
+  check("a numbered click on Send asks first and sends nothing", asked.error === "confirmation_required", asked.error ?? "clicked");
+}
+
+// LIVE_CHECK_ONLY=numbered: only the numbered-action section, in headless Chrome, with no window opened.
+async function numberedOnly() {
+  const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-live-numbered-"));
+  const home = path.join(root, "home");
+  const work = path.join(root, "work");
+  mkdirSync(home, { recursive: true, mode: 0o700 });
+  mkdirSync(work, { recursive: true });
+  const config = path.join(home, "config.json");
+  writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
+  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config, AGENTHOST_TOOLS_PROFILE: "full" };
+  delete env.DISPLAY;
+  const server = spawn(process.execPath, [SERVER], { env, stdio: ["pipe", "pipe", "pipe"] });
+  try {
+    const mcp = mcpClient(server);
+    await mcp.initialize();
+    await numberedChecks(mcp, work);
+  } finally {
+    server.kill("SIGTERM");
+    await sleep(500);
+    rmSync(root, { recursive: true, force: true });
+  }
+  const failed = results.filter((item) => !item.ok);
+  console.log(`\n${results.length - failed.length} passed, ${failed.length} failed`);
+  process.exitCode = failed.length === 0 ? 0 : 1;
+}
+
 async function main() {
+  if (process.env.LIVE_CHECK_ONLY === "numbered") return await numberedOnly();
   if (!existsSync(SERVER) || !existsSync(CLI)) {
     console.log("Build first: npm run build");
     process.exitCode = 2;
@@ -723,6 +790,7 @@ async function main() {
     if (chrome) {
       console.log("== Browser (headless Chrome)");
       await browserChecks(mcp, work, env);
+      await numberedChecks(mcp, work);
     } else {
       console.log("== Browser: SKIPPED (no Chrome or Chromium found)");
     }
