@@ -70,3 +70,30 @@ Findings from the run:
 - Fixed: `host/install-host.mjs --apply` writes a launcher `<home>/.agenthost/browser-extension/bin/agenthost-browser-host` (directory and file mode 0700) with `#!/bin/sh` and `exec '<node>' '<native-host.mjs>'`, both single-quoted for sh, and sets the manifest `path` to it. The manifest stays in the browser's `NativeMessagingHosts` folder (mode 0644). Preview is still the default and writes nothing; nothing is written outside the home folder. The launcher fixes the dependence on `node` being on the PATH Chrome gives native hosts. If node moves, run the installer again.
 
 Not tested: the permission prompt, the content script in a real page, a snapshot/click/type on a real site, the popup UI, Windows and macOS, and everything about Firefox (Firefox was not run; the `background.scripts` key and `allowed_extensions` are unchecked).
+
+## Real page and Firefox
+
+Date: 2026-11-12. Chrome 150.0.7871.128 (`--headless=new`), Firefox 155.0.1 (`-headless`, snap build). Both scripts unset DISPLAY, use temp HOME and profile directories, kill only their own processes, and remove the temp directories in a `finally`. Run: `node packages/browser-extension/scripts/page-check.mjs` and `node packages/browser-extension/scripts/firefox-check.mjs` (not part of vitest).
+
+`page-check.mjs` does NOT load the extension. A small `chrome.runtime` shim (injected with `Page.addScriptToEvaluateOnNewDocument`) captures the `onMessage` listener that `content.js` registers, then `content.js` is evaluated in a real page served from `python3 -m http.server` on 127.0.0.1. It proves the refusal logic and the actions run in a real DOM. It does not prove the extension's real permission path.
+
+| Case | Result | Notes |
+|---|---|---|
+| Plain text field | PASS | type returned `hello`, page value `hello`, a second snapshot read it back, click ok |
+| Password field | PASS | snapshot `refused: password_field`, no value (the page held a secret), type and click refused, page value untouched |
+| One-time-code field | PASS | `sensitive_autocomplete`, same checks |
+| Card field (cc-number) | PASS | `sensitive_autocomplete`, same checks |
+| Field named `token` | PASS | `sensitive_name`, same checks |
+| Field named `classname` | PASS | `sensitive_name` (matches `ssn`; the documented over-refusal) |
+| Plain button click | PASS | the page's onclick ran once |
+| Firefox: `webExtension.install` (type `path`) over BiDi | PASS | Reply `{"extension":"agenthost-browser@agenthost.dev"}`; `webExtension.uninstall` of that id then succeeded, so the add-on was installed. Firefox did not error on a manifest with both `background.service_worker` and `background.scripts`. Warnings in Firefox's console were not captured, and whether the background script ran was not checked. |
+
+Notes: the snap Firefox cannot read `/tmp` ("Could not find profile folder"), so `firefox-check.mjs` puts its temp directory under `~/snap/firefox/common/` and removes it after. It does not write `DevToolsActivePort`; the port is read from the line `WebDriver BiDi listening on ws://127.0.0.1:<port>` in the output. Node 20 has no WebSocket, so the script has a minimal client.
+
+Not tested:
+
+- The real permission grant (`optional_host_permissions` prompt) in Chrome or Firefox. No grant was attempted or faked.
+- The real `chrome.scripting.executeScript` and `tabs.sendMessage` path from `background.js` (lines 117 and 118). The shim calls the listener directly.
+- The extension's content script injected by the browser (isolated world, `chrome.runtime` from the browser).
+- Firefox: the background script running, native messaging, `allowed_extensions`, content scripts, the popup.
+- A human using the popup, and Windows and macOS.
