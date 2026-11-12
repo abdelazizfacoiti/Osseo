@@ -1,6 +1,6 @@
 # Browser extension bridge (Phase 8)
 
-Status: code and unit tests exist in `packages/browser-extension/`; connected to the MCP server (see the last section). Never run in a real browser.
+Status: code and unit tests exist in `packages/browser-extension/`; connected to the MCP server (see the last section). Run once in headless Chrome 150 (see the last section); never in Firefox.
 
 ## Parts
 
@@ -48,3 +48,24 @@ The server now has `browser.own_snapshot`, `browser.own_click`, `browser.own_typ
 - `browser.own_tabs` sends a `tabs` request (no tabId or host). The extension answers with only the tabs whose host is on its allow list, as `{ tabId, host, title }` (hostname only, title cut to 80 characters, never a url or page content). The native host filters the reply again with `filterTabsForAllowedHosts` against `allowed-hosts.json`, and the tool filters a third time against the `site` allow rules in `policy.toml`. Result: `{ ok: true, tabs }` or a failure with the extension's reason (`extension_not_running`, `timeout`, ...). At most 200 tabs.
 
 Not tested: a real Chrome, the real native host process, and the permission prompt. Tests use a fake unix socket server.
+
+## Tested in headless Chrome
+
+Date: 2026-11-12. Chrome: Google Chrome 150.0.7871.128, `--headless=new`, no display, fresh temp HOME and `--user-data-dir`. Run it with `node packages/browser-extension/scripts/chrome-check.mjs` (not part of vitest; exit 0 only when steps 1 to 3 pass).
+
+| Step | Result | Notes |
+|---|---|---|
+| 1 Manifest loads | PASS | `--load-extension` is ignored by branded Chrome 150, so the script loads the folder with the DevTools command `Extensions.loadUnpacked` (needs `--enable-unsafe-extension-debugging`). Chrome accepted the MV3 manifest. |
+| 2 Service worker starts | PASS | A `service_worker` target for `chrome-extension://<id>/background.js` appears. |
+| 3 Native host | PASS | Host manifest in the temp HOME (and the profile's `NativeMessagingHosts`), launcher script, real `connectNative`. A `tabs` request on the host socket came back `{ok:true, tabs:[]}` through Chrome and the service worker; an unknown type was refused with `unknown_type`. |
+| 4 Host permission | NOT POSSIBLE | `chrome.permissions.request` with a user gesture from the popup page did not resolve in 10 s; `permissions.contains` stayed false. Nothing was faked. |
+| 5 Content script refusal | NOT POSSIBLE | Needs the step 4 grant for `chrome.scripting.executeScript`. The `password_field` refusal is therefore still tested only by unit tests with a fake DOM, and the click/type/snapshot path in a real page is untested. |
+| 6 `tabs.query` and allow list | PASS | `chrome.tabs.query` saw the local page tab; `chrome.storage.local` kept `allowedHosts`; with the host allowed (storage and `allowed-hosts.json`) the `tabs` reply lists `{tabId, host, title}` only; with storage emptied the reply is `[]` and a snapshot is refused `host_not_allowed`. |
+
+Findings from the run (not fixed):
+
+- A second host process started by Chrome (for example one from `chrome.runtime.sendNativeMessage`) unlinks the first host's socket at start (`host/native-host.mjs`, `main()`), and unlinks it again when it exits. In one run the first connection then got `extension_disconnected` and the socket was gone. Only one host should run per browser; `connectNative` is the only supported route.
+- `sendNativeMessage` with a request gets no reply: the host treats frames from the extension as responses and drops them. Only requests that come through the socket are answered.
+- `extension/background.js` calls `connectNative` once at start-up and on install. If the host manifest is installed afterwards, nothing reconnects until the service worker restarts or the extension is reloaded. A dropped port (`onDisconnect`) is not retried either.
+
+Not tested: the permission prompt, the content script in a real page, a snapshot/click/type on a real site, the popup UI, Windows and macOS, and everything about Firefox (Firefox was not run; the `background.scripts` key and `allowed_extensions` are unchecked).
