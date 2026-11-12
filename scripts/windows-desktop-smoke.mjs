@@ -62,6 +62,8 @@ $box = New-Object System.Windows.Forms.TextBox
 $box.Location = New-Object System.Drawing.Point(20, 20)
 $box.Size = New-Object System.Drawing.Size(360, 24)
 $box.AccessibleName = 'Name'
+$keylog = $env:AH_CHECK_KEYLOG
+$box.Add_KeyDown({ param($s, $e) [System.IO.File]::AppendAllText($keylog, ('{0} ctrl={1} shift={2}' -f $e.KeyCode, $e.Control, $e.Shift) + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false))) })
 $pw = New-Object System.Windows.Forms.TextBox
 $pw.Location = New-Object System.Drawing.Point(20, 120)
 $pw.Size = New-Object System.Drawing.Size(360, 24)
@@ -127,9 +129,10 @@ try {
   } else {
     const outFile = path.join(home, "result.txt");
     const probeFile = path.join(home, "probe.txt");
+    const keyFile = path.join(home, "keys.txt");
     const formFile = path.join(home, "form.ps1");
     writeFileSync(formFile, FORM);
-    formProcess = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", formFile], { env: { ...process.env, AH_CHECK_OUT: outFile, AH_CHECK_PROBE: probeFile }, stdio: "ignore", windowsHide: false });
+    formProcess = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", formFile], { env: { ...process.env, AH_CHECK_OUT: outFile, AH_CHECK_PROBE: probeFile, AH_CHECK_KEYLOG: keyFile }, stdio: "ignore", windowsHide: false });
     let form;
     for (let i = 0; i < 60 && form === undefined; i += 1) {
       await sleep(500);
@@ -188,8 +191,13 @@ try {
 
       const wrong = await desktop.typeText({ text: "wrong text", activeWindow: target });
       check("text is pasted", wrong.typed === true, wrong.reason);
+      const frontBefore = await desktop.getActiveWindow();
+      record("NOTE", "foreground window before ctrl+a", JSON.stringify({ windowId: frontBefore.activeWindow?.windowId, title: frontBefore.activeWindow?.title, expected: form.windowId }));
       const selectAll = await desktop.hotkey({ keys: ["ctrl", "a"], activeWindow: target });
       check("a hotkey (ctrl+a) is delivered", selectAll.sent === true, selectAll.reason);
+      await sleep(400);
+      const keysSeen = existsSync(keyFile) ? readFileSync(keyFile, "utf8").trim().split(/\r?\n/).filter((line) => line !== "") : [];
+      record("NOTE", "keys the test text box received", keysSeen.length === 0 ? "none" : keysSeen.join(" | "));
       const final = "AgentHost W2 check éè ✓";
       const typed = await desktop.typeText({ text: final, activeWindow: target });
       check("unicode text replaces the selection", typed.typed === true, typed.reason);
