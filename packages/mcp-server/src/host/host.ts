@@ -70,7 +70,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const createSession = options.createSession ?? defaultCreateSession;
   const idleExitMs = options.idleExitMs ?? DEFAULT_IDLE_EXIT_MS;
   const hasRunningTask = options.hasRunningTask ?? (() => defaultHasRunningTask(agentHome));
-  const startedAt = new Date().toISOString();
+  const startedMs = Date.now();
+  const startedAt = new Date(startedMs).toISOString();
   const connections = new Set<net.Socket>();
   const sessions = new Map<string, HostSession>();
   let idleSince = Date.now();
@@ -123,6 +124,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         void close("shutdown_message");
         return;
       }
+      if (record.ping === true) { write(encodeLine({ pong: true, protocol: HOST_PROTOCOL, pid: process.pid, uptimeMs: Date.now() - startedMs })); return; }
       if (record.status === true) { write(encodeLine({ status: status() })); return; }
       const hello = parseHello(record);
       if (hello === undefined) { write(encodeLine({ error: { code: "hello_required" } })); return; }

@@ -273,15 +273,17 @@ Core built behind `AGENTHOST_HOST=1`; with it unset nothing changes (the in-proc
 
 Done:
 - `packages/mcp-server/src/host/`: `socket.ts` (`<home>/run/host.sock` mode 0600 under a 0177 umask, `run/` mode 0700, `host.pid` mode 0600, stale socket removal, `agenthost_host_running`), `lease.ts` (one lease, FIFO, 30 s wait, `host_busy`, freed in a `finally` and on disconnect), `protocol.ts` (newline JSON, `hello`/`welcome`/`refused`, 4 MB limit, malformed lines answered without closing), `session-transport.ts` (MCP transport over a connection; leases `tools/call` of `state_changing` tools from the tool's `execution.executionClass`), `host.ts` (one `createAgentHostMcpServer` per connection, idle exit), `main.ts` (host entry), `shim.ts` (stdio shim).
-- `agenthost host status|start|stop` in `packages/agenthost-cli/src/host.ts`.
-- Operator messages without a handshake: `{"status":true}` and `{"shutdown":true}`.
+- `agenthost host status|start|stop|restart` in `packages/agenthost-cli/src/host.ts`. `restart` stops through the socket (SIGTERM only when the pid's command line names `host/main.js`), waits for the socket to close, and starts again; it refuses and starts nothing if the old host is still answering. `hostDoctorLine(agentHome)` returns `not_running`, `running`, `stale_socket` or `lock_held` and never starts anything.
+- Start lock: `run/host.lock` (not `host.start.lock` as in section 3), created `O_EXCL` with `<pid> <epoch ms>`; `host start` and the shim take it before spawning, re-check the socket under it, and remove it when the socket answers or the start fails. A lock older than 30 s whose pid is dead is stale and is taken over. A second starter does not spawn; it waits for the first host (the shim connects to it, `host start` reports `agenthost_host_running`).
+- Reconnect-once: a shim whose first connect fails starts a host through the lock and connects again (it polls for up to 10 s). It never re-sends a call after a drop.
+- Operator messages without a handshake: `{"status":true}`, `{"ping":true}` (answers `{pong, protocol, pid, uptimeMs}`) and `{"shutdown":true}`. `host status` reports `running` only when the ping answers.
 
 Differences from this design (simplifications for the core):
 - The wire is the MCP JSON-RPC itself, not the typed `tools_call` messages of section 4, and the handshake is `hello`/`welcome` (protocol 1), not `hello_ok`. The shim holds no tool code.
 - Each connection still builds a full per-session server, so each session still has its own overlay and renderer. The renderer ownership move (one renderer in the host) is not done.
 - One lease per state-changing call, held host-wide; the in-process lane per session still applies inside it.
 - Idle exit: 10 minutes with no connections and no task whose status is `active` (read from the task files). Pending approvals and stop/pause flags are not consulted.
-- No start lock file, no reconnect-once, no upgrade handover, no ping. If the host dies the shim answers open requests with a JSON-RPC error (`host_disconnected`), keeps answering new requests that way for 2 s, then exits 1. It never retries a call. Starting races are resolved by the second host exiting with `agenthost_host_running`.
+- No upgrade handover. If the host dies the shim answers open requests with a JSON-RPC error (`host_disconnected`), keeps answering new requests that way for 2 s, then exits 1. It never retries a call. If two hosts still start at once, the second exits with `agenthost_host_running`.
 - `host_busy` is returned as a tool result with `isError: true`, not a JSON-RPC error.
 
-Not done: rail, tray, Stop shortcut, `agenthost host restart`, `doctor` host line, `AGENTHOST_HOST=0` fallback semantics, Windows pipe.
+Not done: rail, tray, Stop shortcut, wiring `hostDoctorLine` into `doctor` (owner of `index.ts`), shim reconnect after a mid-session drop (the shim exits instead), `AGENTHOST_HOST=0` fallback semantics, Windows pipe.

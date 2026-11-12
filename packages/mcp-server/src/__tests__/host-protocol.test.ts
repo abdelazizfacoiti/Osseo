@@ -101,6 +101,16 @@ describe("host protocol", () => {
     c.socket.destroy();
   });
 
+  it("answers ping without a handshake", async () => {
+    const c = await Client.connect(await begin());
+    c.send({ ping: true });
+    const reply = await c.next();
+    expect(reply).toMatchObject({ pong: true, protocol: 1, pid: process.pid });
+    expect(typeof reply.uptimeMs).toBe("number");
+    expect(reply.uptimeMs).toBeGreaterThanOrEqual(0);
+    c.socket.destroy();
+  });
+
   it("answers status and shutdown without a handshake", async () => {
     const c = await Client.connect(await begin());
     c.send({ status: true });

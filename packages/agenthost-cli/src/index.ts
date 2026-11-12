@@ -14,7 +14,7 @@ import { policyCommand } from "./policy.js";
 import { replayCommand } from "./replay.js";
 import { viewerCommand } from "./viewer.js";
 import { journalCommand } from "./journal-cli.js";
-import { hostCommand } from "./host.js";
+import { hostCommand, hostDoctorLine } from "./host.js";
 import { shortcutCommand } from "./shortcut.js";
 import { selftestCommand } from "./selftest.js";
 import { pressCheck } from "./press-check.js";
@@ -536,7 +536,7 @@ async function doctor(): Promise<Output> {
   const desktopDependencies = await checkLinuxRequirements();
   const missingPackages = missingAptPackages(desktopDependencies);
   if (missingPackages.length > 0) warnings.push(`Missing desktop tools (${desktopDependencies.filter((dependency) => !dependency.installed).map((dependency) => dependency.name).join(", ")}). Run: agenthost setup deps --apply (or sudo apt install ${missingPackages.join(" ")})`);
-  return { ok: config.ok, command: "doctor", data: { version: AGENTHOST_VERSION, checks, desktopPlatform, desktopDependencies, config: config.ok ? "valid" : config.error, mcp, process: await status(), activity: (await readActivityStatus(agentHome)) ?? null, paths: { agentHostHome: "[agenthost-home]", config: "[config]", mcpEntry: "[installed-mcp-runtime]" } }, warnings };
+  return { ok: config.ok, command: "doctor", data: { version: AGENTHOST_VERSION, checks, desktopPlatform, desktopDependencies, config: config.ok ? "valid" : config.error, mcp, process: await status(), activity: (await readActivityStatus(agentHome)) ?? null, host: await hostDoctorLine(agentHome).catch(() => undefined), paths: { agentHostHome: "[agenthost-home]", config: "[config]", mcpEntry: "[installed-mcp-runtime]" } }, warnings };
 }
 async function integrationsCommand(targetArg: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
   const action = (args.positional[2] ?? "status") as IntegrationAction;

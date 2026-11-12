@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "vitest";
 import net from "node:net";
 import { PassThrough } from "node:stream";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runShim } from "../host/shim.js";
 import { ensureRunDir } from "../host/socket.js";
+import { acquireStartLock, startLockPath } from "../host/start-lock.js";
 
 let home = "";
 let server: net.Server | undefined;
@@ -98,5 +99,86 @@ describe("shim", () => {
     server?.close();
     // Ends when its input closes (not closed here), so just stop waiting.
     void done;
+  });
+});
+
+describe("start lock and reconnect", () => {
+  it("lock: exclusive create, live lock refused, stale lock recovered, release removes it", async () => {
+    home = mkdtempSync(path.join(os.tmpdir(), "ah-shim-"));
+    const first = await acquireStartLock(home);
+    expect(first).toBeDefined();
+    expect(existsSync(startLockPath(home))).toBe(true);
+    expect(await acquireStartLock(home)).toBeUndefined();
+    await first!.release();
+    expect(existsSync(startLockPath(home))).toBe(false);
+    writeFileSync(startLockPath(home), `999999999 ${Date.now() - 60_000}\n`);
+    const second = await acquireStartLock(home, { isAlive: () => false });
+    expect(second).toBeDefined();
+    await second!.release();
+    // old but alive pid: still held
+    writeFileSync(startLockPath(home), `${process.pid} ${Date.now() - 60_000}\n`);
+    expect(await acquireStartLock(home, { isAlive: () => true })).toBeUndefined();
+  });
+
+  it("first connect fails, one start happens under the lock, second connect succeeds, lock released", async () => {
+    home = mkdtempSync(path.join(os.tmpdir(), "ah-shim-"));
+    const paths = await ensureRunDir(home);
+    let started = 0;
+    let lockDuringStart = false;
+    const input = new PassThrough();
+    const done = runShim({
+      agentHome: home, input, output: new PassThrough(), error: new PassThrough(),
+      startHost: () => {
+        started += 1;
+        lockDuringStart = existsSync(startLockPath(home));
+        setTimeout(() => {
+          server = net.createServer((s) => { s.on("error", () => undefined); s.on("data", () => s.write('{"welcome":{"protocol":1,"hostPid":1,"sessionId":"h"}}\n')); });
+          server.listen(paths.socket);
+        }, 100);
+      }
+    });
+    await until(() => started > 0 && existsSync(paths.socket));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(started).toBe(1);
+    expect(lockDuringStart).toBe(true);
+    expect(existsSync(startLockPath(home))).toBe(false);
+    input.end();
+    expect(await done).toBe(0);
+  });
+
+  it("two shims starting together start one host", async () => {
+    home = mkdtempSync(path.join(os.tmpdir(), "ah-shim-"));
+    const paths = await ensureRunDir(home);
+    let started = 0;
+    const startHost = (): void => {
+      started += 1;
+      setTimeout(() => {
+        server = net.createServer((s) => { s.on("error", () => undefined); s.on("data", () => s.write('{"welcome":{"protocol":1,"hostPid":1,"sessionId":"h"}}\n')); });
+        server.listen(paths.socket);
+      }, 200);
+    };
+    const inputs = [new PassThrough(), new PassThrough()];
+    const runs = inputs.map((input) => runShim({ agentHome: home, input, output: new PassThrough(), error: new PassThrough(), startHost }));
+    await new Promise((r) => setTimeout(r, 900));
+    expect(started).toBe(1);
+    inputs.forEach((i) => i.end());
+    expect(await Promise.all(runs)).toEqual([0, 0]);
+  });
+
+  it("a mid-call drop is answered host_disconnected and the tool call is not re-sent", async () => {
+    let calls = 0;
+    const { sockets } = await fakeHost((line) => { if (line.includes("tools/call")) calls += 1; });
+    let started = 0;
+    const input = new PassThrough(); const output = new PassThrough();
+    const out = collect(output);
+    const done = runShim({ agentHome: home, input, output, error: new PassThrough(), deadGraceMs: 150, startHost: () => { started += 1; } });
+    input.write('{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"click"}}\n');
+    await until(() => calls > 0);
+    sockets.forEach((s) => s.destroy());
+    await until(() => out.length > 0);
+    expect(JSON.parse(out[0]!).error.data.code).toBe("host_disconnected");
+    expect(await done).toBe(1);
+    expect(calls).toBe(1);
+    expect(started).toBe(0);
   });
 });

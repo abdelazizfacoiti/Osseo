@@ -6,10 +6,11 @@ import type { Readable, Writable } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { HOST_PROTOCOL, LineReader, encodeLine, jsonRpcError } from "./protocol.js";
 import { hostPaths, probeSocket } from "./socket.js";
+import { acquireStartLock } from "./start-lock.js";
 
 /*
  * The stdio process an MCP client spawns when AGENTHOST_HOST=1. It connects to
- * the host (starting one detached if none is running) and forwards lines both
+ * the host (starting one detached through the start lock if none is running) and forwards lines both
  * ways unchanged. If the host dies it answers the open requests with a
  * JSON-RPC error and exits. It never re-sends a request.
  */
@@ -46,12 +47,22 @@ async function connectWithStart(options: ShimOptions): Promise<net.Socket> {
   });
   let connected = await attempt();
   if (connected !== undefined) return connected;
-  if ((await probeSocket(socketPath, 300)) !== "live") (options.startHost ?? defaultStartHost)();
-  const deadline = Date.now() + (options.startWaitMs ?? 10_000);
-  while (Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    connected = await attempt();
-    if (connected !== undefined) return connected;
+  // Connect failed: start a host through the start lock (one starter wins; the others only retry), then connect again.
+  const lock = await acquireStartLock(options.agentHome).catch(() => undefined);
+  try {
+    if (lock !== undefined) {
+      connected = await attempt();
+      if (connected !== undefined) return connected;
+      if ((await probeSocket(socketPath, 300)) !== "live") (options.startHost ?? defaultStartHost)();
+    }
+    const deadline = Date.now() + (options.startWaitMs ?? 10_000);
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      connected = await attempt();
+      if (connected !== undefined) return connected;
+    }
+  } finally {
+    await lock?.release();
   }
   throw new Error("host_unavailable: the AgentHost host did not start within 10 s. Run agenthost doctor.");
 }

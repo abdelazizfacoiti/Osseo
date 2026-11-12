@@ -1,12 +1,12 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm, stat } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /*
- * `agenthost host status|start|stop`: the per-user host that AGENTHOST_HOST=1
+ * `agenthost host status|start|stop|restart`: the per-user host that AGENTHOST_HOST=1
  * MCP clients connect to. Paths match packages/mcp-server/src/host/socket.ts.
  */
 
@@ -22,6 +22,47 @@ export interface HostDeps {
   /** Reads the command line of a pid; default /proc on Linux. */
   readCmdline?: (pid: number) => Promise<string | undefined>;
   kill?: (pid: number, signal: NodeJS.Signals) => void;
+  /** Starts the host process; default a detached `node <entry>`. Returns the pid if known. */
+  spawnHost?: (node: string, entry: string, env: NodeJS.ProcessEnv) => number | undefined;
+  now?: () => number;
+  isAlive?: (pid: number) => boolean;
+}
+
+const LOCK_STALE_MS = 30_000;
+const lockPath = (agentHome: string): string => path.join(agentHome, "run", "host.lock");
+const pidAlive = (pid: number): boolean => { try { process.kill(pid, 0); return true; } catch (e) { return (e as NodeJS.ErrnoException).code === "EPERM"; } };
+
+async function readLock(agentHome: string): Promise<{ pid: number; at: number } | undefined> {
+  try {
+    const [pid, at] = (await readFile(lockPath(agentHome), "utf8")).trim().split(/\s+/).map((part) => Number.parseInt(part, 10));
+    if (Number.isInteger(pid) && Number.isInteger(at)) return { pid: pid!, at: at! };
+    // Created but not yet written by its holder: age it by the file's mtime and treat the holder as alive.
+    return { pid: process.pid, at: (await stat(lockPath(agentHome))).mtimeMs };
+  } catch { return undefined; }
+}
+
+async function lockIsHeld(agentHome: string, deps: HostDeps): Promise<boolean> {
+  const held = await readLock(agentHome);
+  if (held === undefined) return false;
+  return !((deps.now ?? Date.now)() - held.at > LOCK_STALE_MS && !(deps.isAlive ?? pidAlive)(held.pid));
+}
+
+/** Start lock: run/host.lock, O_EXCL, "<pid> <epoch ms>". Same file and rules as mcp-server/src/host/start-lock.ts. */
+async function acquireLock(agentHome: string, deps: HostDeps): Promise<(() => Promise<void>) | undefined> {
+  await mkdir(path.dirname(lockPath(agentHome)), { recursive: true, mode: 0o700 });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const handle = await open(lockPath(agentHome), "wx", 0o600);
+      await handle.writeFile(`${process.pid} ${(deps.now ?? Date.now)()}\n`);
+      await handle.close();
+      return async () => { if ((await readLock(agentHome))?.pid === process.pid) await rm(lockPath(agentHome), { force: true }); };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (await lockIsHeld(agentHome, deps)) return undefined;
+      await rm(lockPath(agentHome), { force: true });
+    }
+  }
+  return undefined;
 }
 
 const socketPath = (agentHome: string): string => path.join(agentHome, "run", "host.sock");
@@ -67,27 +108,76 @@ async function defaultCmdline(pid: number): Promise<string | undefined> {
 }
 
 async function status(agentHome: string): Promise<Output> {
-  const reply = await ask(agentHome, { status: true });
+  const pong = await ask(agentHome, { ping: true });
   const pid = await readPid(agentHome);
-  if (reply === "no_host") return { ok: true, command: "host status", data: { running: false, socket: socketPath(agentHome), ...(pid === undefined ? {} : { stalePid: pid }) } };
-  const info = reply === "no_reply" ? undefined : (reply.status as Record<string, unknown> | undefined);
-  return { ok: true, command: "host status", data: { running: true, pid: info?.pid ?? pid ?? null, socket: socketPath(agentHome), sessions: info?.sessions ?? null, leaseHolder: info?.leaseHolder ?? null, ...(info === undefined ? { note: "The host did not answer the status message." } : {}) } };
+  const socket = socketPath(agentHome);
+  if (pong === "no_host") return { ok: true, command: "host status", data: { running: false, socket, ...(pid === undefined ? {} : { stalePid: pid }) } };
+  if (pong === "no_reply" || pong.pong !== true) return { ok: true, command: "host status", data: { running: false, socket, note: "The socket accepts connections but did not answer a ping, so it is not reported as running.", ...(pid === undefined ? {} : { stalePid: pid }) } };
+  const reply = await ask(agentHome, { status: true });
+  const info = typeof reply === "object" ? (reply.status as Record<string, unknown> | undefined) : undefined;
+  return { ok: true, command: "host status", data: { running: true, pid: pong.pid ?? info?.pid ?? pid ?? null, socket, uptimeMs: pong.uptimeMs ?? null, sessions: info?.sessions ?? null, leaseHolder: info?.leaseHolder ?? null, ...(info === undefined ? { note: "The host did not answer the status message." } : {}) } };
+}
+
+/** Never starts anything. For `agenthost doctor`. */
+export async function hostDoctorLine(agentHome: string, deps: HostDeps = {}): Promise<{ state: "not_running" | "running" | "stale_socket" | "lock_held"; detail: string }> {
+  const pong = await ask(agentHome, { ping: true });
+  if (typeof pong === "object" && pong.pong === true) return { state: "running", detail: `host running (pid ${String(pong.pid)}, protocol ${String(pong.protocol)}, up ${Math.round(Number(pong.uptimeMs ?? 0) / 1000)} s)` };
+  if (await lockIsHeld(agentHome, deps)) return { state: "lock_held", detail: "a host start is in progress (run/host.lock is held)" };
+  if (existsSync(socketPath(agentHome))) return { state: "stale_socket", detail: `${socketPath(agentHome)} exists but no host answers; run agenthost host start (it replaces the stale socket) or remove the file` };
+  return { state: "not_running", detail: "no host running (AGENTHOST_HOST=1 clients start one on demand)" };
 }
 
 async function start(agentHome: string, deps: HostDeps): Promise<Output> {
-  const current = await ask(agentHome, { status: true });
-  if (current !== "no_host") return fail("host start", `agenthost_host_running${(await readPid(agentHome)) === undefined ? "" : `: pid ${await readPid(agentHome)}`}`);
+  const running = async (): Promise<Output> => fail("host start", `agenthost_host_running${(await readPid(agentHome)) === undefined ? "" : `: pid ${await readPid(agentHome)}`}`);
+  if ((await ask(agentHome, { status: true })) !== "no_host") return await running();
   const entry = deps.hostEntry ?? defaultHostEntry();
   if (entry === undefined || !existsSync(entry)) return fail("host start", "host_runtime_missing: build the project first");
-  const child = spawn(deps.node ?? process.execPath, [entry], { detached: true, stdio: "ignore", env: { ...(deps.env ?? process.env), AGENTHOST_HOME: agentHome } });
-  child.on("error", () => undefined);
-  child.unref();
-  const deadline = Date.now() + (deps.startWaitMs ?? 10_000);
-  while (Date.now() < deadline) {
-    await sleep(100);
-    if ((await ask(agentHome, { status: true })) !== "no_host") return { ok: true, command: "host start", data: { running: true, pid: (await readPid(agentHome)) ?? child.pid ?? null, socket: socketPath(agentHome) } };
+  const waitMs = deps.startWaitMs ?? 10_000;
+  const release = await acquireLock(agentHome, deps);
+  if (release === undefined) {
+    // Another start is under way: wait for its host instead of starting a second one.
+    const until = Date.now() + waitMs;
+    while (Date.now() < until) {
+      await sleep(100);
+      if ((await ask(agentHome, { status: true })) !== "no_host") return await running();
+      if (!(await lockIsHeld(agentHome, deps))) break;
+    }
+    return fail("host start", "host_start_in_progress: another start holds run/host.lock; try again, or run agenthost host status");
   }
-  return fail("host start", "host_start_timeout: the host did not open its socket within 10 s");
+  try {
+    if ((await ask(agentHome, { status: true })) !== "no_host") return await running();
+    const env = { ...(deps.env ?? process.env), AGENTHOST_HOME: agentHome };
+    let childPid: number | undefined;
+    if (deps.spawnHost !== undefined) childPid = deps.spawnHost(deps.node ?? process.execPath, entry, env);
+    else {
+      const child = spawn(deps.node ?? process.execPath, [entry], { detached: true, stdio: "ignore", env });
+      child.on("error", () => undefined);
+      child.unref();
+      childPid = child.pid;
+    }
+    const deadline = Date.now() + waitMs;
+    while (Date.now() < deadline) {
+      await sleep(100);
+      if ((await ask(agentHome, { status: true })) !== "no_host") return { ok: true, command: "host start", data: { running: true, pid: (await readPid(agentHome)) ?? childPid ?? null, socket: socketPath(agentHome) } };
+    }
+    return fail("host start", `host_start_timeout: the host did not open its socket within ${Math.round(waitMs / 1000)} s`);
+  } finally {
+    await release();
+  }
+}
+
+async function restart(agentHome: string, deps: HostDeps): Promise<Output> {
+  const stopped = await stop(agentHome, deps);
+  if (!stopped.ok) return fail("host restart", `restart_refused: ${stopped.error ?? "stop failed"}`);
+  // Wait until nothing answers on the socket before starting again.
+  const deadline = Date.now() + (deps.stopWaitMs ?? 5000);
+  while ((await ask(agentHome, { status: true }, 300)) !== "no_host") {
+    if (Date.now() > deadline) return fail("host restart", "restart_refused: the old host is still answering after stop; nothing was started");
+    await sleep(100);
+  }
+  const started = await start(agentHome, deps);
+  if (!started.ok) return fail("host restart", started.error ?? "start failed");
+  return { ok: true, command: "host restart", data: { restarted: true, stopped: stopped.data, started: started.data } };
 }
 
 async function stop(agentHome: string, deps: HostDeps): Promise<Output> {
@@ -111,5 +201,6 @@ export async function hostCommand(args: string[], agentHome: string, deps: HostD
   if (sub === "status") return await status(agentHome);
   if (sub === "start") return await start(agentHome, deps);
   if (sub === "stop") return await stop(agentHome, deps);
-  return fail("host", "usage: agenthost host status | start | stop");
+  if (sub === "restart") return await restart(agentHome, deps);
+  return fail("host", "usage: agenthost host status | start | stop | restart");
 }

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The opt-in host service no longer races on start: `host start` and the MCP shim take a `run/host.lock` start lock, so two concurrent starts give one host. Added `agenthost host restart`, a `{"ping":true}` message that `host status` uses to confirm the host answers, and a host line in `agenthost doctor`.
 - `agenthost selftest` proves in a few seconds that the installed build works: it starts the built server with no display, opens a local form in headless Chrome, fills it with `see`, `type` and `click` by number, and checks the result. It prints PASS or FAIL per step, stops at the first failure, exits 1 on any failure, and `--json` returns the steps.
 - `browser.own_tabs` now lists the tabs of the person's own browser. The extension protocol has a `tabs` request. The extension, the native host (through `allowed-hosts.json`) and the MCP tool (through `policy.toml` site rules) each keep only tabs on allowed hosts. Each tab is reported as tab id, hostname and title cut to 80 characters, never a URL or page content.
 - `agenthost shortcut status|install|remove` adds a GNOME custom keyboard shortcut (default Ctrl+Shift+Alt+Esc) that runs `agenthost agent stop` through a small wrapper in `~/.agenthost/bin`. It writes the stop file directly, so it works even if the host hangs. Preview by default; `--apply` changes it. Other desktops get the manual steps.

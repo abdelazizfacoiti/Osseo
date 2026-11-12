@@ -3,7 +3,7 @@
  * First message from a shim: {"hello":{"protocol":1,"client":"<name>"}}.
  * Host answers {"welcome":{...}} or {"refused":{"code":"protocol_mismatch"}}.
  * After that every line is an MCP JSON-RPC message, forwarded unchanged.
- * Operator messages ({"status":true}, {"shutdown":true}) need no handshake.
+ * Operator messages ({"status":true}, {"ping":true}, {"shutdown":true}) need no handshake.
  */
 
 export const HOST_PROTOCOL = 1;
