@@ -3,8 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { getDefaultPolicy } from "./policies.js";
-import { PHASE20_HARD_LIMITS, PHASE20_SUPPORTED_RUNTIME_CAPABILITIES } from "./runtime-grants.js";
-import type { AgentHostConfig, CapabilityGrant, CapabilityGrantMatch, CapabilityGrantRequirements, ForgeRuntimeSandboxMode, ToolForgeRuntimeCapability, ToolForgeRuntimeOperation } from "./types.js";
+import type { AgentHostConfig, CapabilityGrant, CapabilityGrantMatch, CapabilityGrantRequirements, ForgeRuntimeSandboxMode } from "./types.js";
 import type { OverlayRendererMode, OverlayPublicConfig } from "./overlay.js";
 
 const forgeRuntimeSandboxModeSchema = z.enum(["auto", "none", "bubblewrap", "firejail", "unshare"]);
@@ -89,9 +88,6 @@ const appSensitivitySchema = z.enum([
 
 const dataSensitivitySchema = z.enum(["none", "low", "sensitive", "secret"]);
 const riskLevelSchema = z.enum(["observe", "low", "medium", "high", "blocked"]);
-const runtimeCapabilitySchema = z.enum(PHASE20_SUPPORTED_RUNTIME_CAPABILITIES as [ToolForgeRuntimeCapability, ...ToolForgeRuntimeCapability[]]);
-const runtimeOperationSchema = z.enum(["const", "input", "object", "array", "concat", "length", "get", "equals", "if", "join", "sum", "map", "filter", "var", "manifest", "registration"] as [ToolForgeRuntimeOperation, ...ToolForgeRuntimeOperation[]]);
-const boundedRuntimeLimit = (maximum: number) => z.number().int().positive().max(maximum);
 
 const capabilityGrantSchema = z
   .object({
@@ -111,22 +107,7 @@ const capabilityGrantSchema = z
         appSensitivities: z.array(appSensitivitySchema).max(20).optional(),
         dataSensitivities: z.array(dataSensitivitySchema).max(20).optional(),
         fileRoots: z.array(z.string().trim().min(1).max(1000)).max(100).optional(),
-        commandAllowlist: z.array(z.string().trim().min(1).max(500)).max(100).optional(),
-        networkDomains: z.array(z.string().trim().min(1).max(300)).max(100).optional(),
-        oauthScopes: z.array(z.string().trim().min(1).max(300)).max(100).optional(),
-        generatedToolIds: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
-        registrationIds: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
-        runtimeToolNames: z.array(z.string().trim().min(1).max(200)).max(100).optional(),
-        runtimeCapabilities: z.array(runtimeCapabilitySchema).max(20).optional(),
-        operationFamilies: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
-        operations: z.array(z.string().trim().min(1).max(160)).max(50).optional(),
-        targetFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(50).optional(),
-        recipientFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(50).optional(),
-        contentFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(50).optional(),
-        artifactFingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(50).optional(),
-        channels: z.array(z.string().trim().min(1).max(160)).max(50).optional(),
-        routes: z.array(z.string().trim().min(1).max(160)).max(50).optional(),
-        ownerSessionIds: z.array(z.string().trim().min(1).max(160)).max(20).optional()
+        commandAllowlist: z.array(z.string().trim().min(1).max(500)).max(100).optional()
       })
       .strict(),
     requirements: z
@@ -136,13 +117,7 @@ const capabilityGrantSchema = z
         requiresApproval: z.boolean().optional(),
         requiresExactTarget: z.boolean().optional(),
         maxRiskLevel: riskLevelSchema.optional(),
-        allowedRoots: z.array(z.string().trim().min(1).max(1000)).max(100).optional(),
-        sandboxRoots: z.array(z.enum(["run", "temp"])).max(2).optional(),
-        outputRoots: z.array(z.enum(["run"])).max(1).optional(),
-        maxInputBytes: boundedRuntimeLimit(PHASE20_HARD_LIMITS.maxInputBytes).optional(),
-        maxOutputBytes: boundedRuntimeLimit(PHASE20_HARD_LIMITS.maxOutputBytes).optional(),
-        maxRuntimeMs: boundedRuntimeLimit(PHASE20_HARD_LIMITS.maxRuntimeMs).optional(),
-        allowedOperations: z.array(runtimeOperationSchema).max(50).optional()
+        allowedRoots: z.array(z.string().trim().min(1).max(1000)).max(100).optional()
       })
       .strict()
       .optional()
@@ -226,22 +201,7 @@ function normalizeGrantMatch(match: z.infer<typeof capabilityGrantSchema>["match
     ...(match.appSensitivities === undefined ? {} : { appSensitivities: match.appSensitivities }),
     ...(match.dataSensitivities === undefined ? {} : { dataSensitivities: match.dataSensitivities }),
     ...(match.fileRoots === undefined ? {} : { fileRoots: match.fileRoots }),
-    ...(match.commandAllowlist === undefined ? {} : { commandAllowlist: match.commandAllowlist }),
-    ...(match.networkDomains === undefined ? {} : { networkDomains: match.networkDomains }),
-    ...(match.oauthScopes === undefined ? {} : { oauthScopes: match.oauthScopes }),
-    ...(match.generatedToolIds === undefined ? {} : { generatedToolIds: match.generatedToolIds }),
-    ...(match.registrationIds === undefined ? {} : { registrationIds: match.registrationIds }),
-    ...(match.runtimeToolNames === undefined ? {} : { runtimeToolNames: match.runtimeToolNames }),
-    ...(match.runtimeCapabilities === undefined ? {} : { runtimeCapabilities: match.runtimeCapabilities }),
-    ...(match.operationFamilies === undefined ? {} : { operationFamilies: match.operationFamilies }),
-    ...(match.operations === undefined ? {} : { operations: match.operations }),
-    ...(match.targetFingerprints === undefined ? {} : { targetFingerprints: match.targetFingerprints }),
-    ...(match.recipientFingerprints === undefined ? {} : { recipientFingerprints: match.recipientFingerprints }),
-    ...(match.contentFingerprints === undefined ? {} : { contentFingerprints: match.contentFingerprints }),
-    ...(match.artifactFingerprints === undefined ? {} : { artifactFingerprints: match.artifactFingerprints }),
-    ...(match.channels === undefined ? {} : { channels: match.channels }),
-    ...(match.routes === undefined ? {} : { routes: match.routes }),
-    ...(match.ownerSessionIds === undefined ? {} : { ownerSessionIds: match.ownerSessionIds })
+    ...(match.commandAllowlist === undefined ? {} : { commandAllowlist: match.commandAllowlist })
   };
 }
 
@@ -260,13 +220,7 @@ function normalizeGrantRequirements(
     ...(requirements.requiresApproval === undefined ? {} : { requiresApproval: requirements.requiresApproval }),
     ...(requirements.requiresExactTarget === undefined ? {} : { requiresExactTarget: requirements.requiresExactTarget }),
     ...(requirements.maxRiskLevel === undefined ? {} : { maxRiskLevel: requirements.maxRiskLevel }),
-    ...(requirements.allowedRoots === undefined ? {} : { allowedRoots: requirements.allowedRoots }),
-    ...(requirements.sandboxRoots === undefined ? {} : { sandboxRoots: requirements.sandboxRoots }),
-    ...(requirements.outputRoots === undefined ? {} : { outputRoots: requirements.outputRoots }),
-    ...(requirements.maxInputBytes === undefined ? {} : { maxInputBytes: requirements.maxInputBytes }),
-    ...(requirements.maxOutputBytes === undefined ? {} : { maxOutputBytes: requirements.maxOutputBytes }),
-    ...(requirements.maxRuntimeMs === undefined ? {} : { maxRuntimeMs: requirements.maxRuntimeMs }),
-    ...(requirements.allowedOperations === undefined ? {} : { allowedOperations: requirements.allowedOperations })
+    ...(requirements.allowedRoots === undefined ? {} : { allowedRoots: requirements.allowedRoots })
   };
 }
 

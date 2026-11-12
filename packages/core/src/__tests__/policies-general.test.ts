@@ -23,7 +23,6 @@ describe("default autonomous policy", () => {
     expect(policy.defaults.privateDataReads).toBe("approval_required");
     expect(policy.defaults.externalSendsUploads).toBe("approval_required");
     expect(policy.defaults.destructiveActions).toBe("approval_required");
-    expect(policy.defaults.generatedTools).toBe("deny");
     expect(policy.grants.map((grant) => grant.id)).toContain("default.communication-read");
   });
 

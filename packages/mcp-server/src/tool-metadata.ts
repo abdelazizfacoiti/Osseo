@@ -40,7 +40,7 @@ export function applyProductionExecutionMetadata(tools: AnyAgentHostToolDefiniti
 }
 
 export function validateToolExecutionMetadata(metadata: ToolExecutionMetadata, toolName: string): void {
-  const allowedKeys = new Set(["executionClass", "externalEffect", "requiresDryRun", "requiresConfirmationToken", "requiresExactTarget", "source", "availability", "operationFamily", "operation", "reversibility", "sensitivity", "requiredBindings", "confirmationLevel", "verificationKind", "cleanupKind", "requiredGrantIds"]);
+  const allowedKeys = new Set(["executionClass", "externalEffect", "requiresDryRun", "requiresConfirmationToken", "requiresExactTarget", "source", "availability", "operationFamily", "operation", "reversibility", "sensitivity", "requiredBindings", "confirmationLevel", "verificationKind", "cleanupKind"]);
   if (typeof metadata !== "object" || metadata === null || Object.keys(metadata).some((key) => !allowedKeys.has(key))) {
     throw new Error(`Unknown execution metadata field for ${toolName}`);
   }
@@ -65,19 +65,6 @@ export function validateToolExecutionMetadata(metadata: ToolExecutionMetadata, t
   if (metadata.requiredBindings !== undefined && (!Array.isArray(metadata.requiredBindings) || metadata.requiredBindings.some((binding) => !["target", "recipient", "content", "artifact", "channel", "route"].includes(binding)))) throw new Error(`Invalid binding metadata for ${toolName}`);
   if (metadata.source !== "base" && metadata.source !== "optional_adapter") {
     throw new Error(`Unknown tool source for ${toolName}`);
-  }
-  validateRequiredGrantIds(metadata.requiredGrantIds, toolName);
-}
-
-function validateRequiredGrantIds(ids: string[] | undefined, toolName: string): void {
-  if (ids === undefined) return;
-  if (!Array.isArray(ids) || ids.length > 20) throw new Error(`Invalid required grant metadata for ${toolName}`);
-  const unique = new Set<string>();
-  for (const grantId of ids) {
-    if (typeof grantId !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(grantId) || unique.has(grantId)) {
-      throw new Error(`Invalid required grant metadata for ${toolName}`);
-    }
-    unique.add(grantId);
   }
 }
 

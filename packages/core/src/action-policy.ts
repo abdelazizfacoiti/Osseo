@@ -34,7 +34,6 @@ export function fingerprintActionEffect(input: {
   confirmationLevel?: GovernedActionEffect["confirmationLevel"];
   verificationKind?: string;
   cleanupKind?: string;
-  requiredGrantIds?: string[];
 }): string {
   return createHash("sha256").update(stable({
     ownerSessionId: input.ownerSessionId,
@@ -50,8 +49,7 @@ export function fingerprintActionEffect(input: {
     reversibility: input.reversibility ?? "reversible",
     confirmationLevel: input.confirmationLevel ?? "none",
     verificationKind: input.verificationKind ?? "none",
-    cleanupKind: input.cleanupKind ?? "none",
-    requiredGrantIds: [...(input.requiredGrantIds ?? [])].sort()
+    cleanupKind: input.cleanupKind ?? "none"
   })).digest("hex");
 }
 
@@ -120,7 +118,6 @@ export function createGovernedActionEffect(input: {
   externalEffect?: boolean;
   destructive?: boolean;
   sensitivity?: AppSensitivity;
-  requiredGrantIds?: string[];
   confirmationLevel?: GovernedActionEffect["confirmationLevel"];
   verificationKind?: string;
   cleanupKind?: string;
@@ -134,8 +131,7 @@ export function createGovernedActionEffect(input: {
   const confirmationLevel = input.confirmationLevel ?? (input.destructive === true ? "strong" : input.externalEffect === true ? "standard" : "none");
   const verificationKind = input.verificationKind ?? "none";
   const cleanupKind = input.cleanupKind ?? "none";
-  const requiredGrantIds = [...new Set(input.requiredGrantIds ?? [])];
-  const fingerprint = fingerprintActionEffect({ ...input, bindings, reversibility, confirmationLevel, verificationKind, cleanupKind, requiredGrantIds });
+  const fingerprint = fingerprintActionEffect({ ...input, bindings, reversibility, confirmationLevel, verificationKind, cleanupKind });
   return {
     effectId: input.effectId ?? `effect_${fingerprint.slice(0, 24)}`,
     ownerSessionId: input.ownerSessionId,
@@ -148,7 +144,6 @@ export function createGovernedActionEffect(input: {
     externalEffect: input.externalEffect === true,
     destructive: input.destructive === true,
     sensitivity: input.sensitivity ?? "normal",
-    requiredGrantIds,
     confirmationLevel,
     verificationKind,
     cleanupKind,
@@ -204,8 +199,7 @@ export function validateGovernedActionEffect(
     reversibility: effect.reversibility,
     confirmationLevel: effect.confirmationLevel,
     verificationKind: effect.verificationKind,
-    cleanupKind: effect.cleanupKind,
-    requiredGrantIds: effect.requiredGrantIds
+    cleanupKind: effect.cleanupKind
   });
   if (expectedFingerprint !== effect.fingerprint) {
     return { ok: false, code: "action_binding_changed", reason: "Governed effect fingerprint does not match its bound operation." };

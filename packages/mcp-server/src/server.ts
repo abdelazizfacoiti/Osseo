@@ -237,7 +237,6 @@ export interface AgentHostServerOptions {
   trace?: import("@agenthost/core").ToolTraceLogger;
   sessionId?: string;
   linux?: LinuxAutomation;
-  sessionGrants?: import("@agenthost/core").CapabilityGrant[];
 }
 
 /** A tool may attach an image under data.inlineImage. It goes to the client as image content, never into the JSON text. */
@@ -294,10 +293,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       ))
     : undefined);
   const policy = options.policy ?? config.policy;
-  const grants = new GrantStore({
-    persistentGrants: policy.grants,
-    ...(options.sessionGrants === undefined ? {} : { sessionGrants: options.sessionGrants })
-  });
+  const grants = new GrantStore({ persistentGrants: policy.grants });
   const activityMode = config.overlay?.mode ?? "always";
   const dockLayout = (config.overlay?.layout ?? "dock") === "dock";
   const actionPill = config.overlay?.actionPill ?? !dockLayout;

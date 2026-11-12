@@ -170,46 +170,6 @@ export interface WorkflowCheckpoint {
   reusable: boolean;
 }
 
-export interface WorkflowTraceStep {
-  stepId: string;
-  timestamp: string;
-  tool: string;
-  strategy: WorkflowStrategy;
-  actionType: WorkflowStepAction;
-  riskLevel: RiskLevel;
-  appCategory?: string;
-  appSensitivity?: AppSensitivity;
-  inputSummary: string;
-  outputSummary: string;
-  preview: boolean;
-  ok: boolean;
-  errorSummary?: string;
-  checkpointResult?: WorkflowCheckpoint;
-  requiredGrantIds?: string[];
-  safetyDecision?: WorkflowSafetyDecisionSummary;
-}
-
-export interface WorkflowTrace {
-  traceId: string;
-  name: string;
-  description?: string;
-  createdAt: string;
-  updatedAt: string;
-  status: WorkflowTraceStatus;
-  appCategories: string[];
-  strategiesUsed: WorkflowStrategy[];
-  steps: WorkflowTraceStep[];
-  checkpoints: WorkflowCheckpoint[];
-  requiredGrants: string[];
-  safetyNotes: string[];
-  summary?: string;
-  sessionId?: string;
-  stoppedAt?: string;
-  archivedAt?: string;
-  truncated?: boolean;
-  droppedStepCount?: number;
-}
-
 export interface WorkflowSkillParameter {
   name: string;
   type: "string" | "number" | "boolean" | "json";
@@ -219,115 +179,10 @@ export interface WorkflowSkillParameter {
   usedByStepIds: string[];
 }
 
-export interface WorkflowSkillStep {
-  stepId: string;
-  tool: string;
-  strategy: WorkflowStrategy;
-  actionType: WorkflowStepAction;
-  riskLevel: RiskLevel;
-  inputSummary: string;
-  checkpointIds: string[];
-  requiredGrantIds: string[];
-  requiresConfirmation: boolean;
-  blocked: boolean;
-  blockedReason?: string;
-}
-
-/** Reviewable, non-executable semantic checkpoint definition for a workflow skill. */
-export interface WorkflowCheckpointTemplate {
-  templateId: string;
-  name: string;
-  description: string;
-  kind: CheckpointKind;
-  strategy: CheckpointStrategy;
-  sensitivity: CheckpointSensitivity;
-  /** JSON values may use only {{declaredParameterName}} interpolation in strings. */
-  expectedTemplate: Record<string, unknown>;
-  parameters: string[];
-  requiredGrants: string[];
-  safetyNotes: string[];
-  timeoutMs?: number;
-  pollIntervalMs?: number;
-  redactionPolicy?: "summary_only" | "counts_only";
-  /** Phase 32 local review lifecycle. Missing legacy values normalize to review_required. */
-  status?: "draft" | "review_required" | "approved" | "rejected" | "archived";
-  version?: number;
-  createdAt?: string;
-  updatedAt?: string;
-  approvedAt?: string;
-  archivedAt?: string;
-  templateHash?: string;
-  reviewId?: string;
-  changeSummary?: string;
-}
-
 export type WorkflowCheckpointTemplateReviewStatus = "pending" | "approved" | "rejected" | "blocked" | "applied" | "archived";
 export type WorkflowCheckpointTemplateReviewAction = "create" | "update" | "approve" | "reject" | "archive";
 
 /** Local, redacted review metadata. Candidate template stays internal to workflow storage. */
-export interface WorkflowCheckpointTemplateReview {
-  reviewId: string;
-  skillId: string;
-  templateId: string;
-  action: WorkflowCheckpointTemplateReviewAction;
-  createdAt: string;
-  updatedAt: string;
-  status: WorkflowCheckpointTemplateReviewStatus;
-  version: number;
-  templateHash: string;
-  beforeSummary?: Record<string, unknown>;
-  afterSummary: Record<string, unknown>;
-  safetyFindings: string[];
-  requiredGrantsSummary: string[];
-  blockedReasons: string[];
-  reviewer?: string;
-}
-
-export interface WorkflowSkill {
-  skillId: string;
-  name: string;
-  description: string;
-  version: number;
-  createdAt: string;
-  updatedAt: string;
-  status: WorkflowSkillStatus;
-  supportedStrategies: WorkflowStrategy[];
-  appCategories: string[];
-  parameters: WorkflowSkillParameter[];
-  steps: WorkflowSkillStep[];
-  checkpoints: WorkflowCheckpoint[];
-  /** Optional for backward-compatible persisted Phase 27 skills. */
-  checkpointTemplates?: WorkflowCheckpointTemplate[];
-  requiredGrants: string[];
-  safetyRestrictions: string[];
-  blockedActions: string[];
-  sourceTraceId: string;
-  archivedAt?: string;
-}
-
-export interface WorkflowSkillDryRunResult {
-  skillId: string;
-  version: number;
-  executable: false;
-  requiredGrants: string[];
-  missingGrantIds: string[];
-  steps: WorkflowSkillStep[];
-  blockedSteps: WorkflowSkillStep[];
-  confirmationStepIds: string[];
-  safetyRestrictions: string[];
-  missingParameters: string[];
-  checkpointTemplates?: Array<{
-    templateId: string;
-    kind: CheckpointKind;
-    strategy: CheckpointStrategy;
-    sensitivity: CheckpointSensitivity;
-    requiredGrants: string[];
-    parameterNames: string[];
-    blocked: boolean;
-    blockedReasons: string[];
-  }>;
-}
-
 export interface WorkflowSkillReplayBlocker { code: string; stepId?: string; templateId?: string; message: string; }
 export interface WorkflowSkillReplayGrantSummary { grantId: string; active: boolean; source: "skill" | "step" | "checkpoint"; }
 export interface WorkflowSkillReplayStepPreview {
@@ -392,8 +247,6 @@ export interface ToolCapability {
   strategy?: AutomationStrategy;
   inputSchema?: unknown;
   generated?: boolean;
-  /** Structural grant prerequisites; does not grant permission. */
-  requiredGrantIds?: string[];
   execution?: ToolExecutionMetadata;
 }
 
@@ -418,8 +271,6 @@ export interface ToolExecutionMetadata {
   confirmationLevel?: "none" | "standard" | "strong";
   verificationKind?: string;
   cleanupKind?: string;
-  /** Structural grant prerequisites; does not grant permission. */
-  requiredGrantIds?: string[];
 }
 
 export type ActionEffectDecision =
@@ -461,7 +312,6 @@ export interface GovernedActionEffect {
   externalEffect: boolean;
   destructive: boolean;
   sensitivity: AppSensitivity;
-  requiredGrantIds: string[];
   confirmationLevel: "none" | "standard" | "strong";
   verificationKind: string;
   cleanupKind: string;
@@ -530,7 +380,6 @@ export interface PermissionDefaults {
   privateDataReads: PermissionDefault;
   externalSendsUploads: PermissionDefault;
   destructiveActions: PermissionDefault;
-  generatedTools: PermissionDefault;
 }
 
 export interface CapabilityGrantRequirements {
@@ -540,12 +389,6 @@ export interface CapabilityGrantRequirements {
   requiresExactTarget?: boolean;
   maxRiskLevel?: RiskLevel;
   allowedRoots?: string[];
-  sandboxRoots?: Array<"run" | "temp">;
-  outputRoots?: Array<"run">;
-  maxInputBytes?: number;
-  maxOutputBytes?: number;
-  maxRuntimeMs?: number;
-  allowedOperations?: ToolForgeRuntimeOperation[];
 }
 
 export interface CapabilityGrantMatch {
@@ -558,21 +401,6 @@ export interface CapabilityGrantMatch {
   dataSensitivities?: DataSensitivity[];
   fileRoots?: string[];
   commandAllowlist?: string[];
-  networkDomains?: string[];
-  oauthScopes?: string[];
-  generatedToolIds?: string[];
-  registrationIds?: string[];
-  runtimeToolNames?: string[];
-  runtimeCapabilities?: ToolForgeRuntimeCapability[];
-  operationFamilies?: string[];
-  operations?: string[];
-  targetFingerprints?: string[];
-  recipientFingerprints?: string[];
-  contentFingerprints?: string[];
-  artifactFingerprints?: string[];
-  channels?: string[];
-  routes?: string[];
-  ownerSessionIds?: string[];
 }
 
 export interface CapabilityGrant {
@@ -624,24 +452,14 @@ export type ScheduledJobSchedule =
   | { kind: "cron"; expression: string; timezone: string; nextRunPreview?: string }
   | { kind: "calendar"; unit: "hourly" | "daily" | "weekdays" | "monthly" | "yearly"; at?: string; timezone: string; nextRunPreview?: string }
   | { kind: "condition_watch_future"; timezone: string };
-export type ScheduledJobTask = { type: "skill_replay_dryrun" | "skill_replay_stepwise_future" | "browser_research_future" | "file_check_future" | "shell_safe_future" | "notification_future" | "custom_future"; skillId?: string; dataSensitivity: DataSensitivity; parameterNames: string[]; requiredGrantIds: string[]; };
 export type ScheduledJobDeliveryPolicy = { kind: "local_log" | "local_file" | "desktop_notification_future" | "draft_message_future" | "draft_email_future" | "external_send_blocked"; outputName?: string; };
 export interface ScheduledJobSafetyReview { scheduleFindings: string[]; taskFindings: string[]; deliveryFindings: string[]; blockedReasons: string[]; requiredGrantIds: string[]; missingGrantIds: string[]; }
-export interface ScheduledJobSpec { jobId: string; name: string; description: string; createdAt: string; updatedAt: string; status: ScheduledJobStatus; schedule: ScheduledJobSchedule; task: ScheduledJobTask; delivery: ScheduledJobDeliveryPolicy; parametersSummary: Array<{ name: string; provided: boolean; redacted: true }>; requiredGrants: string[]; requiredConfirmations: string[]; safetyRestrictions: string[]; retryPolicy: "none"; maxAttempts: 1; reviewId?: string; version: number; jobHash: string; executable: false; scheduledExecutionEnabled: false; ownerSessionId?: string; archivedAt?: string; cancelledAt?: string; }
 export interface ScheduledJobReview { reviewId: string; jobId: string; action: "create" | "update" | "approve" | "reject" | "archive" | "disable" | "pause" | "resume" | "cancel" | "remove"; createdAt: string; updatedAt: string; status: "pending" | "approved" | "rejected" | "blocked" | "applied" | "archived"; version: number; jobHash: string; beforeSummary?: Record<string, unknown>; afterSummary: Record<string, unknown>; safety: ScheduledJobSafetyReview; ownerSessionId?: string; reviewer?: string; }
-export interface ScheduledJobActivationRequest { activationRequestId: string; jobId: string; jobVersion: number; jobHash: string; createdAt: string; updatedAt: string; requestedBy?: "redacted"; status: ScheduledJobActivationStatus; readinessSnapshotHash: string; readinessSummary: Pick<ScheduledJobReadiness, "jobStatus" | "scheduleValid" | "taskValid" | "deliveryValid" | "grantsSatisfied" | "requiredGrants" | "missingGrants" | "blockers" | "warnings">; activationPolicySnapshot: ScheduledJobActivationPolicySnapshot; requiredGrants: string[]; missingGrants: string[]; futureExecutionControls: ScheduledJobFutureExecutionControls; blockers: string[]; warnings: string[]; nextRunPreview?: ScheduledJobNextRunPreview; reviewId?: string; activationHash: string; executable: false; scheduledExecutionEnabled: false; actualExecutionSupported: false; revokedAt?: string; archivedAt?: string; }
-export interface ScheduledJobActivationReview { reviewId: string; activationRequestId: string; jobId: string; action: "request" | "approve" | "reject" | "revoke" | "archive"; status: "pending" | "approved" | "rejected" | "blocked" | "applied" | "revoked" | "archived"; createdAt: string; updatedAt: string; jobVersion: number; jobHash: string; activationHash: string; beforeSummary?: Record<string, unknown>; afterSummary: Record<string, unknown>; readinessSummary: ScheduledJobActivationRequest["readinessSummary"]; policyFindings: string[]; requiredGrants: string[]; missingGrants: string[]; blockedReasons: string[]; reviewer?: "redacted"; }
 export type ScheduledJobManualRunContractStatus = "draft" | "review_required" | "approved" | "rejected" | "blocked" | "archived";
 export interface ScheduledJobManualRunFutureControls extends ScheduledJobFutureExecutionControls { manualUserInitiationRequired: true; policyGrantReadinessRecheckRequired: true; }
-export interface ScheduledJobManualRunEligibility { eligibleForContract: boolean; jobApproved: boolean; activationApproved: boolean; scheduleValid: boolean; taskValid: boolean; deliveryValid: boolean; grantsKnown: boolean; blockers: string[]; warnings: string[]; }
-export interface ScheduledJobManualRunTaskPlanSummary { kind: ScheduledJobTask["type"]; skillId?: string; stepCount: number; steps: Array<{ stepId: string; order: number; tool: string; strategy: string; actionType: string; riskLevel: string; stateChanging: boolean; wouldRequireDryRun: boolean; wouldRequireConfirmation: boolean; requiredGrants: string[]; blocked: boolean; blockedReasons: string[]; }>; checkpointCount: number; checkpoints: Array<{ templateId: string; kind: string; strategy: string; sensitivity: string; status: string; requiredGrants: string[]; missingGrants: string[]; blocked: boolean; blockedReasons: string[]; }>; plannerBlockers: string[]; plannerWarnings: string[]; actionsExecuted: false; replaySessionStarted: false; }
 export interface ScheduledJobManualRunDeliveryPlanSummary { kind: ScheduledJobDeliveryPolicy["kind"]; futureOnly: true; risk: "low" | "high" | "blocked"; outputNamePresent: boolean; outputExtension?: "txt" | "json"; blocked: boolean; blockedReasons: string[]; }
-export interface ScheduledJobManualRunContract { runContractId: string; jobId: string; jobVersion: number; jobHash: string; activationRequestId?: string; activationHash?: string; createdAt: string; updatedAt: string; status: ScheduledJobManualRunContractStatus; readinessSnapshotHash: string; taskPlanSummary: ScheduledJobManualRunTaskPlanSummary; deliveryPlanSummary: ScheduledJobManualRunDeliveryPlanSummary; checkpointPlanSummary: { count: number; blockedCount: number; redacted: true; }; requiredGrants: string[]; missingGrants: string[]; requiredConfirmations: string[]; eligibility: ScheduledJobManualRunEligibility; futureControls: ScheduledJobManualRunFutureControls; blockers: string[]; warnings: string[]; contractHash: string; reviewId?: string; executable: false; manualRunSupported: false; scheduledExecutionEnabled: false; backgroundExecution: false; actionsExecuted: false; confirmationTokensCreated: false; archivedAt?: string; }
-export interface ScheduledJobManualRunReview { reviewId: string; runContractId: string; jobId: string; action: "create" | "approve" | "reject" | "archive"; status: "pending" | "approved" | "rejected" | "blocked" | "applied" | "archived"; createdAt: string; updatedAt: string; jobVersion: number; jobHash: string; activationHash?: string; contractHash: string; beforeSummary?: Record<string, unknown>; afterSummary: Record<string, unknown>; readinessFindings: string[]; taskFindings: string[]; deliveryFindings: string[]; grantFindings: string[]; blockedReasons: string[]; reviewer?: "redacted"; }
 export type ScheduledJobManualRunPreflightStatus = "pass" | "warn" | "blocked" | "archived";
 export interface ScheduledJobManualRunPreflightAcknowledgement { acknowledgementId: string; statement: string; required: true; acknowledged: false; }
-export interface ScheduledJobManualRunPreflightSnapshot { valid: boolean; status?: string; version?: number; hash?: string; currentHash?: string; hashMatches?: boolean; blockerCodes: string[]; warningCodes: string[]; requiredGrantIds: string[]; missingGrantIds: string[]; nextRunPreviewAvailable?: boolean; controlStates?: Record<string, boolean>; redacted: true; }
-export interface ScheduledJobManualRunPreflight { preflightId: string; manualRunContractId: string; jobId: string; jobVersion: number; activationId?: string; createdAt: string; updatedAt: string; status: ScheduledJobManualRunPreflightStatus; executable: false; canRequestManualRun: false | "future_only"; actionsExecuted: false; confirmationTokensCreated: false; manualRunSupported: false; scheduledExecutionEnabled: false; backgroundExecution: false; readinessSnapshot: ScheduledJobManualRunPreflightSnapshot; activationSnapshot: ScheduledJobManualRunPreflightSnapshot; contractSnapshot: ScheduledJobManualRunPreflightSnapshot; grantSnapshot: ScheduledJobManualRunPreflightSnapshot; deliverySnapshot: ScheduledJobManualRunPreflightSnapshot; futureControlsSnapshot: ScheduledJobManualRunPreflightSnapshot; requiredOperatorAcknowledgements: ScheduledJobManualRunPreflightAcknowledgement[]; blockers: string[]; warnings: string[]; recommendedNextAction: string; preflightHash: string; archivedAt?: string; }
 export type ScheduledJobManualRunAcknowledgementStatus = "acknowledged" | "rejected" | "stale" | "blocked" | "archived";
 export interface ScheduledJobManualRunAcknowledgement { acknowledgementId: string; preflightId: string; manualRunContractId: string; jobId: string; jobVersion: number; createdAt: string; updatedAt: string; status: ScheduledJobManualRunAcknowledgementStatus; acknowledgedItems: string[]; missingAcknowledgements: string[]; operatorIntentSummary: "redacted" | "not_provided"; preflightHash: string; contractHash: string; jobHash: string; readinessHash?: string; blockers: string[]; warnings: string[]; acknowledgementHash: string; executable: false; actionsExecuted: false; confirmationTokensCreated: false; archivedAt?: string; }
 export type ScheduledJobManualRunRequestStatus = "requested" | "blocked" | "rejected" | "archived";
@@ -651,7 +469,6 @@ export type ScheduledJobManualRunApprovalStatus = "review_required" | "approval_
 export interface ScheduledJobManualRunApprovalDependencySnapshot { requestHash: string; acknowledgementHash: string; preflightHash: string; contractHash: string; jobHash: string; jobVersion: number; activationHash?: string | undefined; readinessHash?: string | undefined; grantSnapshotHash?: string | undefined; deliveryHash: string; policyHash: string; futureControlsHash: string; reviewHash: string; capturedAt: string; }
 export interface ScheduledJobManualRunApprovalSummary { approvalStatus: ScheduledJobManualRunApprovalStatus; approvalMode: "review_only"; executionAuthorized: false; executable: false; runSessionCreated: false; replaySessionCreated: false; actionsExecuted: false; confirmationTokensCreated: false; reviewId?: string; revoked: boolean; approvedAt?: string; expiresAt?: string; approvalDependencySnapshot?: ScheduledJobManualRunApprovalDependencySnapshot; approvalPolicyHash?: string; revokedAt?: string; approvalArchivedAt?: string; }
 export interface ScheduledJobManualRunRequest extends ScheduledJobManualRunApprovalSummary { manualRunRequestId: string; acknowledgementId: string; preflightId: string; manualRunContractId: string; jobId: string; jobVersion: number; createdAt: string; updatedAt: string; status: ScheduledJobManualRunRequestStatus; requestMode: "audit_only"; manualRunRequestSupported: false | "request_only"; requiredFutureControls: ScheduledJobManualRunFutureControls; blockers: string[]; warnings: string[]; requestHash: string; archivedAt?: string; }
-export interface ScheduledJobManualRunRequestReview { reviewId: string; manualRunRequestId: string; acknowledgementId: string; preflightId: string; manualRunContractId: string; jobId: string; jobVersion: number; createdAt: string; updatedAt: string; status: ScheduledJobManualRunRequestReviewStatus; decision: ScheduledJobManualRunRequestReviewDecision; requestHash: string; acknowledgementHash: string; preflightHash: string; contractHash: string; jobHash: string; readinessHash?: string; activationHash?: string; grantSnapshotHash?: string; blockers: string[]; warnings: string[]; futureExecutionControls: ScheduledJobManualRunFutureControls; safeReviewerSummary?: "redacted"; reviewHash: string; archivedAt?: string; }
 export type ScheduledJobManualRunApprovalValidityStatus = "valid" | "expiring_soon" | "expired" | "stale" | "revoked" | "archived" | "blocked";
 export interface ScheduledJobManualRunApprovalStaleDependency { name: string; expectedFingerprint?: string; currentFingerprint?: string; reasonCode: string; }
 export interface ScheduledJobManualRunApprovalRecoveryAction { code: string; summary: string; requiresNewApproval: true; }
@@ -874,11 +691,6 @@ export interface SafetyInput {
   tool: string;
   actionType: ActionType;
   strategy?: AutomationStrategy;
-  generatedToolId?: string;
-  generatedTool?: boolean;
-  registrationId?: string;
-  runtimeToolName?: string;
-  runtimeCapabilities?: ToolForgeRuntimeCapability[];
   appId?: string;
   appName?: string;
   url?: string;
@@ -1605,18 +1417,6 @@ export interface ToolForgeReviewResult {
   saferAlternatives: string[];
 }
 
-export interface ToolForgeGrantProposal {
-  grant: CapabilityGrant;
-  permissionId: string;
-  reasons: string[];
-}
-
-export interface ToolForgeGrantProposalResult {
-  manifestId: string;
-  proposals: ToolForgeGrantProposal[];
-  warnings: string[];
-}
-
 export const TOOL_FORGE_REVIEW_DECISION_STATUSES = [
   "pending",
   "approved_for_session",
@@ -2129,14 +1929,6 @@ export interface ToolForgeListReviewsResult {
 
 export interface ToolForgeArchiveManifestResult {
   artifact: ToolForgeArtifactRecord;
-}
-
-export interface ToolForgeApplySessionGrantsResult {
-  reviewId: string;
-  manifestId: string;
-  manifestHash: string;
-  appliedGrantIds: string[];
-  grants: GrantSummary[];
 }
 
 export interface AuditTimings {

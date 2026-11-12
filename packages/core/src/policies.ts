@@ -16,8 +16,7 @@ const DEFAULT_PERMISSIONS: PermissionDefaults = {
   communicationActions: "approval_required",
   privateDataReads: "approval_required",
   externalSendsUploads: "approval_required",
-  destructiveActions: "approval_required",
-  generatedTools: "deny"
+  destructiveActions: "approval_required"
 };
 
 export const DEFAULT_POLICY: RuntimePolicy = {

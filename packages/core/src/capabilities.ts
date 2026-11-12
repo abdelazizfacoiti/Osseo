@@ -11,18 +11,6 @@ import {
 const TOOL_SOURCES = new Set(["base", "optional_adapter"]);
 const TOOL_AVAILABILITIES = new Set(["available", "unavailable"]);
 
-function validateRequiredGrantIds(ids: string[] | undefined, toolName: string): void {
-  if (ids === undefined) return;
-  if (!Array.isArray(ids) || ids.length > 20) throw new Error(`Invalid required grant metadata for ${toolName}`);
-  const seen = new Set<string>();
-  for (const grantId of ids) {
-    if (typeof grantId !== "string" || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(grantId) || seen.has(grantId)) {
-      throw new Error(`Invalid required grant metadata for ${toolName}`);
-    }
-    seen.add(grantId);
-  }
-}
-
 function normalizeExecutionMetadata(metadata: ToolExecutionMetadata): ToolExecutionMetadata {
   const stateChanging = metadata.executionClass === "state_changing";
   return {
@@ -71,7 +59,6 @@ export function validateToolExecutionMetadata(metadata: ToolExecutionMetadata, t
   if (metadata.reversibility !== undefined && !["reversible", "persistent", "external", "destructive", "prohibited"].includes(metadata.reversibility)) throw new Error(`Invalid reversibility metadata for ${toolName}`);
   if (metadata.confirmationLevel !== undefined && !["none", "standard", "strong"].includes(metadata.confirmationLevel)) throw new Error(`Invalid confirmation metadata for ${toolName}`);
   if (metadata.requiredBindings !== undefined && (!Array.isArray(metadata.requiredBindings) || metadata.requiredBindings.some((binding) => !["target", "recipient", "content", "artifact", "channel", "route"].includes(binding)))) throw new Error(`Invalid binding metadata for ${toolName}`);
-  validateRequiredGrantIds(metadata.requiredGrantIds, toolName);
 }
 
 function bootstrapExecutionMetadata(name: string): ToolExecutionMetadata {
@@ -132,13 +119,11 @@ export class CapabilityRegistry implements CapabilityRegistrySnapshot {
         : undefined
       : capability.execution;
     if (execution === undefined) throw new Error(`Missing execution metadata for ${capability.name}`);
-    validateRequiredGrantIds(capability.requiredGrantIds, capability.name);
     validateToolExecutionMetadata(execution, capability.name);
     const normalized = normalizeExecutionMetadata(execution);
     this.#tools.set(capability.name, {
       ...capability,
-      ...(capability.requiredGrantIds === undefined ? {} : { requiredGrantIds: [...capability.requiredGrantIds] }),
-      execution: { ...normalized, ...(normalized.requiredGrantIds === undefined ? {} : { requiredGrantIds: [...normalized.requiredGrantIds] }) }
+      execution: { ...normalized }
     });
   }
 
@@ -151,12 +136,10 @@ export class CapabilityRegistry implements CapabilityRegistrySnapshot {
       }
       names.add(capability.name);
       if (capability.execution === undefined) throw new Error(`Missing execution metadata for ${capability.name}`);
-      validateRequiredGrantIds(capability.requiredGrantIds, capability.name);
       validateToolExecutionMetadata(capability.execution, capability.name);
       normalized.push({
         ...capability,
-        ...(capability.requiredGrantIds === undefined ? {} : { requiredGrantIds: [...capability.requiredGrantIds] }),
-        execution: { ...normalizeExecutionMetadata(capability.execution), ...(capability.execution.requiredGrantIds === undefined ? {} : { requiredGrantIds: [...capability.execution.requiredGrantIds] }) }
+        execution: normalizeExecutionMetadata(capability.execution)
       });
     }
     this.#tools.clear();

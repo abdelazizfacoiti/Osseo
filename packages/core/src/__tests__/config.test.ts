@@ -157,87 +157,31 @@ describe("loadAgentHostConfig", () => {
     });
   });
 
-  it("round-trips every supported runtime grant field without adding defaults", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-runtime-grant-"));
+  it("ignores optionalAdapters from an old config file", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-optional-adapters-"));
     const agentHostDir = path.join(homeDir, ".agenthost");
     await mkdir(agentHostDir, { recursive: true });
     const configPath = path.join(agentHostDir, "config.json");
-    await writeFile(configPath, JSON.stringify({
-      optionalAdapters: { ssh: { enabled: true } },
-      grants: [{
-        id: "runtime-full",
-        scope: "persistent",
-        effect: "allow",
-        match: {
-          generatedToolIds: ["artifact-1"],
-          registrationIds: ["registration-1"],
-          runtimeToolNames: ["inspect"],
-          runtimeCapabilities: ["pure_compute", "read_runtime_input"],
-          operationFamilies: ["forge_runtime"],
-          operations: ["run_bounded_json"],
-          targetFingerprints: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
-          recipientFingerprints: ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
-          contentFingerprints: ["cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],
-          artifactFingerprints: ["dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"],
-          channels: ["local"],
-          routes: ["bubblewrap"],
-          ownerSessionIds: ["session_test"],
-          tools: ["forge.run_sandboxed_tool"]
-        },
-        requirements: {
-          sandboxRoots: ["run", "temp"],
-          outputRoots: ["run"],
-          maxInputBytes: 1024,
-          maxOutputBytes: 2048,
-          maxRuntimeMs: 3000,
-          allowedOperations: ["const", "input", "object"]
-        }
-      }]
-    }), "utf8");
-
+    await writeFile(configPath, JSON.stringify({ optionalAdapters: { ssh: { enabled: true } } }), "utf8");
     const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
-    // optionalAdapters from an old config file loads and does nothing.
     expect("optionalAdapters" in config).toBe(false);
-    expect(config.policy.grants.find((grant) => grant.id === "runtime-full")).toMatchObject({
-      match: {
-        generatedToolIds: ["artifact-1"],
-        registrationIds: ["registration-1"],
-        runtimeToolNames: ["inspect"],
-        runtimeCapabilities: ["pure_compute", "read_runtime_input"],
-        operationFamilies: ["forge_runtime"],
-        operations: ["run_bounded_json"],
-        targetFingerprints: ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
-        recipientFingerprints: ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"],
-        contentFingerprints: ["cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"],
-        artifactFingerprints: ["dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"],
-        channels: ["local"],
-        routes: ["bubblewrap"],
-        ownerSessionIds: ["session_test"]
-      },
-      requirements: {
-        sandboxRoots: ["run", "temp"],
-        outputRoots: ["run"],
-        maxInputBytes: 1024,
-        maxOutputBytes: 2048,
-        maxRuntimeMs: 3000,
-        allowedOperations: ["const", "input", "object"]
-      }
-    });
   });
 
-  it("rejects unknown and over-broad runtime grant fields", async () => {
+  it("rejects unknown grant fields, including the removed generated-tool and runtime fields", async () => {
     const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-runtime-invalid-"));
     const agentHostDir = path.join(homeDir, ".agenthost");
     await mkdir(agentHostDir, { recursive: true });
     const configPath = path.join(agentHostDir, "config.json");
-    await writeFile(configPath, JSON.stringify({ grants: [{ id: "bad", scope: "persistent", effect: "allow", match: { unknown: ["x"] } }] }), "utf8");
-    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
-    await writeFile(configPath, JSON.stringify({ grants: [{ id: "bad", scope: "persistent", effect: "allow", match: { runtimeCapabilities: ["network_fetch"] } }] }), "utf8");
-    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
-    await writeFile(configPath, JSON.stringify({ grants: [{ id: "bad", scope: "persistent", effect: "allow", match: { runtimeCapabilities: ["pure_compute"] }, requirements: { maxRuntimeMs: 5001 } }] }), "utf8");
-    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
-    await writeFile(configPath, JSON.stringify({ grants: [{ id: "bad", scope: "persistent", effect: "allow", match: { targetFingerprints: ["not-a-fingerprint"] } }] }), "utf8");
-    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
+    const bad = [
+      { match: { unknown: ["x"] } },
+      { match: { runtimeCapabilities: ["pure_compute"] } },
+      { match: { targetFingerprints: ["a".repeat(64)] } },
+      { match: { tools: ["file.write"] }, requirements: { maxRuntimeMs: 3000 } }
+    ];
+    for (const entry of bad) {
+      await writeFile(configPath, JSON.stringify({ grants: [{ id: "bad", scope: "persistent", effect: "allow", ...entry }] }), "utf8");
+      await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
+    }
   });
 
   it("ignores the legacy AGENTHOST_PROFILE environment variable", async () => {

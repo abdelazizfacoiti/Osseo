@@ -4,7 +4,6 @@ import type {
   CapabilityGrant,
   CapabilityGrantMatch,
   GrantDecision,
-  GrantSummary,
   PermissionDefault,
   RuntimePolicy,
   RiskLevel,
@@ -148,34 +147,6 @@ function grantMatches(
     }
   }
 
-  if (match.generatedToolIds !== undefined && match.generatedToolIds.length > 0) {
-    if (input.generatedToolId === undefined || !match.generatedToolIds.includes(input.generatedToolId)) {
-      return false;
-    }
-  }
-
-  if (match.registrationIds !== undefined && match.registrationIds.length > 0) {
-    if (input.registrationId === undefined || !match.registrationIds.includes(input.registrationId)) return false;
-  }
-  if (match.runtimeToolNames !== undefined && match.runtimeToolNames.length > 0) {
-    if (input.runtimeToolName === undefined || !match.runtimeToolNames.includes(input.runtimeToolName)) return false;
-  }
-  if (match.runtimeCapabilities !== undefined && match.runtimeCapabilities.length > 0) {
-    if (input.runtimeCapabilities === undefined || !match.runtimeCapabilities.every((capability) => input.runtimeCapabilities!.includes(capability))) return false;
-  }
-
-  const effect = input.effect;
-  const listMatch = (candidate: string | undefined, values: string[] | undefined): boolean => values === undefined || values.length === 0 ? true : candidate !== undefined && values.includes(candidate);
-  if (!listMatch(effect?.operationFamily, match.operationFamilies)) return false;
-  if (!listMatch(effect?.operation, match.operations)) return false;
-  if (!listMatch(effect?.bindings?.target, match.targetFingerprints)) return false;
-  if (!listMatch(effect?.bindings?.recipient, match.recipientFingerprints)) return false;
-  if (!listMatch(effect?.bindings?.content, match.contentFingerprints)) return false;
-  if (!listMatch(effect?.bindings?.artifact, match.artifactFingerprints)) return false;
-  if (!listMatch(effect?.bindings?.channel, match.channels)) return false;
-  if (!listMatch(effect?.bindings?.route, match.routes)) return false;
-  if (!listMatch(context.ownerSessionId, match.ownerSessionIds)) return false;
-
   if (
     grant.requirements?.allowedRoots !== undefined &&
     grant.requirements.allowedRoots.length > 0 &&
@@ -202,10 +173,6 @@ export function policyDefaultForInput(policy: RuntimePolicy, input: SafetyInput)
 
   if (input.tool === "desktop.hotkey") {
     return policy.allowGenericType ? "allow" : policy.defaults.guiHotkey;
-  }
-
-  if (input.generatedTool === true) {
-    return policy.defaults.generatedTools;
   }
 
   if (input.dataSensitivity === "sensitive" || input.dataSensitivity === "secret") {
@@ -352,59 +319,5 @@ export function evaluateGrantDecision(
     guideOnly,
     reasons,
     matchedRules
-  };
-}
-
-export function summarizeGrant(grant: CapabilityGrant): GrantSummary {
-  return {
-    id: grant.id,
-    scope: grant.scope,
-    effect: grant.effect,
-    ...(grant.description === undefined ? {} : { description: grant.description }),
-    ...(grant.createdAt === undefined ? {} : { createdAt: grant.createdAt }),
-    ...(grant.expiresAt === undefined ? {} : { expiresAt: grant.expiresAt }),
-    active: !isGrantExpired(grant),
-    match: {
-      ...grant.match,
-      ...(grant.match.tools === undefined ? {} : { tools: [...grant.match.tools] }),
-      ...(grant.match.strategies === undefined ? {} : { strategies: [...grant.match.strategies] }),
-      ...(grant.match.actionTypes === undefined ? {} : { actionTypes: [...grant.match.actionTypes] }),
-      ...(grant.match.appNames === undefined ? {} : { appNames: [...grant.match.appNames] }),
-      ...(grant.match.appIds === undefined ? {} : { appIds: [...grant.match.appIds] }),
-      ...(grant.match.appSensitivities === undefined ? {} : { appSensitivities: [...grant.match.appSensitivities] }),
-      ...(grant.match.dataSensitivities === undefined ? {} : { dataSensitivities: [...grant.match.dataSensitivities] }),
-      ...(grant.match.fileRoots === undefined ? {} : { fileRoots: [...grant.match.fileRoots] }),
-      ...(grant.match.commandAllowlist === undefined ? {} : { commandAllowlist: [...grant.match.commandAllowlist] }),
-      ...(grant.match.networkDomains === undefined ? {} : { networkDomains: [...grant.match.networkDomains] }),
-      ...(grant.match.oauthScopes === undefined ? {} : { oauthScopes: [...grant.match.oauthScopes] }),
-      ...(grant.match.generatedToolIds === undefined
-        ? {}
-        : { generatedToolIds: [...grant.match.generatedToolIds] }),
-      ...(grant.match.registrationIds === undefined ? {} : { registrationIds: [...grant.match.registrationIds] }),
-      ...(grant.match.runtimeToolNames === undefined ? {} : { runtimeToolNames: [...grant.match.runtimeToolNames] }),
-      ...(grant.match.runtimeCapabilities === undefined ? {} : { runtimeCapabilities: [...grant.match.runtimeCapabilities] }),
-      ...(grant.match.operationFamilies === undefined ? {} : { operationFamilies: [...grant.match.operationFamilies] }),
-      ...(grant.match.operations === undefined ? {} : { operations: [...grant.match.operations] }),
-      ...(grant.match.targetFingerprints === undefined ? {} : { targetFingerprints: [...grant.match.targetFingerprints] }),
-      ...(grant.match.recipientFingerprints === undefined ? {} : { recipientFingerprints: [...grant.match.recipientFingerprints] }),
-      ...(grant.match.contentFingerprints === undefined ? {} : { contentFingerprints: [...grant.match.contentFingerprints] }),
-      ...(grant.match.artifactFingerprints === undefined ? {} : { artifactFingerprints: [...grant.match.artifactFingerprints] }),
-      ...(grant.match.channels === undefined ? {} : { channels: [...grant.match.channels] }),
-      ...(grant.match.routes === undefined ? {} : { routes: [...grant.match.routes] }),
-      ...(grant.match.ownerSessionIds === undefined ? {} : { ownerSessionIds: [...grant.match.ownerSessionIds] })
-    },
-    ...(grant.requirements === undefined
-      ? {}
-      : {
-          requirements: {
-            ...grant.requirements,
-            ...(grant.requirements.allowedRoots === undefined
-              ? {}
-              : { allowedRoots: [...grant.requirements.allowedRoots] }),
-            ...(grant.requirements.allowedOperations === undefined ? {} : { allowedOperations: [...grant.requirements.allowedOperations] }),
-            ...(grant.requirements.sandboxRoots === undefined ? {} : { sandboxRoots: [...grant.requirements.sandboxRoots] }),
-            ...(grant.requirements.outputRoots === undefined ? {} : { outputRoots: [...grant.requirements.outputRoots] })
-          }
-        })
   };
 }

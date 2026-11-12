@@ -71,7 +71,6 @@ export interface AgentHostToolDefinition<Input, Output, Context = AgentHostMcpCo
     resolveEffect?: (input: Input, context: Context) => ToolPreviewEffect | Promise<ToolPreviewEffect>;
   };
   execution?: ToolExecutionMetadata;
-  requiredGrantIds?: string[];
   /**
    * The tool only resolves its input and calls another governed tool. dryRun and confirmationToken
    * then belong to that nested call: the runner leaves them in the input instead of handling them
