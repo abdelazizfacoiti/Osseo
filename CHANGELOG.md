@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added a benchmark suite of 25 headless-Chrome tasks (`npm run benchmark:suite`). It reports success, tool calls, result bytes and seconds per task, writes `benchmarks/suite/results/latest.json`, and fails when the success rate is below 0.9 or any success is unverified.
 - Capability grants are removed. A non-empty `grants` array in `config.json` now fails loading with a message pointing to `policy.toml`; an empty array or no key still loads.
 - The built-in communication-read allowance is now explicit code (`communicationInspectionAllowed`): observe, inspect and file reads in communication apps up to medium risk. Sends and external effects still need exact confirmation.
 - Vision no longer accepts images outside the screenshots and outputs folders. The `granted_path` source is gone.

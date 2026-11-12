@@ -1,0 +1,6 @@
+<!doctype html><meta charset="utf-8"><title>Reload keeps state</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}td,th{border:1px solid #888;padding:4px 10px}</style>
+<h1>Draft note</h1>
+<label>Note <input id="n"></label>
+<button id="b">Save draft</button>
+<p id="out"></p>
+<script>b.onclick=()=>{localStorage.setItem('bench_note',n.value)};out.textContent='stored: '+(localStorage.getItem('bench_note')||'nothing')</script>

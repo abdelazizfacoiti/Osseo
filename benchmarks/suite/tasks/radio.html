@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8"><title>Radio buttons</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}</style>
+<h1>Shipping</h1>
+<label><input type="radio" name="s" value="standard" checked> Standard</label>
+<label><input type="radio" name="s" value="express"> Express</label>
+<label><input type="radio" name="s" value="pickup"> Pickup</label>
+<button id="b">Save</button>
+<p id="out"></p>
+<script>b.onclick=()=>{out.textContent='shipping: '+document.querySelector('input:checked').value}</script>

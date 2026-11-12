@@ -1,0 +1,6 @@
+<!doctype html><meta charset="utf-8"><title>Disabled button</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}</style>
+<h1>Plan</h1>
+<label>Terms <input type="checkbox" id="t" disabled> I agree</label>
+<button id="b" disabled>Continue</button>
+<p id="out">status: idle</p>
+<script>b.onclick=()=>{out.textContent='status: continued'}</script>

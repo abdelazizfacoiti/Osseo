@@ -1,0 +1,7 @@
+<!doctype html><meta charset="utf-8"><title>Validation</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}td,th{border:1px solid #888;padding:4px 10px}</style>
+<h1>Sign-up</h1>
+<label>Email <input id="e"></label>
+<p id="err" style="color:#a00"></p>
+<button id="b">Save</button>
+<p id="out"></p>
+<script>b.onclick=()=>{if(!/^[^@\s]+@[^@\s]+\.[a-z]+$/.test(e.value)){err.textContent='error: enter a valid email';out.textContent='';return}err.textContent='';out.textContent='saved: '+e.value}</script>

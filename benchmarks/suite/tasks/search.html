@@ -1,0 +1,11 @@
+<!doctype html><meta charset="utf-8"><title>Search</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}td,th{border:1px solid #888;padding:4px 10px}</style>
+<h1>Fruit search</h1>
+<label>Query <input id="q"></label>
+<button id="go">Search</button>
+<ul id="r"></ul>
+<p id="out"></p>
+<script>
+const items={lemon:'yellow and sour',lime:'green and sour',lychee:'white and sweet',apple:'red and sweet'};
+function run(){r.innerHTML='';for(const k in items)if(k.startsWith(q.value.toLowerCase())&&q.value){const li=document.createElement('li');const b=document.createElement('button');b.textContent='Open '+k;b.onclick=()=>{out.textContent='detail: '+k+' is '+items[k]};li.append(b);r.append(li)}}
+go.onclick=run;q.onkeydown=e=>{if(e.key==='Enter')run()};
+</script>

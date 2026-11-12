@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8"><title>Checkboxes</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}</style>
+<h1>Interests</h1>
+<label><input type="checkbox" value="music"> Music</label>
+<label><input type="checkbox" value="travel"> Travel</label>
+<label><input type="checkbox" value="cooking"> Cooking</label>
+<button id="b">Save</button>
+<p id="out"></p>
+<script>b.onclick=()=>{out.textContent='interests: '+[...document.querySelectorAll('input:checked')].map(x=>x.value).join(',')}</script>

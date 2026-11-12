@@ -67,6 +67,7 @@ packages/
 | `agenthost overlay hide [--orphans]` / `overlay status` / `overlay check-input` | Cross-process hide marker + renderer diagnostics; `check-input` shows a test card that only a real hardware press can accept |
 | `agenthost task export <id> [--format md\|html]` | Shareable redacted run report |
 | `agenthost confirmations` / `confirm <tokenId>` / `deny <tokenId>` | Inspect and resolve exact-preview confirmation tokens |
+| `npm run benchmark:suite` | 25 local-HTML browser tasks in headless Chrome, one isolated home per task; prints a table and the gate (success rate at least 0.9, zero unverified successes); `--tasks`, `--runs`, `--out`; needs no display |
 | `agenthost replay build [--session <id> \| --task <id> \| --last] [--out <file>]` / `list` / `open <id>` / `delete <id> [--apply]` | Single-session HTML page from the audit log, summaries only (no screenshots, no typed text); stored in `~/.agenthost/replays`, pruned at 14 days or 50 MB |
 | `agenthost policy list\|add\|remove <line> [--apply]` | List, add and remove `policy.toml` rules; `add --action <a> --decision <allow\|ask\|never> [--app <name>] [--site <host>] [--note <text>]`; preview unless `--apply`; `confirm <id> --always` writes the "Always allow here" rule |
 | `agenthost task pause <id>` / `task resume <id>` | Task lifecycle transitions (not a stop-flag clear) |
@@ -190,6 +191,7 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
 - `packages/mcp-server/src/__tests__/see-e2e.test.ts` — built server over stdio, headless: 14 tools, then open a form, `see`, `type` and `click` by number in headless Chrome
 - `packages/os-linux/src/__tests__/pointer-watch.test.ts` — pointer-press watcher: fake child cases and one real press on a nested display
 - `packages/mcp-server/src/__tests__/screen-read.test.ts` — the text-free outline and its byte cap
+- `benchmarks/suite/__tests__/aggregate.test.ts` — suite aggregation (medians, rates, unverified counting). `vitest.config.ts` includes `benchmarks/suite/**`.
 - `packages/mcp-server/src/__tests__/capability-catalog.test.ts` — the capability manifest equals the tools the server really registers (no `forge.*`, `policy.list_grants`)
 - `packages/agenthost-cli/src/__tests__/replay.test.ts` — session replay: grouping, outcomes, escaping, CSP, storage modes, prune limits
 - `packages/browser-extension/src/__tests__/protocol.test.ts` and `content-refusals.test.ts` — native-host framing, host allow-list, refusal predicate copies compared

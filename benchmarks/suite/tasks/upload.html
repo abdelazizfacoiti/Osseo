@@ -1,0 +1,5 @@
+<!doctype html><meta charset="utf-8"><title>Upload</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}</style>
+<h1>Attach a report</h1>
+<label>Report file <input type="file" id="f"></label>
+<p id="out"></p>
+<script>f.onchange=()=>{out.textContent='uploaded: '+f.files[0].name+' ('+f.files[0].size+' bytes)'}</script>

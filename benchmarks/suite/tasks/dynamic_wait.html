@@ -1,0 +1,5 @@
+<!doctype html><meta charset="utf-8"><title>Slow report</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}td,th{border:1px solid #888;padding:4px 10px}</style>
+<h1>Report</h1>
+<button id="b">Load report</button>
+<p id="out">idle</p>
+<script>b.onclick=()=>{out.textContent='loading';setTimeout(()=>{out.textContent='report ready: 42 rows'},700)}</script>

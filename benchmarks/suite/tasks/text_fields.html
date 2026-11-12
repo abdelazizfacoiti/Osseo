@@ -1,0 +1,7 @@
+<!doctype html><meta charset="utf-8"><title>Text fields</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}</style>
+<h1>Profile</h1>
+<label>Name <input id="n" name="n"></label>
+<label>Email <input id="e" name="e" type="email"></label>
+<button id="b">Save</button>
+<p id="out"></p>
+<script>b.onclick=()=>{out.textContent='saved: '+n.value+' | '+e.value}</script>

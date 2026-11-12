@@ -1,0 +1,6 @@
+<!doctype html><meta charset="utf-8"><title>Textarea</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}td,th{border:1px solid #888;padding:4px 10px}</style>
+<h1>Feedback</h1>
+<label>Comment <textarea id="c" rows="4" cols="40"></textarea></label>
+<button id="b">Save</button>
+<p id="out"></p>
+<script>b.onclick=()=>{out.textContent='lines: '+c.value.split('\n').length+' | first: '+c.value.split('\n')[0]}</script>

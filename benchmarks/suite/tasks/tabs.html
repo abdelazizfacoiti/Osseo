@@ -1,0 +1,7 @@
+<!doctype html><meta charset="utf-8"><title>Tabs</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}td,th{border:1px solid #888;padding:4px 10px}</style>
+<h1>Settings</h1>
+<button id="t1">General</button> <button id="t2">Billing</button>
+<div id="p1">General settings are shown.</div>
+<div id="p2" hidden><label>Company <input id="c"></label><button id="b">Save company</button></div>
+<p id="out"></p>
+<script>t2.onclick=()=>{p1.hidden=true;p2.hidden=false};t1.onclick=()=>{p1.hidden=false;p2.hidden=true};b.onclick=()=>{out.textContent='company: '+c.value}</script>

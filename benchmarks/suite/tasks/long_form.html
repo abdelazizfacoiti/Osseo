@@ -1,0 +1,9 @@
+<!doctype html><meta charset="utf-8"><title>Long form</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}td,th{border:1px solid #888;padding:4px 10px}</style>
+<h1>Survey</h1>
+<div id="f"></div>
+<button id="b">Save</button>
+<p id="out"></p>
+<script>
+for(let i=1;i<=30;i++){const l=document.createElement('label');l.style.margin='34px 0';l.append('Answer '+i+' ');const x=document.createElement('input');x.id='a'+i;l.append(x);f.append(l)}
+b.onclick=()=>{out.textContent='saved: '+[1,15,30].map(i=>document.getElementById('a'+i).value).join('|')}
+</script>

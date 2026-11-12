@@ -26,3 +26,5 @@ session-*.md
 skills-lock.json
 .agents/
 release/
+benchmarks/suite/results/*
+!benchmarks/suite/results/.gitkeep

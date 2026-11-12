@@ -1,0 +1,6 @@
+<!doctype html><meta charset="utf-8"><title>Select by value</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}</style>
+<h1>Country</h1>
+<label for="c">Country</label><select id="c"><option value="">Choose</option><option value="alpha">Alpha Land</option><option value="beta">Beta Land</option><option value="gamma">Gamma Land</option></select>
+<button id="b">Save</button>
+<p id="out"></p>
+<script>b.onclick=()=>{out.textContent='country: '+c.value}</script>

@@ -1,0 +1,4 @@
+<!doctype html><meta charset="utf-8"><title>Step 2</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}</style>
+<h1>Step 2 of 3</h1>
+<form action="multipage-3.html" method="get"><input type="hidden" name="n"><label>Email <input name="e" type="email"></label><button type="submit">Next</button></form>
+<script>document.querySelector('[name=n]').value=new URLSearchParams(location.search).get('n')||''</script>

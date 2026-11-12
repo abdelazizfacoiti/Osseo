@@ -1,0 +1,6 @@
+<!doctype html><meta charset="utf-8"><title>Select by label</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}</style>
+<h1>Destination</h1>
+<label for="c">Destination</label><select id="c"><option value="1">Austria</option><option value="2">Belgium</option><option value="3">Germany</option><option value="4">Hungary</option></select>
+<button id="b">Save</button>
+<p id="out"></p>
+<script>b.onclick=()=>{out.textContent='destination: '+c.options[c.selectedIndex].text}</script>

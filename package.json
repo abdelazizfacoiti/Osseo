@@ -21,6 +21,7 @@
     "smoke:mcp": "node scripts/smoke-mcp.mjs",
     "check:live": "node scripts/live-check.mjs",
     "benchmark:form": "node scripts/benchmark-form.mjs",
+    "benchmark:suite": "node scripts/benchmark-suite.mjs",
     "release:build": "node scripts/build-release.mjs",
     "release:build:windows": "node scripts/build-release-windows.mjs",
     "release:preflight": "node scripts/release-preflight.mjs",

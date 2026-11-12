@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>Sales table</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}td,th{border:1px solid #888;padding:4px 10px}</style>
+<h1>Quarterly sales</h1>
+<table><tr><th>Region</th><th>Q1</th><th>Q2</th></tr>
+<tr><td>North</td><td>120</td><td>150</td></tr>
+<tr><td>South</td><td>90</td><td>210</td></tr>
+<tr><td>East</td><td>75</td><td>60</td></tr></table>
+<label>Q2 for South <input id="a"></label>
+<button id="b">Check</button>
+<p id="out"></p>
+<script>b.onclick=()=>{out.textContent=a.value==='210'?'answer accepted':'answer rejected'}</script>

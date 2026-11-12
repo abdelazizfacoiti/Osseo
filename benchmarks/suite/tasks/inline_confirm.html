@@ -1,0 +1,6 @@
+<!doctype html><meta charset="utf-8"><title>Archive</title><style>body{font:16px sans-serif;margin:20px}label{display:block;margin:8px 0}td,th{border:1px solid #888;padding:4px 10px}</style>
+<h1>Draft 12</h1>
+<button id="a">Archive draft</button>
+<p id="ask" hidden>Are you sure? <button id="y">Yes, archive it</button> <button id="no">Keep it</button></p>
+<p id="out">state: active</p>
+<script>a.onclick=()=>{ask.hidden=false};no.onclick=()=>{ask.hidden=true};y.onclick=()=>{ask.hidden=true;out.textContent='state: archived'}</script>
