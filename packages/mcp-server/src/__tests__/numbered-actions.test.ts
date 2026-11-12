@@ -58,7 +58,7 @@ describe("click", () => {
   it("clicks the centre of a screen element with the window pinned, and notes to see again", async () => {
     const view = seen([[1, screen()]]);
     const result = await call("click", { n: 1, view: view.id });
-    expect(calls).toEqual([{ name: "desktop.click", input: { x: 170, y: 110, target: { windowId: "w1" } } }]);
+    expect(calls).toEqual([{ name: "desktop.click", input: { x: 170, y: 110, targetName: "Save", target: { windowId: "w1" } } }]);
     expect(result.tool).toBe("click");
     expect(result.ok).toBe(true);
     expect(result.observations).toContain("Call see again before using numbers: the screen may have changed.");
@@ -75,7 +75,7 @@ describe("click", () => {
   it("sends a dom element to browser.click", async () => {
     const view = seen([[1, dom()]], "browser");
     await call("click", { n: 1, view: view.id });
-    expect(calls).toEqual([{ name: "browser.click", input: { ref: "s1-e2" } }]);
+    expect(calls).toEqual([{ name: "browser.click", input: { ref: "s1-e2", targetName: "Go" } }]);
   });
 
   it("uses desktop.pointer for double and right clicks", async () => {

@@ -151,6 +151,7 @@ const clickInputSchema = guiContextRefine(z
     y: z.number().int().min(0).optional(),
     label: z.string().trim().min(1).max(200).optional(),
     role: z.string().trim().min(1).max(80).optional(),
+    targetName: z.string().trim().min(1).max(200).optional(),
     screenshotId: z.string().trim().min(1).max(64).optional(),
     imageX: z.number().int().min(0).optional(),
     imageY: z.number().int().min(0).optional(),
@@ -504,7 +505,8 @@ function initialGuiSafety(
   context: AgentHostMcpContext,
   actionType: "gui_click" | "gui_type",
   activeWindow: DesktopWindowContext,
-  dataSensitivity?: "none" | "low" | "sensitive" | "secret"
+  dataSensitivity?: "none" | "low" | "sensitive" | "secret",
+  named?: { targetName?: string; url?: string; shopifyHint?: boolean }
 ) {
   return evaluateSafety(
     {
@@ -512,11 +514,31 @@ function initialGuiSafety(
       actionType,
       strategy: "gui_control",
       ...(dataSensitivity === undefined ? {} : { dataSensitivity }),
+      ...(named?.targetName === undefined ? {} : { targetName: named.targetName }),
+      ...(named?.url === undefined ? {} : { url: named.url }),
+      ...(named?.shopifyHint === true ? { shopifyHint: true } : {}),
       ...(activeWindow.appName === undefined ? {} : { appName: activeWindow.appName })
     },
     context.policy,
     safetyContext(context)
   );
+}
+
+/**
+ * The control name a click carries for the safety decision, with the page address when the window
+ * shows the agent's own browser page (its title is in the window title). Without a name, or when
+ * the page is not known, the classifier gets nothing extra and nothing changes.
+ */
+async function namedClickSafety(context: AgentHostMcpContext, input: unknown, window: DesktopWindowContext): Promise<{ targetName?: string; url?: string; shopifyHint?: boolean } | undefined> {
+  const targetName = (input as { targetName?: string }).targetName;
+  if (targetName === undefined) return undefined;
+  const page = await context.linux.browser?.state().catch(() => undefined);
+  const windowTitle = window.title ?? "";
+  const url = page !== undefined && page.title.trim().length > 0 && windowTitle.includes(page.title) ? (page.url.split("?")[0] ?? "") : undefined;
+  // The person's own browser shows no address to AgentHost. A window titled with Shopify gets the store-admin name rule as an
+  // ask-only hint: it can add a prompt, never remove one or block anything.
+  const shopifyHint = (url === undefined || url === "") && /shopify/i.test(windowTitle);
+  return { targetName, ...(url === undefined || url === "" ? {} : { url }), ...(shopifyHint ? { shopifyHint: true } : {}) };
 }
 
 async function validateActiveWindow(context: AgentHostMcpContext, expected: DesktopWindowContext): Promise<{
@@ -620,7 +642,8 @@ async function desktopPreview(
       data: { activeWindow: validation.activeWindow, ...data, ...located.data }
     };
   }
-  const safety = initialGuiSafety(tool, context, actionType, validation.activeWindow!, dataSensitivity);
+  const named = await namedClickSafety(context, input, validation.activeWindow!);
+  const safety = initialGuiSafety(tool, context, actionType, validation.activeWindow!, dataSensitivity, named);
   return {
     summary: summary(windowLabel, located?.point),
     targetFingerprint: target(windowLabel, located?.point),
@@ -1451,6 +1474,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         y: { type: "integer", minimum: 0, description: "Use with x, instead of label." },
         label: { type: "string", minLength: 1, maxLength: 200, description: "Exact visible name of the control, such as 'Send' or 'Change label'. Instead of x and y." },
         role: { type: "string", minLength: 1, maxLength: 80, description: "Optional with label to pick one kind of control, such as 'push button', 'link' or 'entry'." },
+        targetName: { type: "string", minLength: 1, maxLength: 200, description: "Optional visible name of the control at the point. Used only for the safety decision (store admin pages ask before send, upload, delete and payment controls); it does not change where the click goes." },
         screenshotId: { type: "string", minLength: 1, maxLength: 64, description: "Id from a desktop.screenshot. Use with imageX and imageY. Refused when the reference window moved or resized after that screenshot, or when the id expired (5 minutes)." },
         imageX: { type: "integer", minimum: 0, description: "x in the screenshot picture, with screenshotId." },
         imageY: { type: "integer", minimum: 0, description: "y in the screenshot picture, with screenshotId." },
@@ -1497,7 +1521,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       actionType: "inspect",
       getInput: (input) => {
         const appName = activeWindowAppName(toActiveWindowContext(inputWindow(input)));
-        return appName === undefined ? {} : { appName };
+        return { ...(appName === undefined ? {} : { appName }), ...(input.targetName === undefined ? {} : { targetName: input.targetName }) };
       }
     },
     async handler(input, context): Promise<ToolResult<DesktopClickResult>> {
@@ -1521,7 +1545,8 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           tool: "desktop.click",
           actionType: "gui_click",
           strategy: "gui_control",
-          ...(validation.activeWindow!.appName === undefined ? {} : { appName: validation.activeWindow!.appName })
+          ...(validation.activeWindow!.appName === undefined ? {} : { appName: validation.activeWindow!.appName }),
+          ...(await namedClickSafety(context, input, validation.activeWindow!))
         },
         context.policy,
         safetyContext(context)

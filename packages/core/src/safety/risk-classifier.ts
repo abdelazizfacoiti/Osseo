@@ -10,7 +10,7 @@ import type {
 } from "../types.js";
 import { isStateChangingAction } from "../grants.js";
 import { evaluateApprovalRequirement, isApprovalSatisfied } from "./approval.js";
-import { classifyAppSensitivity } from "./app-sensitivity.js";
+import { classifyAppSensitivity, isShopifyAdminUrl, shopifyAdminAskCategory } from "./app-sensitivity.js";
 import { classifyPath } from "./path-policy.js";
 import { classifyShellCommand } from "./shell-classifier.js";
 import { actionEffectFromSafetyInput, decideGovernedAction } from "../action-policy.js";
@@ -249,11 +249,22 @@ function evaluatePolicyDefaults(
   return { blocked, guideOnly, requiresApproval, requiresConfirmationToken, reasons, matchedRules };
 }
 
+/** SafetyInput plus the name of the control the action targets, when the tool knows it. */
+export type NamedSafetyInput = SafetyInput & { targetName?: string | undefined; /** Ask-only: the window says Shopify but the page address is not known. */ shopifyHint?: boolean | undefined };
+
 export function classifyRisk(
-  input: SafetyInput,
+  rawInput: NamedSafetyInput,
   policy: RuntimePolicy,
   context: SafetyEvaluationContext = {}
 ): SafetyDecision {
+  let input: SafetyInput = rawInput;
+  // Store admin: a send, upload, delete or payment control asks first (needs the control name; without one nothing changes).
+  if ((isShopifyAdminUrl(input.url) || rawInput.shopifyHint === true) && input.dataSensitivity !== "secret") {
+    const named = shopifyAdminAskCategory(rawInput.targetName);
+    if (named === "delete") input = { ...input, destructive: true };
+    else if (named === "send" || named === "upload") input = { ...input, externalEffect: true };
+    else if (named === "pay") input = { ...input, externalEffect: true, effect: { ...input.effect, sensitivity: "financial" } };
+  }
   let riskLevel = baseRiskForAction(input.actionType);
   const classifiedSensitivity = classifyAppSensitivity(input);
   const appSensitivity = input.effect?.sensitivity !== undefined && input.effect.sensitivity !== "normal"

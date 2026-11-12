@@ -211,12 +211,12 @@ describe("policy.toml in the tool runner", () => {
     expect(logs.at(-1)?.policySource).toBe("policy_rule:6");
   });
 
-  it("the real classifier still blocks admin.shopify.com, and no allow rule changes that", async () => {
+  it("the real classifier still blocks the Shopify login page, and no allow rule changes that", async () => {
     const home = await tempHome();
     const logs: AuditLogEntry[] = [];
     await setPolicy(home, rule("navigate", "allow", 'site = "admin.shopify.com"\n'));
-    const shop = browserWith({ url: "https://admin.shopify.com/store/demo", elements: {} });
-    const result = await runTool(browserTool("browser.navigate"), { action: "goto", url: "https://admin.shopify.com/store/demo" }, makeContext(home, logs, shop.browser));
+    const shop = browserWith({ url: "https://admin.shopify.com/login", elements: {} });
+    const result = await runTool(browserTool("browser.navigate"), { action: "goto", url: "https://admin.shopify.com/login" }, makeContext(home, logs, shop.browser));
     expect(result.error?.code).toBe("safety_blocked");
     expect(logs.at(-1)?.policySource).toBe("floor");
   });

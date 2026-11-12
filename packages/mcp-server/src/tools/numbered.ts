@@ -258,16 +258,19 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
       const found = await resolve(context, { view: input.view, n: input.n });
       if (!found.ok) return refuse("click", found);
       const target = found.target;
+      // The view line's name goes to the safety decision only (not where the click lands).
+      const targetName = target.name.trim().slice(0, 200);
+      const named = targetName.length === 0 ? {} : { targetName };
       if (target.kind === "dom") {
         if (input.double === true || input.button === "right" || input.button === "middle") return fail("click", "unsupported_for_browser", "Browser elements take a plain click only.");
-        return settle("click", await callGoverned(context, "browser.click", { ref: target.ref, ...pass }), context, { view: found.view });
+        return settle("click", await callGoverned(context, "browser.click", { ref: target.ref, ...named, ...pass }), context, { view: found.view });
       }
       const point = center(target);
       const window = { windowId: target.windowId };
       if (input.double === true || wantsRight) {
         return settle("click", await callGoverned(context, "desktop.pointer", { action: input.double === true ? "double_click" : "right_click", ...point, target: window, ...pass }), context, { view: found.view });
       }
-      return settle("click", await callGoverned(context, "desktop.click", { ...point, ...(input.button === undefined ? {} : { button: input.button }), target: window, ...pass }), context, { view: found.view });
+      return settle("click", await callGoverned(context, "desktop.click", { ...point, ...named, ...(input.button === undefined ? {} : { button: input.button }), target: window, ...pass }), context, { view: found.view });
     }
   });
 

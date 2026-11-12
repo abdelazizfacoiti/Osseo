@@ -24,7 +24,8 @@ const ref = z.string().regex(/^s\d+-e\d+$/);
 
 const openInput = z.object({ url: z.string().url().max(4000).optional(), headless: z.boolean().optional(), dryRun: z.boolean().optional(), confirmationToken }).strict();
 const snapshotInput = z.object({ maxElements: z.number().int().min(1).max(300).optional() }).strict();
-const clickInput = z.object({ ref, dryRun: z.boolean().optional(), confirmationToken }).strict();
+const targetName = z.string().trim().min(1).max(200);
+const clickInput = z.object({ ref, targetName: targetName.optional(), dryRun: z.boolean().optional(), confirmationToken }).strict();
 const typeInput = z.object({ ref, text: z.string().max(10_000), clear: z.boolean().optional(), submit: z.boolean().optional(), dryRun: z.boolean().optional(), confirmationToken }).strict();
 const navigateInput = z.object({ action: z.enum(["goto", "back", "forward", "reload"]), url: z.string().url().max(4000).optional(), dryRun: z.boolean().optional(), confirmationToken }).strict()
   .refine((value) => value.action !== "goto" || value.url !== undefined, { message: "goto requires a url" });
@@ -73,7 +74,7 @@ function notOpen(tool: string): ToolResult<never> {
   return toolFailure({ tool, riskLevel: "low", error: { code: "browser_not_open", message: "No browser page is open. Call browser.open first." }, observations: ["No action was executed."] });
 }
 
-function safetyFor(tool: string, context: AgentHostMcpContext, url: string | undefined, extra: { dataSensitivity?: "none" | "low" | "sensitive" | "secret" } = {}) {
+function safetyFor(tool: string, context: AgentHostMcpContext, url: string | undefined, extra: { dataSensitivity?: "none" | "low" | "sensitive" | "secret"; targetName?: string | undefined } = {}) {
   return evaluateSafety(
     { tool, actionType: "browser_action", strategy: "browser_automation", appName: "Chrome", ...(url === undefined || url === "" ? {} : { url: classificationUrl(url) }), ...extra },
     context.policy,
@@ -208,9 +209,9 @@ export function createBrowserTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     description: "Clicks an element by ref from the latest browser.snapshot, with a real mouse event at its centre. Controls that pay, send, delete, or submit password/payment forms need an exact confirmation first.",
     riskLevel: "medium",
     inputSchema: clickInput,
-    mcpInputSchema: schema({ ref: { type: "string", pattern: "^s\\d+-e\\d+$" }, ...executionProps }, ["ref"]),
+    mcpInputSchema: schema({ ref: { type: "string", pattern: "^s\\d+-e\\d+$" }, targetName: { type: "string", minLength: 1, maxLength: 200, description: "Optional visible name of the control. Used only for the safety decision (store admin pages ask before send, upload, delete and payment controls); it does not change what is clicked." }, ...executionProps }, ["ref"]),
     inputSummary: "Click page element",
-    safety: { actionType: "browser_action", getInput: () => ({ appName: "Chrome" }) },
+    safety: { actionType: "browser_action", getInput: (i) => ({ appName: "Chrome", ...(i.targetName === undefined ? {} : { targetName: i.targetName }) }) },
     preview: {
       isDryRun: (i) => i.dryRun === true,
       resolveEffect: async (i, context): Promise<ToolPreviewEffect> => {
@@ -220,7 +221,7 @@ export function createBrowserTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         if (browser === undefined || state === undefined) return { summary: "Click a page element.", riskLevel: "low" };
         const assessed = assessClick(await browser.describe({ ref: i.ref }));
         if (assessed.info === undefined) return { summary: "Click a page element.", riskLevel: "low" };
-        const safety = safetyFor("browser.click", context, state.url);
+        const safety = safetyFor("browser.click", context, state.url, { targetName: i.targetName ?? assessed.info.name });
         return {
           summary: `Click "${assessed.info.name || assessed.info.role}" (${assessed.info.role}) on ${redactedUrl(state.url)}.`,
           targetFingerprint: `browser.click:${redactedUrl(state.url)}:${assessed.info.role}:${assessed.info.name}`,
@@ -237,9 +238,11 @@ export function createBrowserTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       if (browser === undefined) return unavailable("browser.click");
       const state = await browser.state();
       if (state === undefined) return notOpen("browser.click");
-      const safety = safetyFor("browser.click", context, state.url);
+      // The element's own name is the fallback for the store-admin name rule, so a call without targetName is still checked.
+      const described = assessClick(await browser.describe({ ref: input.ref }));
+      const safety = safetyFor("browser.click", context, state.url, { targetName: input.targetName ?? described.info?.name });
       if (!safety.allowed) return safetyFailure("browser.click", safety, state.url);
-      const assessed = assessClick(await browser.describe({ ref: input.ref }));
+      const assessed = described;
       if (assessed.info === undefined) return toolFailure({ tool: "browser.click", riskLevel: "medium", error: { code: "stale_ref", message: "That ref is not on the current snapshot. Take a new browser.snapshot." }, observations: ["No action was executed."] });
       if (assessed.consequential && context.confirmationSatisfied !== true) {
         return toolFailure({ tool: "browser.click", riskLevel: "high", error: { code: "approval_required", message: assessed.reason ?? "Requires approval." }, observations: ["No action was executed."] });
