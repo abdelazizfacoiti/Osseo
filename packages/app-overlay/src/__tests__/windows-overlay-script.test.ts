@@ -19,6 +19,11 @@ describe("windows-overlay-script", () => {
     }
   });
 
+  it("reads JSON arrays as any IList: JavaScriptSerializer returns ArrayList for Dictionary<string, object>, so an object[]-only cast left every card without a body", () => {
+    expect(WINDOWS_OVERLAY_SCRIPT).toContain("System.Collections.IList list = value as System.Collections.IList");
+    expect(WINDOWS_OVERLAY_SCRIPT).not.toContain("value as object[]");
+  });
+
   it("stays within C# 5 and Windows PowerShell 5.1 syntax", () => {
     expect(WINDOWS_OVERLAY_SCRIPT).not.toMatch(/\$"/);
     expect(WINDOWS_OVERLAY_SCRIPT).not.toContain("?.");

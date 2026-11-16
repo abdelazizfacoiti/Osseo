@@ -533,8 +533,13 @@ namespace AgentHostOverlay
         {
             object value;
             if (d == null || !d.TryGetValue(key, out value)) return new object[0];
-            object[] items = value as object[];
-            return items ?? new object[0];
+            // JavaScriptSerializer.Deserialize<Dictionary<string, object>> returns nested arrays as ArrayList, not
+            // object[] (only DeserializeObject gives object[]). Accept any IList, or every card would have no body.
+            System.Collections.IList list = value as System.Collections.IList;
+            if (list == null) return new object[0];
+            object[] items = new object[list.Count];
+            list.CopyTo(items, 0);
+            return items;
         }
 
         static List<string> StringList(object[] items)
