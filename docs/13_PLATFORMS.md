@@ -98,6 +98,11 @@ form is read by DOM, typed into and submitted, and the confirmation page is reac
 10.0.26200, 2026-11-16: 6 passed, 0 failed. Chrome is closed afterwards. An earlier `connection_closed` on
 `browser.open` (before the BOM and window fixes) did not come back on this build.
 
+`scripts\windows-see-check.mjs` checks the numbered tools through the built MCP server on the same kind of form:
+`open`, `see`, `type`, `click` and `wait`. `see` answers from the DOM (source `dom`). Last run, 2026-11-16: 7 passed,
+0 failed. `see` on the person's own Chrome still lists only its chrome and tabs; web tasks use `open`, which opens
+the agent's browser unless `in: "my-browser"` is given.
+
 ## Windows packaging (W4)
 
 Added, and not yet run on a Windows machine. What exists:
