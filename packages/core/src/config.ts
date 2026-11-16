@@ -26,6 +26,8 @@ const overlaySchema = z.object({
   dockSide: z.enum(["left", "right"]).optional(),
   dockWidthPercent: z.number().int().min(10).max(40).optional(),
   dockReserveSpace: z.boolean().optional(),
+  /** Turns the Windows cards on (WPF). The same as AGENTHOST_WINDOWS_OVERLAY=1; default off. */
+  windows: z.boolean().optional(),
   allowSyntheticControl: z.boolean().optional(),
   timeline: z.boolean().optional(),
   frame: z.boolean().optional(),
@@ -156,6 +158,7 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     dockSide: fileConfig.overlay?.dockSide ?? "right",
     dockWidthPercent: fileConfig.overlay?.dockWidthPercent ?? 18,
     dockReserveSpace: fileConfig.overlay?.dockReserveSpace ?? true,
+    windows: fileConfig.overlay?.windows ?? false,
     ...(fileConfig.overlay?.allowSyntheticControl === undefined ? {} : { allowSyntheticControl: fileConfig.overlay.allowSyntheticControl }),
     timeline: fileConfig.overlay?.timeline ?? true,
     frame: fileConfig.overlay?.frame ?? !dockLayout,

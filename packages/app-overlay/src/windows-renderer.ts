@@ -19,9 +19,9 @@ import type { OverlayOperationResult, OverlayRenderRecord, OverlayRenderer, Over
 import { WINDOWS_OVERLAY_SCRIPT } from "./windows-overlay-script.js";
 import type { OverlayVisualConfig } from "./linux-renderer.js";
 
-/** AGENTHOST_WINDOWS_OVERLAY=1 turns the Windows overlay on. It stays off until a Windows run has passed. */
-export function windowsOverlayEnabled(environment: NodeJS.ProcessEnv): boolean {
-  return environment.AGENTHOST_WINDOWS_OVERLAY === "1";
+/** The Windows overlay is on when AGENTHOST_WINDOWS_OVERLAY=1 or overlay.windows is true in config.json. Off by default. */
+export function windowsOverlayEnabled(environment: NodeJS.ProcessEnv, configured?: boolean): boolean {
+  return environment.AGENTHOST_WINDOWS_OVERLAY === "1" || configured === true;
 }
 
 export interface WindowsOverlayRendererOptions {

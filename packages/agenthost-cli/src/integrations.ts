@@ -167,9 +167,23 @@ function isStartCommand(command: unknown, args: unknown[]): boolean {
   return base.toLowerCase() === "cmd" && args[0]?.toString().toLowerCase() === "/c" && args[1] === "agenthost" && args.includes("start");
 }
 
+/**
+ * A checkout registers the server by its path (`node <repo>/packages/mcp-server/dist/index.js`, which the setup guide
+ * prints when there is no `agenthost` on PATH). That is still AgentHost, so the status check must count it.
+ */
+function isMcpServerEntry(command: unknown, args: unknown[]): boolean {
+  if (typeof command !== "string") return false;
+  if (path.win32.basename(command).replace(/\.exe$/iu, "").toLowerCase() !== "node") return false;
+  const entry = args.find((arg): arg is string => typeof arg === "string" && !arg.startsWith("-"));
+  return entry !== undefined && /mcp-server[\\/]dist[\\/]index\.js$/iu.test(entry);
+}
+
 function isAgentHostEntry(entry: unknown): boolean {
   if (!isObject(entry) || entry.enabled === false) return false;
-  if (typeof entry.command === "string") return isStartCommand(entry.command, Array.isArray(entry.args) ? entry.args : []);
+  if (typeof entry.command === "string") {
+    const args = Array.isArray(entry.args) ? entry.args : [];
+    return isStartCommand(entry.command, args) || isMcpServerEntry(entry.command, args);
+  }
   if (Array.isArray(entry.command)) {
     const [command, ...args] = entry.command;
     return isStartCommand(command, args);

@@ -61,7 +61,13 @@ function redact(value: unknown): unknown {
   return value;
 }
 /** Looks the program up on PATH without starting it (some clients open a window even for --version). */
-function onPath(command: string): boolean { return (process.env.PATH ?? "").split(path.delimiter).some((dir) => dir !== "" && existsSync(path.join(dir, command))); }
+/** On Windows a command is a file with a PATHEXT extension (claude.exe, agenthost.cmd); elsewhere the bare name. */
+function onPath(command: string): boolean {
+  const names = process.platform === "win32"
+    ? [command, ...(process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((ext) => ext !== "").map((ext) => `${command}${ext.toLowerCase()}`)]
+    : [command];
+  return (process.env.PATH ?? "").split(path.delimiter).some((dir) => dir !== "" && names.some((name) => existsSync(path.join(dir, name))));
+}
 function commandExists(command: string): boolean { return spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0; }
 function pythonModuleExists(expression: string): boolean { return spawnSync("python3", ["-c", expression], { stdio: "ignore" }).status === 0; }
 async function probeMcp(entry: string): Promise<{ started: boolean; handshake: boolean; reason?: string }> {
@@ -146,9 +152,12 @@ async function setupGuide(args: ReturnType<typeof parseFlags>): Promise<Output> 
     { target: "cursor", label: "Cursor", command: "cursor" },
     { target: "copilot-cli", label: "Copilot CLI", command: "copilot" }
   ];
+  // Read the config the same way the server does; a config that does not load simply leaves the cards off.
+  const guideConfig = process.platform === "win32" ? await loadAgentHostConfig().catch(() => undefined) : undefined;
   const guide = await runGuide({
     platform: process.platform,
     homeLabel: "The AgentHost folder",
+    ...(process.platform === "win32" ? { windowsCards: { enabled: process.env.AGENTHOST_WINDOWS_OVERLAY === "1" || guideConfig?.overlay?.windows === true } } : {}),
     ...(process.platform === "linux" ? {
       requirements: async () => {
         const missing = (await checkLinuxRequirements()).filter((dependency) => !dependency.installed);

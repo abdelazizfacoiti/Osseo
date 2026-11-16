@@ -324,7 +324,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const pillAutoHideMs = config.overlay?.pillAutoHideMs ?? 30_000;
   const requestedRenderer = config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto";
   // Opt-in Windows overlay (WPF, AGENTHOST_WINDOWS_OVERLAY=1). Every other platform and mode keeps the renderer factory.
-  const windowsOverlay = describeDesktopPlatform().os === "windows" && windowsOverlayEnabled(process.env) && (requestedRenderer === "auto" || requestedRenderer === "gtk3-native");
+  const windowsOverlay = describeDesktopPlatform().os === "windows" && windowsOverlayEnabled(process.env, config.overlay?.windows) && (requestedRenderer === "auto" || requestedRenderer === "gtk3-native");
   const overlayVisual = {
     layout: config.overlay?.layout ?? "dock",
     dockSide: config.overlay?.dockSide ?? "right",

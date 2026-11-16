@@ -65,6 +65,9 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
   appear once it is up. Until then an action shows no card and does not wait for one.
 - **Not drawn:** the pointer, ring, highlight, frame and pill primitives. The cards work without them. Cards go
   on the primary display only. A card without buttons passes clicks through.
+- **Switch.** The cards turn on with `"windows": true` under `"overlay"` in `config.json`, or with
+  `AGENTHOST_WINDOWS_OVERLAY=1`. `overlay.mode` is `always`, `on_change` or `off`; there is no true/false switch for
+  it. `agenthost setup guide` says which of these applies on Windows.
 - **Dock.** With `overlay.layout` `dock` (the default) the strip on `overlay.dockSide` takes `overlay.dockWidthPercent`
   of the primary display, at least 240 units wide. The shell reserves it the way it reserves the taskbar
   (`SHAppBarMessage`), so maximized windows end at its edge. The timeline card sits at its top, and cards whose

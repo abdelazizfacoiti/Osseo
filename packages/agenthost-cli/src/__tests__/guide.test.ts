@@ -63,6 +63,19 @@ describe("agenthost setup guide", () => {
     expect(text).toContain("agenthost failures");
   });
 
+  it("tells a Windows person how to turn the cards on, and that overlay.mode has no true/false switch", async () => {
+    const result = await runGuide({ ...passing, platform: "win32", windowsCards: { enabled: false } });
+    expect(result.steps.find((step) => step.name === "Cards")?.status).toBe("todo");
+    const text = result.lines.join("\n");
+    expect(text).toContain('"windows": true');
+    expect(text).toContain("no true/false switch");
+  });
+
+  it("reports the Windows cards as on when the switch is set", async () => {
+    const result = await runGuide({ ...passing, platform: "win32", windowsCards: { enabled: true } });
+    expect(result.steps.find((step) => step.name === "Cards")?.status).toBe("ok");
+  });
+
   it("says so when no client is installed", async () => {
     const result = await runGuide({ ...passing, clients: async () => [{ target: "claude", label: "Claude Code", installed: false, registered: false }] });
     expect(result.lines.join("\n")).toContain("No agent client found");

@@ -26,6 +26,8 @@ export interface GuideDeps {
   requirements?: () => Promise<{ missing: string[]; command: string }>;
   selftest: () => Promise<{ ok: boolean; summary: string; failedStep?: string }>;
   clients: () => Promise<GuideClient[]>;
+  /** Windows only: whether the Windows cards are on (AGENTHOST_WINDOWS_OVERLAY=1 or overlay.windows in config.json). */
+  windowsCards?: { enabled: boolean };
 }
 
 export interface GuideResult {
@@ -74,6 +76,12 @@ export async function runGuide(deps: GuideDeps): Promise<GuideResult> {
     else add("Self-test", "fail", test.failedStep === undefined ? test.summary : `Failed at "${test.failedStep}". ${test.summary}`, ["Run it again for the full report: agenthost selftest"]);
   } catch (error) {
     add("Self-test", "fail", error instanceof Error ? error.message : "selftest_failed", ["Run it again for the full report: agenthost selftest"]);
+  }
+
+  // The cards are a separate, opt-in switch on Windows. There is no true/false switch for overlay.mode.
+  if (deps.platform === "win32" && deps.windowsCards !== undefined) {
+    if (deps.windowsCards.enabled) add("Cards", "ok", "Windows cards are on: action, task and approval cards draw on screen.");
+    else add("Cards", "todo", "Windows cards are off.", ["Turn them on: add \"windows\": true under \"overlay\" in config.json, or set AGENTHOST_WINDOWS_OVERLAY=1.", "overlay.mode is always, on_change or off. There is no true/false switch for it; always shows the cards for computer actions."]);
   }
 
   let clients: GuideClient[] = [];

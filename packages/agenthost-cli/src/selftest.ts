@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { findXephyr } from "@agenthost/os-linux";
+import { findChromeExecutable, findXephyr } from "@agenthost/os-linux";
 import { parseFlags } from "./flags.js";
 import { viewerCommand } from "./viewer.js";
 
@@ -28,15 +28,9 @@ const FORM = `<!doctype html><html><head><meta charset="utf-8"><title>AgentHost 
 function isExecutable(file: string): boolean {
   try { accessSync(file, constants.X_OK); return statSync(file).isFile(); } catch { return false; }
 }
+/** The same lookup the browser tools use: PATH names, and on Windows the Chrome install folders too. */
 function findChrome(): string | undefined {
-  for (const dir of (process.env.PATH ?? "").split(path.delimiter)) {
-    if (dir === "") continue;
-    for (const name of ["google-chrome-stable", "google-chrome", "chromium", "chromium-browser"]) {
-      const candidate = path.join(dir, name);
-      if (isExecutable(candidate)) return candidate;
-    }
-  }
-  return undefined;
+  return findChromeExecutable(process.env);
 }
 
 function oneLine(text: string, max = 120): string { const flat = text.replace(/\s+/g, " ").trim(); return flat.length > max ? `${flat.slice(0, max - 3)}...` : flat; }
