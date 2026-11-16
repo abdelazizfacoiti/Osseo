@@ -144,6 +144,15 @@ export function findChromeExecutable(env: NodeJS.ProcessEnv = process.env, searc
   return undefined;
 }
 
+/**
+ * Spawn options for the agent's Chrome. `windowsHide` must be set only for headless: on Windows libuv turns it
+ * into SW_HIDE in the child's start-up info, and Chrome's first window honours it, so a headed Chrome would run
+ * with a window nobody can see (and `see` could not find it by title).
+ */
+export function chromeSpawnOptions(headless: boolean, env: NodeJS.ProcessEnv): { stdio: "ignore"; env: NodeJS.ProcessEnv; windowsHide?: true } {
+  return { stdio: "ignore", env, ...(headless ? { windowsHide: true as const } : {}) };
+}
+
 export function browserProfileDir(agentHostDir: string): string {
   return path.join(agentHostDir, "browser", "profiles", "agent");
 }
@@ -240,9 +249,13 @@ export class BrowserSession implements BrowserAutomation {
       "--remote-debugging-port=0", "--remote-debugging-address=127.0.0.1", `--user-data-dir=${profile}`,
       "--no-first-run", "--no-default-browser-check", "--disable-popup-blocking",
       ...(headless ? ["--headless=new", "--disable-gpu"] : []), "about:blank"
-    ], { stdio: "ignore", env: this.#env, windowsHide: true });
-    child.on("exit", () => { if (this.#child === child) this.#reset(); });
-    child.on("error", () => { if (this.#child === child) this.#reset(); });
+    ], chromeSpawnOptions(headless, this.#env));
+    let exitNote: string | undefined;
+    child.on("exit", (code, signal) => {
+      exitNote = `exit code ${code ?? "none"}${signal === null ? "" : `, signal ${signal}`}`;
+      if (this.#child === child) this.#reset();
+    });
+    child.on("error", (error) => { exitNote = `could not start: ${error.message}`; if (this.#child === child) this.#reset(); });
     this.#child = child;
     this.#headless = headless;
     this.#sharedBrowser = false;
@@ -253,7 +266,7 @@ export class BrowserSession implements BrowserAutomation {
         const [port, pathname] = (await readFile(path.join(profile, "DevToolsActivePort"), "utf8")).split("\n");
         if (port !== undefined && pathname !== undefined && /^\d+$/.test(port)) wsUrl = `ws://127.0.0.1:${port}${pathname}`;
       } catch { /* Not written yet. */ }
-      if (this.#child !== child) return { ok: false, reason: "The browser exited during startup." };
+      if (this.#child !== child) return { ok: false, reason: `The browser exited during startup (${exitNote ?? "no exit information"}; ${path.basename(this.#executable)}).` };
     }
     if (wsUrl === undefined) { await this.#killChild(); return { ok: false, reason: "The browser did not expose a DevTools endpoint in time." }; }
     try {
@@ -267,7 +280,9 @@ export class BrowserSession implements BrowserAutomation {
       return { ok: true };
     } catch (error) {
       await this.#killChild();
-      return { ok: false, reason: error instanceof Error ? error.message : "Could not connect to the browser." };
+      const why = error instanceof Error ? error.message : "Could not connect to the browser.";
+      // A closed DevTools connection usually means the browser process went away; say what it did.
+      return { ok: false, reason: `${why} (${path.basename(this.#executable)}${exitNote === undefined ? ", the browser process was still running" : `, the browser exited: ${exitNote}`}).` };
     }
   }
 

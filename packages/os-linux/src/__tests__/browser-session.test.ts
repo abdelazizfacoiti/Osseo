@@ -126,3 +126,13 @@ describe.skipIf(chrome === undefined)("BrowserSession forms (real headless Chrom
   }, 60_000);
 });
 
+
+describe("chromeSpawnOptions", () => {
+  it("hides the window only for headless, so a headed Chrome on Windows is visible", async () => {
+    const { chromeSpawnOptions } = await import("../browser-session.js");
+    const env = { PATH: "x" };
+    expect(chromeSpawnOptions(true, env)).toEqual({ stdio: "ignore", env, windowsHide: true });
+    expect(chromeSpawnOptions(false, env)).toEqual({ stdio: "ignore", env });
+    expect("windowsHide" in chromeSpawnOptions(false, env)).toBe(false);
+  });
+});
