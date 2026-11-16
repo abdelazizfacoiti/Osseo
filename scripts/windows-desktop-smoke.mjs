@@ -194,13 +194,20 @@ try {
       const frontBefore = await desktop.getActiveWindow();
       record("NOTE", "foreground window before ctrl+a", JSON.stringify({ windowId: frontBefore.activeWindow?.windowId, title: frontBefore.activeWindow?.title, expected: form.windowId }));
       const selectAll = await desktop.hotkey({ keys: ["ctrl", "a"], activeWindow: target });
-      check("a hotkey (ctrl+a) is delivered", selectAll.sent === true, selectAll.reason);
+      check("a hotkey (ctrl+a) is sent", selectAll.sent === true, selectAll.reason);
       await sleep(400);
       const keysSeen = existsSync(keyFile) ? readFileSync(keyFile, "utf8").trim().split(/\r?\n/).filter((line) => line !== "") : [];
       record("NOTE", "keys the test text box received", keysSeen.length === 0 ? "none" : keysSeen.join(" | "));
+      check("the text box received Ctrl+A (the key reached the control)", keysSeen.some((line) => line.startsWith("A ") && line.includes("ctrl=True")), `keys seen: ${keysSeen.join(" | ") || "none"}`);
       const final = "AgentHost W2 check éè ✓";
       const typed = await desktop.typeText({ text: final, activeWindow: target });
-      check("unicode text replaces the selection", typed.typed === true, typed.reason);
+      check("unicode text is pasted", typed.typed === true, typed.reason);
+      let inBox = await desktop.readAccessibilityText({ windowId: form.windowId, query: "Name", role: "entry" });
+      for (let i = 0; i < 10 && inBox.text !== final; i += 1) {
+        await sleep(250);
+        inBox = await desktop.readAccessibilityText({ windowId: form.windowId, query: "Name", role: "entry" });
+      }
+      check("the box holds exactly the unicode text (the old text was selected and replaced)", inBox.text === final, `box holds ${JSON.stringify(inBox.text ?? inBox.reason)}`);
 
       const save = at(80, 90);
       const press = await desktop.click({ ...save, activeWindow: target });

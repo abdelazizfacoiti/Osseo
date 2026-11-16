@@ -105,7 +105,7 @@ import {
   shouldUseWaylandPortal
 } from "@agenthost/os-linux";
 import { WindowsHelperProcess, createWindowsDesktop } from "@agenthost/os-windows";
-import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator, type OverlayRenderer } from "@agenthost/app-overlay";
+import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator, WindowsOverlayRenderer, windowsOverlayEnabled, type OverlayRenderer } from "@agenthost/app-overlay";
 import type { AgentHostMcpContext, LinuxAutomation } from "./context.js";
 import { createDesktopTools } from "./tools/desktop.js";
 import { createAppTools } from "./tools/app.js";
@@ -322,7 +322,10 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const dockLayout = (config.overlay?.layout ?? "dock") === "dock" || config.overlay?.layout === "rail";
   const actionPill = config.overlay?.actionPill ?? !dockLayout;
   const pillAutoHideMs = config.overlay?.pillAutoHideMs ?? 30_000;
-  const overlay = new VisualSurfaceCoordinator(options.overlayRenderer ?? createOverlayRenderer(config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto", {
+  const requestedRenderer = config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto";
+  // Opt-in Windows overlay (WPF, AGENTHOST_WINDOWS_OVERLAY=1). Every other platform and mode keeps the renderer factory.
+  const windowsOverlay = describeDesktopPlatform().os === "windows" && windowsOverlayEnabled(process.env) && (requestedRenderer === "auto" || requestedRenderer === "gtk3-native");
+  const overlay = new VisualSurfaceCoordinator(options.overlayRenderer ?? (windowsOverlay ? new WindowsOverlayRenderer({ agentHostDir: config.agentHostDir, sessionId }) : createOverlayRenderer(requestedRenderer, {
     sessionId,
     inputGuardPath: inputGuardPath(config.agentHostDir),
     visual: {
@@ -333,7 +336,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       allowSyntheticControl: config.overlay?.allowSyntheticControl ?? false,
       maxWidth: config.overlay?.maxWidth ?? 520
     }
-  }), { sessionId }, { reducedMotion: config.overlay?.reducedMotion ?? false });
+  })), { sessionId }, { reducedMotion: config.overlay?.reducedMotion ?? false });
   let taskActivity: TaskActivityOverlay | undefined;
   // Injected Linux automation means a test or embedded host; never drive the real desktop then.
   const hostAttention = options.linux === undefined ? new HostAttention(config.agentHostDir) : undefined;
@@ -494,6 +497,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     policy,
     registry,
     logger,
+    failureLog,
     ...(trace === undefined ? {} : { trace }),
     overlay,
     actionOverlay,

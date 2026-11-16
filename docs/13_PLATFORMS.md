@@ -45,10 +45,32 @@ JSON lines on stdin and stdout, like the GTK renderer on Linux. Nothing is insta
   then SelectionItem, then ExpandCollapse are tried for `ui.activate`. A window of an administrator process is
   refused (`elevated_window`). Chrome and Edge expose page controls only once a UI Automation client has asked
   (they switch accessibility on by themselves); other apps (games, custom-drawn UIs) may expose nothing.
-- **Not yet:** OCR for label clicks, an overlay and approval cards (W3), the `ffmpeg`-free inline JPEG (screenshots
-  work, but inline images need `ffmpeg` on PATH for now).
+- **Not yet:** OCR for label clicks, the `ffmpeg`-free inline JPEG (screenshots work, but inline images need
+  `ffmpeg` on PATH for now). The overlay (W3) is built behind `AGENTHOST_WINDOWS_OVERLAY=1`; see below.
 - **Check it:** `powershell -ExecutionPolicy Bypass -File scripts\windows-desktop-check.ps1`. It drives
   a test window it creates, never your own apps. `-ElevatedProbe` checks the administrator refusal.
+
+## Windows overlay (W3)
+
+Built, opt-in, and not yet run on a Windows machine. With `AGENTHOST_WINDOWS_OVERLAY=1` the server draws the
+action, task and approval cards with WPF, in one Windows PowerShell process that speaks the same protocol as
+the Linux renderer. Without the variable nothing changes: the headless renderer runs, as before.
+
+- **Buttons need a real press.** The process installs a low-level mouse hook (`WH_MOUSE_LL`) and marks each
+  left-button event as real or injected. A button acts only when its own press and release were real. Keyboard
+  activation, UI Automation invoke and the agent's own clicks (SendInput) are refused. Approve, Always allow,
+  Deny, Pause, Resume, Stop and Continue all go through this check. If the hook cannot be installed, the overlay
+  stays off and reports `overlay_input_guard_unavailable`, so no card with buttons appears.
+- **Start-up.** The process starts in the background; a cold PowerShell start can take 10 to 20 seconds. Cards
+  appear once it is up. Until then an action shows no card and does not wait for one.
+- **Not drawn:** the pointer, ring, highlight, frame and pill primitives. The cards work without them. Cards go
+  on the primary display only. A card without buttons passes clicks through.
+- **Screenshots** clear the cards around each capture, the same suppression as on Linux. Not yet verified on
+  Windows.
+- **Check it.** After `npm run build`, run `node scripts\windows-overlay-smoke.mjs`. It asks for one real click
+  on the test card's Stop button within 30 seconds, and it checks that a synthetic click is refused.
+- **Not verified.** The C# was checked with a syntax parser only. There is no C# compiler and no PowerShell
+  in the build environment, so the first Windows run decides whether it compiles and works.
 
 ## Windows packaging (W4)
 
@@ -75,7 +97,7 @@ Added, and not yet run on a Windows machine. What exists:
   `^[A-Za-z0-9._-]{1,64}$`; parameters containing `" % ^ & | < >` or a line break are refused; the
   command line is limited to 261 characters. A custom `AGENTHOST_HOME` or `AGENTHOST_CONFIG` cannot be
   carried into a task and is refused. The task starts a console window while it runs.
-- **Not done.** Attention hooks record a request but cannot raise a window on Windows (W3). The Python
+- **Not done.** Attention hooks record a request but cannot raise a window on Windows. The Python
   overlay is not shipped. `doctor` still reports Linux-only checks. Uninstall leaves the `Path` entry and
   any scheduled tasks.
 - **Check it.** `scripts\windows-check.ps1` now also runs `install.ps1 -DryRun`; `npm run test:windows`
