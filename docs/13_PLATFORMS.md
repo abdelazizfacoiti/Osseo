@@ -90,6 +90,14 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
 - **Verified on Windows.** The embedded C# compiled and ran under Windows PowerShell 5.1 (both smoke runs). Not yet
   verified on Windows: the look of the cards against the Linux renderer, and the rail layout.
 
+## Windows browser (the agent's own Chrome)
+
+`browser.*` drives the agent's own Chrome on a dedicated profile (`~\.agenthost\browser\profiles\agent`), never the
+person's profile. `scripts\windows-browser-check.mjs` checks it on Windows: a visible Chrome window opens, a local
+form is read by DOM, typed into and submitted, and the confirmation page is reached. Last run, Windows 11 Pro
+10.0.26200, 2026-11-16: 6 passed, 0 failed. Chrome is closed afterwards. An earlier `connection_closed` on
+`browser.open` (before the BOM and window fixes) did not come back on this build.
+
 ## Windows packaging (W4)
 
 Added, and not yet run on a Windows machine. What exists:
