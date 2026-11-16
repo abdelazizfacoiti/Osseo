@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { redactSensitiveText } from "./safety/redaction.js";
+import { stripBom } from "./text.js";
 
 /*
  * Saved workflows: a plan the agent already ran successfully, stored with named
@@ -136,7 +137,7 @@ async function write(agentHostDir: string, workflow: SavedWorkflow): Promise<voi
 
 export async function loadWorkflow(agentHostDir: string, name: string): Promise<SavedWorkflow | undefined> {
   try {
-    const value = JSON.parse(await readFile(workflowPath(agentHostDir, name), "utf8")) as SavedWorkflow;
+    const value = JSON.parse(stripBom(await readFile(workflowPath(agentHostDir, name), "utf8"))) as SavedWorkflow;
     return value.version === 1 && value.name === name && Array.isArray(value.steps) ? value : undefined;
   } catch (error) {
     if (error instanceof WorkflowError) throw error;

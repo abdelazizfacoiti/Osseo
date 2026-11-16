@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { redactSensitiveText } from "./safety/redaction.js";
+import { stripBom } from "./text.js";
 
 /*
  * Agent memory: short lessons that outlast a session ("Settings opens slowly;
@@ -31,7 +32,7 @@ function memoryPath(agentHostDir: string): string { return path.join(agentHostDi
 
 export async function listMemory(agentHostDir: string): Promise<MemoryEntry[]> {
   try {
-    const value = JSON.parse(await readFile(memoryPath(agentHostDir), "utf8")) as { entries?: MemoryEntry[] };
+    const value = JSON.parse(stripBom(await readFile(memoryPath(agentHostDir), "utf8"))) as { entries?: MemoryEntry[] };
     return Array.isArray(value.entries) ? value.entries : [];
   } catch {
     return [];

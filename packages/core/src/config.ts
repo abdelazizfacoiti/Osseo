@@ -5,6 +5,7 @@ import { z } from "zod";
 import { getDefaultPolicy } from "./policies.js";
 import type { AgentHostConfig, ForgeRuntimeSandboxMode } from "./types.js";
 import type { OverlayRendererMode, OverlayPublicConfig } from "./overlay.js";
+import { stripBom } from "./text.js";
 
 const forgeRuntimeSandboxModeSchema = z.enum(["auto", "none", "bubblewrap", "firejail", "unshare"]);
 const overlayRendererModeSchema = z.enum(["headless", "auto", "gtk3-x11", "gtk3-native", "webkit-gtk-react", "disabled"]);
@@ -104,7 +105,7 @@ export const GRANTS_REMOVED_MESSAGE =
 
 async function readConfigFile(configPath: string): Promise<z.infer<typeof configFileSchema>> {
   try {
-    const raw = await readFile(configPath, "utf8");
+    const raw = stripBom(await readFile(configPath, "utf8"));
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
       for (const key of LEGACY_CONFIG_KEYS) delete (parsed as Record<string, unknown>)[key];

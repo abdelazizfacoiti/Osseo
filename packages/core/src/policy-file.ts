@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { ConfirmationRecord } from "./confirmations.js";
 import type { RiskLevel } from "./types.js";
+import { stripBom } from "./text.js";
 
 /*
  * policy.toml: the rules a person can read and change in one file.
@@ -433,7 +434,7 @@ export async function loadPolicy(agentHostDir: string): Promise<LoadedPolicy> {
   if (cached?.key === key) return cached.loaded;
   let loaded: LoadedPolicy;
   try {
-    const rules = parsePolicy(await readFile(file, "utf8"));
+    const rules = parsePolicy(stripBom(await readFile(file, "utf8")));
     loaded = { rules, exists: true, path: file };
   } catch (error) {
     const line = error instanceof PolicyParseError ? error.line : 0;

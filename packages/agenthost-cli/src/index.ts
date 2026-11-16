@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, describeDesktopPlatform, acceptConfirmation, alwaysAllowFromConfirmation, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, transitionTask } from "@agenthost/core";
+import { AGENTHOST_CONFIG_SCHEMA_VERSION, AGENTHOST_VERSION, describeDesktopPlatform, acceptConfirmation, alwaysAllowFromConfirmation, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultAgentHostHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadAgentHostConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, stripBom, transitionTask } from "@agenthost/core";
 import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
 import { COMMAND_USAGE, TOP_USAGE, wantsHelp } from "./help.js";
 import { attentionCli } from "./attention.js";
@@ -50,7 +50,7 @@ async function print(value: Output, json = false): Promise<void> {
 function fail(command: string, error: string): Output { return { ok: false, command, error }; }
 async function safeMkdir(directory: string): Promise<void> { await mkdir(directory, { recursive: true, mode: 0o700 }); await chmod(directory, 0o700); }
 async function safeWrite(file: string, content: string): Promise<void> { await safeMkdir(path.dirname(file)); const temporary = `${file}.tmp-${process.pid}-${Date.now()}`; await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 }); await chmod(temporary, 0o600); await rename(temporary, file); await chmod(file, 0o600); }
-async function readJson(file: string): Promise<Json | undefined> { try { return JSON.parse(await readFile(file, "utf8")) as Json; } catch { return undefined; } }
+async function readJson(file: string): Promise<Json | undefined> { try { return JSON.parse(stripBom(await readFile(file, "utf8"))) as Json; } catch { return undefined; } }
 function redact(value: unknown): unknown {
   if (typeof value === "string") {
     if (/token|secret|password|credential|api.?key|cookie/i.test(value)) return "[redacted]";

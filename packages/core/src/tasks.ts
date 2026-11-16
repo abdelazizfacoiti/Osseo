@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, readdir, rename, writeFile } from "node:fs/prom
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { clearActiveTaskApproval } from "./confirmations.js";
+import { stripBom } from "./text.js";
 
 export type AgentTaskStatus = "active" | "paused" | "completed" | "cancelled";
 export type AgentTaskEventKind = "progress" | "observation" | "error" | "recovery" | "verification" | "note";
@@ -69,7 +70,7 @@ function isTerminal(status: AgentTaskStatus): boolean {
 
 export async function loadTask(agentHostDir: string, taskId: string): Promise<AgentTask | undefined> {
   try {
-    return JSON.parse(await readFile(taskPath(agentHostDir, taskId), "utf8")) as AgentTask;
+    return JSON.parse(stripBom(await readFile(taskPath(agentHostDir, taskId), "utf8"))) as AgentTask;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
     if (error instanceof TaskError) throw error;

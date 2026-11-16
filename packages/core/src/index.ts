@@ -8,6 +8,7 @@ export * from "./requirements.js";
 export * from "./confirmations.js";
 export * from "./run-state.js";
 export * from "./tasks.js";
+export * from "./text.js";
 export * from "./grants.js";
 export * from "./guide.js";
 export * from "./failure-log.js";
