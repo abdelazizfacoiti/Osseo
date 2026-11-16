@@ -9,7 +9,7 @@ export const TOP_USAGE = "agenthost version|doctor|setup|start|stop|status|task|
 export const COMMAND_USAGE: Record<string, string> = {
   version: "agenthost version",
   doctor: "agenthost doctor [--json]",
-  setup: "agenthost setup [--resume] | agenthost setup deps [--apply]",
+  setup: "agenthost setup [--resume] | setup deps [--apply] | setup guide. guide is the first-run path: it checks the desktop packages, runs the self-test, finds your agent clients and prints the exact command to register each, then one safe first prompt. It installs nothing and edits no client config.",
   start: "agenthost start",
   stop: "agenthost stop",
   status: "agenthost status",

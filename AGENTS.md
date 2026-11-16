@@ -80,6 +80,7 @@ packages/
 | `agenthost agent status` / `pause` / `stop` / `takeover-begin` / `resume --stop\|--takeover\|--pause` | Runtime pause/stop/takeover flags; resume is operator-only |
 | `agenthost workflow list\|show\|run\|delete <name> [--param k=v] [--unattended]` | Saved, parameterized plans; `run` goes through `computer.run_steps` and never auto-approves (exit 2 = needs approval) |
 | `agenthost schedule list\|add\|remove <name> (--daily HH:MM\|--weekdays HH:MM\|--every 30m) [--apply]` | systemd user timers for saved workflows; preview by default |
+| `agenthost setup guide` | First-run path (`packages/agenthost-cli/src/guide.ts`): makes the home, lists missing desktop packages with the install command, runs the self-test, finds agent clients on PATH and prints `integrations <client> add --apply` for each unregistered one, then one safe first prompt. Installs nothing, edits no client config; exit 1 when the self-test fails |
 | `agenthost setup deps [--apply]` | Check desktop packages from `requirements-linux.txt`; `--apply` installs missing ones through sudo/pkexec (password prompt) |
 | `agenthost attention request --source <client> --reason <permission\|confirmation\|idle\|done>` / `clear [--restore]` / `status` | Raise the agent's terminal for a pending approval and return focus afterwards; called by client hooks |
 

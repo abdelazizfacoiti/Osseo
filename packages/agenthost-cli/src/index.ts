@@ -17,6 +17,7 @@ import { trayCommand } from "./tray.js";
 import { portalCommand } from "./portal.js";
 import { journalCommand } from "./journal-cli.js";
 import { failuresCommand } from "./failures-cli.js";
+import { runGuide, type GuideClient } from "./guide.js";
 import { hostCommand, hostDoctorLine } from "./host.js";
 import { shortcutCommand } from "./shortcut.js";
 import { selftestCommand } from "./selftest.js";
@@ -59,6 +60,8 @@ function redact(value: unknown): unknown {
   if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, /token|secret|password|credential|api.?key/i.test(key) ? "[redacted]" : redact(item)]));
   return value;
 }
+/** Looks the program up on PATH without starting it (some clients open a window even for --version). */
+function onPath(command: string): boolean { return (process.env.PATH ?? "").split(path.delimiter).some((dir) => dir !== "" && existsSync(path.join(dir, command))); }
 function commandExists(command: string): boolean { return spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0; }
 function pythonModuleExists(expression: string): boolean { return spawnSync("python3", ["-c", expression], { stdio: "ignore" }).status === 0; }
 async function probeMcp(entry: string): Promise<{ started: boolean; handshake: boolean; reason?: string }> {
@@ -124,6 +127,48 @@ async function setup(flags: ReturnType<typeof parseFlags>): Promise<Output> {
     state.schemaVersion = 1; state.completed = completed; state.pendingManual = flags.flags.has("skip-optional") ? [] : manual; state.skipped = flags.flags.has("skip-optional") ? manual : []; state.updatedAt = new Date().toISOString(); await safeWrite(stateFile, JSON.stringify(state, null, 2) + "\n");
     return { ok: true, command: "setup", data: { resumable: true, configPath: "[config]", agentHostHome: "[agenthost-home]", completed, pendingManual: state.pendingManual, skipped: state.skipped }, warnings: ["Browser installation and pairing remain manual.", "System dependencies are not installed automatically."] };
   } catch (error) { return fail("setup", error instanceof Error ? error.message : "setup_failed"); }
+}
+async function setupGuide(args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const made = await setup(args);
+  if (!made.ok) return made;
+  const paths: IntegrationPaths = {
+    home,
+    project: process.cwd(),
+    ...(process.env.XDG_CONFIG_HOME === undefined ? {} : { xdgConfigHome: process.env.XDG_CONFIG_HOME }),
+    ...(process.env.CODEX_HOME === undefined ? {} : { codexHome: process.env.CODEX_HOME }),
+    ...(process.env.COPILOT_HOME === undefined ? {} : { copilotHome: process.env.COPILOT_HOME }),
+    ...(process.env.CLAUDE_CONFIG_DIR === undefined || process.env.CLAUDE_CONFIG_DIR === "" ? {} : { claudeConfigDir: process.env.CLAUDE_CONFIG_DIR })
+  };
+  const programs: Array<{ target: IntegrationTarget; label: string; command: string }> = [
+    { target: "claude", label: "Claude Code", command: "claude" },
+    { target: "codex", label: "Codex", command: "codex" },
+    { target: "opencode", label: "opencode", command: "opencode" },
+    { target: "cursor", label: "Cursor", command: "cursor" },
+    { target: "copilot-cli", label: "Copilot CLI", command: "copilot" }
+  ];
+  const guide = await runGuide({
+    platform: process.platform,
+    homeLabel: "The AgentHost folder",
+    ...(process.platform === "linux" ? {
+      requirements: async () => {
+        const missing = (await checkLinuxRequirements()).filter((dependency) => !dependency.installed);
+        return { missing: missing.map((dependency) => dependency.name), command: "agenthost setup deps --apply" };
+      }
+    } : {}),
+    selftest: async () => {
+      const outcome = await selftestCommand(["--json"], agentHome, { mcpEntry: mcpEntry() });
+      const data = outcome.data as { steps?: Array<{ name: string; status: string }>; summary?: string } | undefined;
+      const failed = data?.steps?.find((step) => step.status !== "pass");
+      return { ok: outcome.ok, summary: data?.summary ?? outcome.error ?? "No result.", ...(failed === undefined ? {} : { failedStep: failed.name }) };
+    },
+    clients: async (): Promise<GuideClient[]> => Promise.all(programs.map(async (program) => {
+      const report = await integrationStatus(program.target, paths).catch(() => undefined);
+      return { target: program.target, label: program.label, installed: onPath(program.command), registered: report?.configured === true && report.matches !== false };
+    }))
+  });
+  const text = guide.lines.join("\n");
+  // print() shows data only on success, so a failed guide goes out as the error text, like selftest.
+  return guide.ok ? { ok: true, command: "setup guide", data: text } : ({ ok: false, command: "setup guide", error: `\n${text}`, exitCode: 1 } as Output);
 }
 async function readLock(): Promise<Json | undefined> { return readJson(lockPath); }
 function processAlive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch { return false; } }
@@ -716,7 +761,7 @@ async function main(): Promise<number> {
     if (top === undefined) result = { ok: true, command: "help", data: TOP_USAGE };
     else if (top === "version") result = { ok: true, command: "version", data: { version: AGENTHOST_VERSION, platform: process.platform, architecture: process.arch } };
     else if (top === "doctor") result = await doctor();
-    else if (top === "setup") result = sub === "deps" ? await setupDeps(args) : await setup(args);
+    else if (top === "setup") result = sub === "deps" ? await setupDeps(args) : sub === "guide" ? await setupGuide(args) : await setup(args);
     else if (top === "start") result = await start(args);
     else if (top === "stop") result = await stop();
     else if (top === "status") result = await status();
