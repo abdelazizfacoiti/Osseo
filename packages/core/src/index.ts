@@ -10,6 +10,7 @@ export * from "./run-state.js";
 export * from "./tasks.js";
 export * from "./grants.js";
 export * from "./guide.js";
+export * from "./failure-log.js";
 export * from "./logging.js";
 export * from "./policies.js";
 export * from "./result.js";

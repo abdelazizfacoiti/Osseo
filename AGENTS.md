@@ -75,6 +75,7 @@ packages/
 | `npm run benchmark:suite` | 25 local-HTML browser tasks in headless Chrome, one isolated home per task; prints a table and the gate (success rate at least 0.9, zero unverified successes); `--tasks`, `--runs`, `--out`; needs no display |
 | `agenthost replay build [--session <id> \| --task <id> \| --last] [--out <file>]` / `list` / `open <id>` / `delete <id> [--apply]` | Single-session HTML page from the audit log, summaries only (no screenshots, no typed text); stored in `~/.agenthost/replays`, pruned at 14 days or 50 MB |
 | `agenthost policy list\|add\|remove <line> [--apply]` | List, add and remove `policy.toml` rules; `add --action <a> --decision <allow\|ask\|never> [--app <name>] [--site <host>] [--note <text>]`; preview unless `--apply`; `confirm <id> --always` writes the "Always allow here" rule |
+| `agenthost failures [summary] \| show [--last <n>] \| clear [--apply]` | Development failure log: every unexpected tool failure from every session, grouped by tool and error code, most frequent first (`--since 7d`, `--tool <name>`, `--json`); read it to pick the next fix. `clear` previews unless `--apply` |
 | `agenthost task pause <id>` / `task resume <id>` | Task lifecycle transitions (not a stop-flag clear) |
 | `agenthost agent status` / `pause` / `stop` / `takeover-begin` / `resume --stop\|--takeover\|--pause` | Runtime pause/stop/takeover flags; resume is operator-only |
 | `agenthost workflow list\|show\|run\|delete <name> [--param k=v] [--unattended]` | Saved, parameterized plans; `run` goes through `computer.run_steps` and never auto-approves (exit 2 = needs approval) |
@@ -107,6 +108,8 @@ Every tool passes through: schema validation → stop/takeover gate → effect p
 - AgentHost control-plane paths (`run/`, `logs/`, `setup/`, `tasks/approvals/`, config) are read-medium and write/delete-blocked.
 
 ## Logging
+
+Every session's server also appends each unexpected tool failure to `~/.agenthost/logs/failures.jsonl` (`packages/core/src/failure-log.ts`, hooked in `tool-runner.ts` after the audit write; read with `agenthost failures`). It stores the tool, error code, redacted message (home as `~`), the audit input summary, the first observation as `hint`, build, platform and placement, never typed text. Confirmation prompts, pause, stop, takeover and user-active results are skipped as expected; preview-only plan steps are skipped; rotates at 5 MB to `failures.1.jsonl`; a write failure never changes a tool result. It sits in `logs/`, so agents cannot edit it.
 
 All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API keys, tokens, cookies, private keys, full sensitive files, or screenshots.
 

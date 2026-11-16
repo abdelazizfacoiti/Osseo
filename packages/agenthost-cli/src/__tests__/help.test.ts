@@ -48,7 +48,7 @@ describe("agenthost help", () => {
     ["confirmations"], ["confirm"], ["deny"], ["agent"], ["agent", "resume"], ["agent", "pause"], ["attention"],
     ["workflow"], ["workflow", "run"], ["schedule"], ["schedule", "add"], ["memory"], ["memory", "clear"],
     ["policy"], ["policy", "add"], ["policy", "remove"], ["capabilities"], ["permissions"], ["sessions"], ["overlay"], ["overlay", "check-input"],
-    ["integrations"], ["config"], ["update"], ["uninstall"]
+    ["failures"], ["integrations"], ["config"], ["update"], ["uninstall"]
   ];
   it.each(COMMANDS)("agenthost %s --help prints usage and changes nothing", (...parts: string[]) => {
     const home = freshHome();

@@ -32,6 +32,8 @@ import {
   createBaseCapabilityRegistry,
   createSessionId,
   JsonlAuditLogger,
+  JsonlFailureLog,
+  failureLogPath,
   JsonlTraceLogger,
   loadAgentHostConfig,
   ensurePolicyFile,
@@ -305,6 +307,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const sessionId = options.sessionId ?? createSessionId();
   const registry = options.registry ?? createBaseCapabilityRegistry();
   const logger = options.logger ?? new JsonlAuditLogger(config.logFile);
+  const failureLog = new JsonlFailureLog(failureLogPath(config.logFile));
   const trace = options.trace ?? (process.env.AGENTHOST_TRACE === "1"
     ? new JsonlTraceLogger(path.join(
         config.agentHostDir,

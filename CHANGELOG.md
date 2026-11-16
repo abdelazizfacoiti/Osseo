@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Development failure log: every session's server appends each unexpected tool failure to `~/.agenthost/logs/failures.jsonl` (tool, error code, redacted message with home as `~`, audit input summary, first observation as a hint, build, platform, placement; never typed text). Confirmation prompts, pause, stop, takeover and user-active results are skipped as expected. Rotates at 5 MB. `agenthost failures summary|show|clear` reads it, most frequent reason first, so the next fix is the first line. A failing write never changes a tool result.
 - The form benchmark has a numbered route that uses only the new tools (open, see, type, click, key, wait). It passes the same gate as the pixel routes: 9 calls against 19, and 4,620 bytes against 116,288. `npm run benchmark:form` now prints its gate for that route too.
 - `npm run check:live` has a numbered-action section: see lists the page, type and click by number, a click on a control that does nothing reports no change, and a click on Send asks first. `LIVE_CHECK_ONLY=numbered` runs only that section, headless and with no window.
 - Fixed: a screenshot could fail with `screenshot_surface_unknown` while a card was still being shown. That happened to the first screenshot after the host started, and to the second of two screenshots sent together through the host. A capture now waits for the shows already in flight, then clears the cards, so a late card is neither in the picture nor a failure. A test fails on the old code and passes on the new code.

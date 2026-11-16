@@ -5,6 +5,7 @@ import type {
   AppStrategyResult,
   AppStrategyTaskType,
   AuditLogger,
+  FailureRecorder,
   ToolTraceLogger,
   AccessibilityFindElementResult,
   AccessibilityFieldAtPointResult,
@@ -178,6 +179,8 @@ export interface AgentHostMcpContext {
   notifySelfPause?: (reason: string) => void;
   registry: CapabilityRegistrySnapshot;
   logger: AuditLogger;
+  /** Development failure log (`logs/failures.jsonl`); optional so tests can omit it. */
+  failureLog?: FailureRecorder;
   /** Optional timestamped phase trace, enabled with AGENTHOST_TRACE=1. */
   trace?: ToolTraceLogger;
   /** Internal to a confirmed computer.run_steps execution; never set by MCP input. */

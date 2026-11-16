@@ -28,7 +28,7 @@ export function createSessionId(): string {
   return `session_${randomUUID()}`;
 }
 
-async function appendJsonl(filePath: string, entry: unknown): Promise<void> {
+export async function appendJsonl(filePath: string, entry: unknown): Promise<void> {
   const directory = path.dirname(filePath);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);

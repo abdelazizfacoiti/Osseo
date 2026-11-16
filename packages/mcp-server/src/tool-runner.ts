@@ -10,6 +10,8 @@ import {
   updateTask,
   prepareConfirmation,
   readActiveTaskApproval,
+  buildFailureEntry,
+  isDevFailure,
   summarizeForLog,
   toolFailure,
   toolSuccess,
@@ -1010,6 +1012,25 @@ export async function runTool<Input>(
     });
   } catch {
     // A local audit write failure must not turn a completed action into a second action.
+  }
+  if (!result.ok && options.previewOnly !== true && context.failureLog !== undefined && isDevFailure(result.error?.code)) {
+    try {
+      await context.failureLog.record(buildFailureEntry({
+        sessionId: context.sessionId,
+        tool: tool.name,
+        errorCode: result.error!.code,
+        message: result.error!.message,
+        inputSummary: audit.inputSummary,
+        riskLevel: result.riskLevel,
+        durationMs: totalMs,
+        platform: process.platform,
+        ...(runtime === undefined ? {} : { serverVersion: runtime.version }),
+        ...(context.config.execution?.placement === undefined ? {} : { placement: context.config.execution.placement }),
+        ...(result.observations?.[0] === undefined ? {} : { hint: result.observations[0] })
+      }));
+    } catch {
+      // The development log is best effort; it never changes a tool result.
+    }
   }
 
   void finishTimelineEntry?.(result).catch(() => undefined);

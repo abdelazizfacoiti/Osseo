@@ -18,6 +18,7 @@ import {
   toolFailure,
   toolSuccess,
   type AuditLogEntry,
+  type FailureEntry,
   type OverlayWidget,
   type RiskLevel,
   type ToolExecutionMetadata
@@ -124,6 +125,36 @@ describe("governed tool runner", () => {
     expect(result.error?.code).toBe("invalid_input");
     expect(handler).not.toHaveBeenCalled();
     expect(logs.at(-1)?.errorCode).toBe("invalid_input");
+  });
+
+  it("writes unexpected failures to the development log, redacted, and skips expected refusals", async () => {
+    const home = await tempHome();
+    const logs: AuditLogEntry[] = [];
+    const failures: FailureEntry[] = [];
+    const context = makeContext(home, logs);
+    context.failureLog = { record: async (entry) => { failures.push(entry); } };
+
+    const failing = writeTool(async () => undefined);
+    failing.execution = { ...stateChanging(), requiresConfirmationToken: false };
+    failing.handler = async () => toolFailure({ tool: "test.write", riskLevel: "medium", error: { code: "element_not_found", message: "No Save button. token=abc123" }, observations: ["Call see again."] });
+    const failed = await runTool(failing, { value: "typed-secret-text" }, context);
+    expect(failed.ok).toBe(false);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ sessionId: "test-session", tool: "test.write", errorCode: "element_not_found", serverVersion: "9.9.9-test", hint: "Call see again." });
+    expect(failures[0]?.message).toContain("token=[redacted]");
+    expect(JSON.stringify(failures[0])).not.toContain("abc123");
+    expect(JSON.stringify(failures[0])).not.toContain("typed-secret-text");
+
+    // A confirmation prompt is the safety model working, not a defect to fix.
+    const guarded = writeTool(async () => undefined);
+    const asked = await runTool(guarded, { value: "needs approval" }, context);
+    expect(asked.error?.code).toBe("confirmation_required");
+    expect(failures).toHaveLength(1);
+
+    // A failing log never changes the tool result.
+    context.failureLog = { record: async () => { throw new Error("disk full"); } };
+    const again = await runTool(failing, { value: "x" }, context);
+    expect(again.error?.code).toBe("element_not_found");
   });
 
   it("previews, issues a token, executes once after acceptance, and audits provenance", async () => {

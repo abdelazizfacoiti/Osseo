@@ -16,6 +16,7 @@ import { viewerCommand } from "./viewer.js";
 import { trayCommand } from "./tray.js";
 import { portalCommand } from "./portal.js";
 import { journalCommand } from "./journal-cli.js";
+import { failuresCommand } from "./failures-cli.js";
 import { hostCommand, hostDoctorLine } from "./host.js";
 import { shortcutCommand } from "./shortcut.js";
 import { selftestCommand } from "./selftest.js";
@@ -744,6 +745,7 @@ async function main(): Promise<number> {
     else if (top === "shortcut") result = await shortcutCommand(argv.slice(argv.indexOf("shortcut") + 1), agentHome);
     else if (top === "host") result = await hostCommand(argv.slice(argv.indexOf("host") + 1), agentHome, { hostEntry: path.join(path.dirname(mcpEntry()), "host", "main.js") });
     else if (top === "journal") result = await journalCommand(argv.slice(argv.indexOf("journal") + 1), agentHome, { mcpEntry: mcpEntry() });
+    else if (top === "failures") result = await failuresCommand(argv.slice(argv.indexOf("failures") + 1), agentHome);
     else result = fail(top, "unknown_command");
   } catch (error) { result = fail(top ?? "agenthost", error instanceof Error ? error.message : "command_failed"); }
   await print(result, json); return result.ok ? 0 : (result as { exitCode?: number }).exitCode ?? 1;

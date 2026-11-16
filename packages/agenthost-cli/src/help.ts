@@ -4,7 +4,7 @@
  * the runtime directory, so `agenthost <anything> --help` is always safe.
  */
 
-export const TOP_USAGE = "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|policy|replay|viewer|tray|portal|journal|host|shortcut|selftest|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall|help";
+export const TOP_USAGE = "agenthost version|doctor|setup|start|stop|status|task|confirmations|confirm|deny|agent|attention|workflow|schedule|memory|policy|replay|viewer|tray|portal|journal|failures|host|shortcut|selftest|capabilities|permissions|sessions|overlay|integrations|config|update|uninstall|help";
 
 export const COMMAND_USAGE: Record<string, string> = {
   version: "agenthost version",
@@ -26,6 +26,7 @@ export const COMMAND_USAGE: Record<string, string> = {
   shortcut: "agenthost shortcut status | install [--binding <accelerator>] [--apply] | remove [--apply]. GNOME Stop shortcut (default Ctrl+Shift+Alt+Esc) that runs agent stop; preview unless --apply.",
   host: "agenthost host status | start | stop | restart. The per-user host that MCP clients use when AGENTHOST_HOST=1. status shows pid, socket and connected sessions; start launches it detached and refuses if one is running; stop asks it to exit through its socket.",
   journal: "agenthost journal show [--session <id>] | save <name> [--session <id>] [--last <n>] [--description <text>] [--apply]. Saves the steps the agent took through numbered actions as a workflow; typed text becomes parameters, never values. Run it with agenthost workflow run <name> --param text_1=...",
+  failures: "agenthost failures [summary] [--since 7d] [--tool <name>] | show [--last <n>] [--since 7d] [--tool <name>] [--json] | clear [--apply]. The development failure log: every unexpected tool failure from every session (tool, error code, redacted message, redacted input summary, build). summary groups by reason, most frequent first. File: logs/failures.jsonl, rotated at 5 MB.",
   viewer: "agenthost viewer start [--display :N] | stop | status. Opens a small live view of the background display with Pause, Resume and Stop.",
   portal: "agenthost portal check [--start]. Checks the desktop portal that AgentHost uses on Wayland for input and screenshots (AGENTHOST_WAYLAND_PORTAL=1). Without --start it creates and closes one portal session and shows no dialog. With --start it asks the person once through the portal's own dialog, then reports the granted screen and closes.",
   tray: "agenthost tray start | stop | status. Shows an AgentHost icon in the system tray with the agent's state and a menu: Stop, Pause, Resume and Open viewer. Menu actions need a real pointer press (Resume also needs physical hardware). GNOME needs the AppIndicator extension.",
