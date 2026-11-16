@@ -9,7 +9,7 @@ What AgentHost can control, by operating system and session. Run
 | Linux | Wayland + XWayland | X11 (XWayland) windows only: list, focus, type, click, screenshot, cards | Headless GNOME compositor with `Xwayland` |
 | Linux | Native Wayland, no XWayland | Opt-in: `AGENTHOST_WAYLAND_PORTAL=1` sends input and screenshots through the desktop portal after one consent (not yet run on a real Wayland login). Otherwise `execution.placement: "background"` (Xephyr) | Headless GNOME compositor |
 | Linux | Headless | Only tools that need no display | Yes |
-| Windows | Native desktop (W2) | Windows, mouse, keyboard, screenshots, clipboard and accessibility (Windows UI Automation: `ui.*`, `screen.read`, label clicks, `set_field` read-back, `guide.show` labels) through a PowerShell helper (`packages/os-windows`); headless tools as in W1. No OCR fallback; windows running as administrator are refused (`elevated_window`) | Not yet verified on a Windows machine: run `scripts\windows-desktop-check.ps1` |
+| Windows | Native desktop (W2) | Windows, mouse, keyboard, screenshots, clipboard and accessibility (Windows UI Automation: `ui.*`, `screen.read`, label clicks, `set_field` read-back, `guide.show` labels) through a PowerShell helper (`packages/os-windows`); headless tools as in W1. No OCR fallback; windows running as administrator are refused (`elevated_window`) | Verified on Windows 11 Pro 10.0.26200 (2026-11-16): `scripts\windows-desktop-check.ps1` 32 of 32 |
 | macOS | Native | Not implemented: desktop tools fail with `unsupported_platform` | No |
 
 Tools that do not touch the desktop (files, shell, tasks, workflows, memory,
@@ -108,7 +108,9 @@ the agent's browser unless `in: "my-browser"` is given.
 
 ## Windows packaging (W4)
 
-Added, and not yet run on a Windows machine. What exists:
+Added. The install dry run passes on Windows 11 (2026-11-16, `scripts\windows-check.ps1`). Not yet run: the zip build
+(`npm run release:build` refuses to run on Windows, `release_target_requires_linux_x64`, so the Linux release stage must
+come first) and a real install or update on a clean user. What exists:
 
 - **Installer.** `scripts/install.ps1` (Windows PowerShell 5.1): checks OS, x64 and Node 20+, takes the
   archive from `AGENTHOST_ARCHIVE`, `AGENTHOST_ARCHIVE_URL` or the latest release
