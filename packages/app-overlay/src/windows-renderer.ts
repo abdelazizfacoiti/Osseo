@@ -17,6 +17,7 @@ import {
 } from "./linux-renderer-protocol.js";
 import type { OverlayOperationResult, OverlayRenderRecord, OverlayRenderer, OverlayRendererDiagnostics, OverlayRendererRestartResult } from "./renderer.js";
 import { WINDOWS_OVERLAY_SCRIPT } from "./windows-overlay-script.js";
+import type { OverlayVisualConfig } from "./linux-renderer.js";
 
 /** AGENTHOST_WINDOWS_OVERLAY=1 turns the Windows overlay on. It stays off until a Windows run has passed. */
 export function windowsOverlayEnabled(environment: NodeJS.ProcessEnv): boolean {
@@ -32,6 +33,8 @@ export interface WindowsOverlayRendererOptions {
   startupTimeoutMs?: number;
   commandTimeoutMs?: number;
   maxRestarts?: number;
+  /** Dock layout, sent in the handshake: `layout: "dock"` reserves the strip on `dockSide` (see the script's dock section). */
+  visual?: Partial<OverlayVisualConfig>;
 }
 
 type OperationCommand = "show" | "update" | "dismiss" | "clear" | "emergency_hide";
@@ -139,12 +142,13 @@ function summarize(text: string): string {
  * same JSON-line protocol as the GTK renderer. It starts on the first call (or warmup), restarts once after a
  * failure, and never blocks execution: a failed call returns `ok: false` with a reason.
  *
- * Not yet run on a real Windows machine (see scripts/windows-overlay-smoke.mjs). Primitives such as rings and
- * pointers are refused, and buttons act only on a real mouse press.
+ * Checked on Windows 11 (scripts/windows-overlay-smoke.mjs, scripts/windows-dock-smoke.mjs). Primitives such as rings
+ * and pointers are refused, and buttons act only on a real mouse press. The dock layout reserves a strip with the shell.
  */
 export class WindowsOverlayRenderer implements OverlayRenderer {
   readonly #options: WindowsOverlayRendererOptions;
   readonly #sessionId: string;
+  readonly #visual: Partial<OverlayVisualConfig>;
   readonly #token = randomBytes(32).toString("hex");
   readonly #pending = new Map<string, PendingRequest>();
   #child: ChildProcessWithoutNullStreams | undefined;
@@ -164,6 +168,7 @@ export class WindowsOverlayRenderer implements OverlayRenderer {
   constructor(options: WindowsOverlayRendererOptions) {
     this.#options = options;
     this.#sessionId = options.sessionId ?? `overlay-session-${randomUUID()}`;
+    this.#visual = options.visual ?? {};
   }
 
   async capabilities(): Promise<OverlayCapabilityReport> {
@@ -378,7 +383,7 @@ export class WindowsOverlayRenderer implements OverlayRenderer {
     const epoch = this.#rendererEpoch + 1;
     let hello: OverlayRendererReply;
     try {
-      hello = await this.#send("hello", { sessionId: this.#sessionId, rendererEpoch: epoch, visual: {} }, this.#options.startupTimeoutMs ?? DEFAULT_STARTUP_MS);
+      hello = await this.#send("hello", { sessionId: this.#sessionId, rendererEpoch: epoch, visual: this.#visual }, this.#options.startupTimeoutMs ?? DEFAULT_STARTUP_MS);
     } catch (error: unknown) {
       this.#fail(error instanceof Error ? error.message : "renderer_handshake_timeout");
       return false;

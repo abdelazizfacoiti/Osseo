@@ -25,7 +25,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
     session = p.sessionId;
     epoch = p.rendererEpoch;
     const supported = mode !== "unsupported";
-    const reply = { version: 1, id: req.id, ok: true, data: { protocolVersion: 1, rendererEpoch: mode === "epoch" ? epoch + 1 : epoch, capabilities: { supported, available: supported, visible: supported, renderer: "wpf-windows", rendererStatus: supported ? "available" : "unavailable", displayAvailable: true, clickThrough: supported, interactiveWidgets: supported, reason: supported ? "wpf_overlay_ready" : "overlay_input_guard_unavailable", limitations: ["fake"] } } };
+    const reply = { version: 1, id: req.id, ok: true, data: { protocolVersion: 1, rendererEpoch: mode === "epoch" ? epoch + 1 : epoch, capabilities: { supported, available: supported, visible: supported, renderer: "wpf-windows", rendererStatus: supported ? "available" : "unavailable", displayAvailable: true, clickThrough: supported, interactiveWidgets: supported, reason: supported ? "wpf_overlay_ready" : "overlay_input_guard_unavailable", limitations: ["fake", "visual " + JSON.stringify(p.visual ?? null)] } } };
     return mode === "slow" ? setTimeout(() => send(reply), 3000) : send(reply);
   }
   if (req.command === "show" || req.command === "update") {
@@ -74,6 +74,12 @@ async function start(mode = "normal", extra: Partial<WindowsOverlayRendererOptio
 const card = (overlayId: string) => ({ overlayId, type: "widget", payload: { title: "Test", components: [], sensitivity: "public" } });
 
 describe("WindowsOverlayRenderer", () => {
+  it("sends the dock layout in the handshake, so the overlay process can reserve the strip", async () => {
+    const renderer = await start("normal", { visual: { layout: "dock", dockSide: "right", dockWidthPercent: 18, dockReserveSpace: true } });
+    const capabilities = await renderer.capabilities();
+    expect(capabilities.limitations).toContain('visual {"layout":"dock","dockSide":"right","dockWidthPercent":18,"dockReserveSpace":true}');
+  });
+
   it("starts on the first call and reports the capabilities from the handshake", async () => {
     const renderer = await start();
     expect(await renderer.capabilities()).toMatchObject({ supported: true, visible: true, renderer: "wpf-windows", rendererStatus: "available" });

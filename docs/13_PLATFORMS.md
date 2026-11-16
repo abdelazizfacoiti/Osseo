@@ -52,7 +52,7 @@ JSON lines on stdin and stdout, like the GTK renderer on Linux. Nothing is insta
 
 ## Windows overlay (W3)
 
-Built and opt-in. The safety guard passed on Windows 11 Pro 10.0.26200 on 2026-11-16 (see Check it below). The dock, the look of the cards and screenshot suppression have not been run on Windows. With `AGENTHOST_WINDOWS_OVERLAY=1` the server draws the
+Built and opt-in. The safety guard and the dock passed on Windows 11 Pro 10.0.26200 on 2026-11-16 (see Check it below). With `AGENTHOST_WINDOWS_OVERLAY=1` the server draws the
 action, task and approval cards with WPF, in one Windows PowerShell process that speaks the same protocol as
 the Linux renderer. Without the variable nothing changes: the headless renderer runs, as before.
 
@@ -65,8 +65,21 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
   appear once it is up. Until then an action shows no card and does not wait for one.
 - **Not drawn:** the pointer, ring, highlight, frame and pill primitives. The cards work without them. Cards go
   on the primary display only. A card without buttons passes clicks through.
-- **Screenshots** clear the cards around each capture, the same suppression as on Linux. Not yet verified on
-  Windows.
+- **Dock.** With `overlay.layout` `dock` (the default) the strip on `overlay.dockSide` takes `overlay.dockWidthPercent`
+  of the primary display, at least 240 units wide. The shell reserves it the way it reserves the taskbar
+  (`SHAppBarMessage`), so maximized windows end at its edge. The timeline card sits at its top, and cards whose
+  placement starts with `bottom_` stack up from its floor, with the Linux `dock_layout` numbers. Other cards float
+  over the work area. The strip exists only while it holds cards: it is released 2 seconds after the last one goes
+  (so a screenshot clear does not resize windows), at once on emergency hide and on close, and by Windows when the
+  process dies. `dockReserveSpace: false` draws the strip without reserving space. `rail` is not drawn on Windows,
+  so its cards float.
+- **Check the dock.** `node scripts\windows-dock-smoke.mjs` needs no click. Last run on Windows 11 Pro 10.0.26200 at
+  150% scale, 2026-11-16: 15 passed, 0 failed, exit 0. The work area shrinks by the strip (360 device pixels of
+  1920) while the cards are up; the strip and the three dock cards lie inside it; a maximized window ends at its
+  edge; dismiss, killing the overlay process, emergency hide and close each give the work area back; a clear keeps
+  the reservation through the grace period. The maximized window is a test form, not Chrome.
+- **Screenshots** clear the cards around each capture, the same suppression as on Linux. The strip keeps its
+  reservation through the clear. Not yet checked with a picture of a full display taken under the strip.
 - **Check it.** After `npm run build`, run `node scripts\windows-overlay-smoke.mjs`. It asks for one real click
   on the test card's Stop button within 30 seconds, and it checks that a synthetic click is refused.
   Last run, Windows 11 Pro 10.0.26200, 2026-11-16: 10 passed, 0 failed, exit 0. The checks were: the process
@@ -74,9 +87,8 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
   with bounds; a synthetic click on Stop is refused; a real click on Stop is accepted
   (`emergency_stop_requested`); the state lists the card; dismiss removes it; close leaves no card behind.
   The check counts only the card it shows, so a card with the same title from another AgentHost session is ignored.
-- **Verified on Windows.** The embedded C# compiled and ran under Windows PowerShell 5.1 for that run. Not yet
-  verified on Windows: the dock (windows-handoff step 2), the look of the cards against the Linux renderer, and
-  screenshot suppression.
+- **Verified on Windows.** The embedded C# compiled and ran under Windows PowerShell 5.1 (both smoke runs). Not yet
+  verified on Windows: the look of the cards against the Linux renderer, and the rail layout.
 
 ## Windows packaging (W4)
 

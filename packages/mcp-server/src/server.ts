@@ -325,17 +325,18 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const requestedRenderer = config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto";
   // Opt-in Windows overlay (WPF, AGENTHOST_WINDOWS_OVERLAY=1). Every other platform and mode keeps the renderer factory.
   const windowsOverlay = describeDesktopPlatform().os === "windows" && windowsOverlayEnabled(process.env) && (requestedRenderer === "auto" || requestedRenderer === "gtk3-native");
-  const overlay = new VisualSurfaceCoordinator(options.overlayRenderer ?? (windowsOverlay ? new WindowsOverlayRenderer({ agentHostDir: config.agentHostDir, sessionId }) : createOverlayRenderer(requestedRenderer, {
+  const overlayVisual = {
+    layout: config.overlay?.layout ?? "dock",
+    dockSide: config.overlay?.dockSide ?? "right",
+    dockWidthPercent: config.overlay?.dockWidthPercent ?? 18,
+    dockReserveSpace: config.overlay?.dockReserveSpace ?? true,
+    allowSyntheticControl: config.overlay?.allowSyntheticControl ?? false,
+    maxWidth: config.overlay?.maxWidth ?? 520
+  };
+  const overlay = new VisualSurfaceCoordinator(options.overlayRenderer ?? (windowsOverlay ? new WindowsOverlayRenderer({ agentHostDir: config.agentHostDir, sessionId, visual: overlayVisual }) : createOverlayRenderer(requestedRenderer, {
     sessionId,
     inputGuardPath: inputGuardPath(config.agentHostDir),
-    visual: {
-      layout: config.overlay?.layout ?? "dock",
-      dockSide: config.overlay?.dockSide ?? "right",
-      dockWidthPercent: config.overlay?.dockWidthPercent ?? 18,
-      dockReserveSpace: config.overlay?.dockReserveSpace ?? true,
-      allowSyntheticControl: config.overlay?.allowSyntheticControl ?? false,
-      maxWidth: config.overlay?.maxWidth ?? 520
-    }
+    visual: overlayVisual
   })), { sessionId }, { reducedMotion: config.overlay?.reducedMotion ?? false });
   let taskActivity: TaskActivityOverlay | undefined;
   // Injected Linux automation means a test or embedded host; never drive the real desktop then.

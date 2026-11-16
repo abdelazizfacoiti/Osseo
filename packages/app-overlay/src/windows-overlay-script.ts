@@ -8,7 +8,8 @@
  * button the event reached, so a press is real only if the same button saw a real press and a real release.
  * Keyboard activation, touch, UI Automation's Invoke and the agent's own clicks never pass that check.
  *
- * Not yet run on a real Windows machine: scripts\windows-overlay-smoke.mjs is the first test. The C# must
+ * Checked on Windows 11 with scripts\windows-overlay-smoke.mjs (cards and the guard) and scripts\windows-dock-smoke.mjs
+ * (the dock strip). The C# must
  * stay C# 5 (Windows PowerShell 5.1 compiles it with Add-Type): no string interpolation, no "?.", no
  * expression-bodied members. The text must not contain a backtick or the characters dollar-brace.
  */
@@ -48,6 +49,27 @@ namespace AgentHostOverlay
         public IntPtr ExtraInfo;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NativeRect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    // APPBARDATA, for SHAppBarMessage (the dock's reserved strip).
+    [StructLayout(LayoutKind.Sequential)]
+    public struct AppBarData
+    {
+        public int cbSize;
+        public IntPtr hWnd;
+        public uint uCallbackMessage;
+        public uint uEdge;
+        public NativeRect rc;
+        public IntPtr lParam;
+    }
+
     public static class Native
     {
         public const int WhMouseLl = 14;
@@ -59,6 +81,12 @@ namespace AgentHostOverlay
         public const int WsExTransparent = 0x00000020;
         public const int WsExToolWindow = 0x00000080;
         public const int WsExNoActivate = 0x08000000;
+        public const uint AbmNew = 0;
+        public const uint AbmRemove = 1;
+        public const uint AbmQueryPos = 2;
+        public const uint AbmSetPos = 3;
+        public const uint AbeLeft = 0;
+        public const uint AbeRight = 2;
 
         [DllImport("user32.dll", SetLastError = true)]
         public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
@@ -77,6 +105,12 @@ namespace AgentHostOverlay
 
         [DllImport("user32.dll")]
         public static extern int SetWindowLong(IntPtr hWnd, int index, int value);
+
+        [DllImport("shell32.dll")]
+        public static extern IntPtr SHAppBarMessage(uint message, ref AppBarData data);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern uint RegisterWindowMessage(string text);
     }
 
     // The hook sees every left-button event and whether Windows marks it injected. Only a press that is
@@ -135,6 +169,7 @@ namespace AgentHostOverlay
         public bool Interactive;
         public List<string> AllowedEvents = new List<string>();
         public Window Window;
+        public Border Frame;
         public int Sequence;
         public string CreatedAt = "";
         public string UpdatedAt = "";
@@ -149,6 +184,15 @@ namespace AgentHostOverlay
         const double Margin = 16;
         const double Gap = 8;
         const double OffscreenPosition = -20000;
+        // The dock: the same numbers as the Linux renderer (CARD_MARGIN, dock_layout), in WPF units.
+        const double DockMargin = 24;
+        const double DockMinWidth = 160;
+        const double DockMaxCard = 420;
+        const double DockMinTimeline = 96;
+        const double DockMinBottom = 64;
+        const double DockBottomShare = 0.45;
+        const int DockReleaseMs = 2000;
+        const string TimelinePrefix = "agenthost-timeline-";
 
         static readonly string[] Commands = new string[] { "hello", "capabilities", "show", "update", "dismiss", "clear", "emergency_hide", "state", "events", "close" };
         static readonly string[] Placements = new string[] { "top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right" };
@@ -156,7 +200,8 @@ namespace AgentHostOverlay
             "Primitives such as rings, pointers, highlights and pills are not drawn.",
             "Cards are placed on the primary display only.",
             "Buttons act only on a real mouse press. Keyboard, touch, UI Automation and injected input are refused.",
-            "Cards without buttons pass clicks through."
+            "Cards without buttons pass clicks through.",
+            "The rail layout is not drawn on Windows: its cards float over the work area."
         };
         static readonly Brush Ink = Rgb(238, 242, 250);
         static readonly Brush Muted = Rgb(160, 172, 196);
@@ -178,6 +223,17 @@ namespace AgentHostOverlay
         static int sequence;
         static bool emergencyHidden;
         static bool guardReady;
+        static string layoutMode = "ambient";
+        static string dockSide = "right";
+        static int dockPercent = 18;
+        static bool dockReserve = true;
+        static Window dockOwner;
+        static Window dockPanel;
+        static bool dockRegistered;
+        static uint dockCallback;
+        static Rect dockRect;
+        static DispatcherTimer dockRelease;
+        static readonly Brush StripFill = Rgb(14, 17, 26);
 
         public static void Start()
         {
@@ -269,6 +325,7 @@ namespace AgentHostOverlay
                 return;
             }
             rendererEpoch = epoch;
+            ReadVisual(payload);
             if (!guardReady) guardReady = PressGuard.Install();
             Dictionary<string, object> data = new Dictionary<string, object>();
             data["protocolVersion"] = Version;
@@ -342,6 +399,11 @@ namespace AgentHostOverlay
                 card.CreatedAt = Now();
             }
             UIElement content = BuildContent(card, body);
+            if (IsDockCard(card))
+            {
+                EnsureDock();
+                content = DockScroll(content);
+            }
             card.UpdatedAt = Now();
             if (card.Window == null) card.Window = NewWindow();
             card.Window.Content = content;
@@ -381,6 +443,7 @@ namespace AgentHostOverlay
         static void EmergencyHide(string id)
         {
             foreach (Card card in new List<Card>(Order)) RemoveCard(card);
+            ReleaseDockNow();
             emergencyHidden = true;
             Reply(id, true, Ack("emergency_hide", "emergency_hidden", null, "wpf_emergency_hidden", id), null);
         }
@@ -388,6 +451,7 @@ namespace AgentHostOverlay
         static void Shutdown()
         {
             foreach (Card card in new List<Card>(Order)) RemoveCard(card);
+            ReleaseDockNow();
             PressGuard.Remove();
             if (dispatcher != null) dispatcher.InvokeShutdown();
         }
@@ -400,6 +464,7 @@ namespace AgentHostOverlay
             card.Window = null;
             if (window != null) window.Close();
             Reposition();
+            if (DockCardCount() == 0) ScheduleDockRelease();
         }
 
         static void Emit(Card card, string eventName)
@@ -587,10 +652,15 @@ namespace AgentHostOverlay
 
         static void ApplyWindowStyle(Card card)
         {
-            IntPtr hwnd = new WindowInteropHelper(card.Window).EnsureHandle();
+            ApplyFlags(card.Window, card.Interactive);
+        }
+
+        static void ApplyFlags(Window window, bool interactive)
+        {
+            IntPtr hwnd = new WindowInteropHelper(window).EnsureHandle();
             int style = Native.GetWindowLong(hwnd, Native.GwlExStyle);
             style |= Native.WsExToolWindow | Native.WsExNoActivate;
-            if (card.Interactive) style &= ~Native.WsExTransparent;
+            if (interactive) style &= ~Native.WsExTransparent;
             else style |= Native.WsExTransparent;
             Native.SetWindowLong(hwnd, Native.GwlExStyle, style);
         }
@@ -601,7 +671,7 @@ namespace AgentHostOverlay
             Dictionary<string, double> used = new Dictionary<string, double>();
             foreach (Card card in Order)
             {
-                if (card.Window == null || !card.Window.IsVisible) continue;
+                if (card.Window == null || !card.Window.IsVisible || IsDockCard(card)) continue;
                 card.Window.UpdateLayout();
                 double width = card.Window.ActualWidth > 0 ? card.Window.ActualWidth : CardWidth;
                 double height = card.Window.ActualHeight;
@@ -615,6 +685,282 @@ namespace AgentHostOverlay
                 card.Window.Left = left;
                 card.Window.Top = top;
                 used[card.Placement] = offset + height + Gap;
+            }
+            LayoutDock();
+        }
+
+        // ---- Dock ----------------------------------------------------------------------------------------------
+        // layout "dock" (the default): a strip on the chosen edge that reserves work area with the shell, like the
+        // taskbar, so maximized windows end at its edge. The timeline card sits at its top, bottom cards stack up
+        // from its floor, and the strip is released when its last card goes. Other cards float as before.
+
+        static bool DockActive()
+        {
+            return layoutMode == "dock";
+        }
+
+        static bool IsTimelineCard(Card card)
+        {
+            return card.OverlayId.StartsWith(TimelinePrefix, StringComparison.Ordinal);
+        }
+
+        static bool IsDockCard(Card card)
+        {
+            return DockActive() && (IsTimelineCard(card) || card.Placement.StartsWith("bottom_", StringComparison.Ordinal));
+        }
+
+        static int DockCardCount()
+        {
+            int count = 0;
+            foreach (Card card in Order)
+            {
+                if (card.Window != null && IsDockCard(card)) count += 1;
+            }
+            return count;
+        }
+
+        static void ReadVisual(Dictionary<string, object> payload)
+        {
+            Dictionary<string, object> visual = Dict(payload, "visual");
+            if (visual == null) return;
+            string layout = Str(visual, "layout");
+            if (layout == "dock" || layout == "ambient" || layout == "rail") layoutMode = layout;
+            string side = Str(visual, "dockSide");
+            if (side == "left" || side == "right") dockSide = side;
+            int percent = Int(visual, "dockWidthPercent", dockPercent);
+            if (percent >= 10 && percent <= 40) dockPercent = percent;
+            object reserve;
+            if (visual.TryGetValue("dockReserveSpace", out reserve) && reserve is bool) dockReserve = (bool)reserve;
+        }
+
+        static void EnsureDockOwner()
+        {
+            if (dockOwner != null) return;
+            dockOwner = new Window();
+            dockOwner.Title = "AgentHost dock owner";
+            dockOwner.WindowStyle = WindowStyle.None;
+            dockOwner.ShowInTaskbar = false;
+            dockOwner.ShowActivated = false;
+            dockOwner.Focusable = false;
+            dockOwner.ResizeMode = ResizeMode.NoResize;
+            dockOwner.Width = 1;
+            dockOwner.Height = 1;
+            dockOwner.Left = OffscreenPosition;
+            dockOwner.Top = OffscreenPosition;
+            dockOwner.Show();
+            ApplyFlags(dockOwner, false);
+            dockCallback = Native.RegisterWindowMessage("AgentHostDockCallback");
+        }
+
+        // Device pixels per WPF unit. A DPI-unaware process reports 1, and the shell virtualizes its coordinates
+        // too, so the strip and the work area stay in the same units either way.
+        static double DeviceScale(Visual visual)
+        {
+            PresentationSource source = PresentationSource.FromVisual(visual);
+            if (source == null || source.CompositionTarget == null) return 1.0;
+            return source.CompositionTarget.TransformToDevice.M11;
+        }
+
+        static void ReserveDock(double width)
+        {
+            EnsureDockOwner();
+            bool right = dockSide != "left";
+            double scale = DeviceScale(dockOwner);
+            double screenWidth = SystemParameters.PrimaryScreenWidth;
+            double screenHeight = SystemParameters.PrimaryScreenHeight;
+            int widthPixels = (int)Math.Round(width * scale);
+            AppBarData data = new AppBarData();
+            data.cbSize = Marshal.SizeOf(typeof(AppBarData));
+            data.hWnd = new WindowInteropHelper(dockOwner).Handle;
+            data.uCallbackMessage = dockCallback;
+            Native.SHAppBarMessage(Native.AbmNew, ref data);
+            data.uEdge = right ? Native.AbeRight : Native.AbeLeft;
+            // The full height of the primary display: the shell trims it to the work area in QUERYPOS (the taskbar).
+            data.rc.Left = right ? (int)Math.Round((screenWidth - width) * scale) : 0;
+            data.rc.Top = 0;
+            data.rc.Right = right ? (int)Math.Round(screenWidth * scale) : widthPixels;
+            data.rc.Bottom = (int)Math.Round(screenHeight * scale);
+            Native.SHAppBarMessage(Native.AbmQueryPos, ref data);
+            if (right) data.rc.Left = data.rc.Right - widthPixels;
+            else data.rc.Right = data.rc.Left + widthPixels;
+            Native.SHAppBarMessage(Native.AbmSetPos, ref data);
+            dockRect = new Rect(data.rc.Left / scale, data.rc.Top / scale, (data.rc.Right - data.rc.Left) / scale, (data.rc.Bottom - data.rc.Top) / scale);
+            dockRegistered = true;
+        }
+
+        // Shows the strip and its panel. Called before a dock card is shown, so the strip exists only while it has cards.
+        static void EnsureDock()
+        {
+            CancelDockRelease();
+            double screenWidth = SystemParameters.PrimaryScreenWidth;
+            double width = Math.Min(screenWidth, Math.Max(240, Math.Round(screenWidth * dockPercent / 100.0)));
+            if (dockReserve)
+            {
+                if (!dockRegistered) ReserveDock(width);
+            }
+            else
+            {
+                Rect area = SystemParameters.WorkArea;
+                dockRect = new Rect(dockSide == "left" ? area.Left : area.Right - width, area.Top, width, area.Height);
+            }
+            if (dockPanel == null)
+            {
+                dockPanel = new Window();
+                dockPanel.Title = "AgentHost dock";
+                dockPanel.WindowStyle = WindowStyle.None;
+                dockPanel.ShowInTaskbar = false;
+                dockPanel.ShowActivated = false;
+                dockPanel.Focusable = false;
+                dockPanel.ResizeMode = ResizeMode.NoResize;
+                dockPanel.Topmost = true;
+                Border panel = new Border();
+                panel.Background = StripFill;
+                dockPanel.Content = panel;
+            }
+            dockPanel.Left = dockRect.Left;
+            dockPanel.Top = dockRect.Top;
+            dockPanel.Width = dockRect.Width;
+            dockPanel.Height = dockRect.Height;
+            if (!dockPanel.IsVisible)
+            {
+                dockPanel.Show();
+                ApplyFlags(dockPanel, false);
+            }
+        }
+
+        // Hides the panel at once and releases the reservation after a short grace period. Screenshot suppression
+        // clears the cards and shows them again a moment later; without the grace period every capture would resize
+        // every maximized window twice.
+        static void ScheduleDockRelease()
+        {
+            if (dockPanel == null && !dockRegistered) return;
+            if (dockRelease == null)
+            {
+                dockRelease = new DispatcherTimer();
+                dockRelease.Interval = TimeSpan.FromMilliseconds(DockReleaseMs);
+                dockRelease.Tick += delegate(object sender, EventArgs e)
+                {
+                    dockRelease.Stop();
+                    if (DockCardCount() == 0) ReleaseDockNow();
+                };
+            }
+            dockRelease.Stop();
+            dockRelease.Start();
+            if (dockPanel != null && dockPanel.IsVisible) dockPanel.Hide();
+        }
+
+        static void CancelDockRelease()
+        {
+            if (dockRelease != null) dockRelease.Stop();
+        }
+
+        static void ReleaseDockNow()
+        {
+            CancelDockRelease();
+            if (dockRegistered && dockOwner != null)
+            {
+                AppBarData data = new AppBarData();
+                data.cbSize = Marshal.SizeOf(typeof(AppBarData));
+                data.hWnd = new WindowInteropHelper(dockOwner).Handle;
+                Native.SHAppBarMessage(Native.AbmRemove, ref data);
+            }
+            dockRegistered = false;
+            if (dockPanel != null)
+            {
+                dockPanel.Close();
+                dockPanel = null;
+            }
+            if (dockOwner != null)
+            {
+                dockOwner.Close();
+                dockOwner = null;
+            }
+        }
+
+        static UIElement DockScroll(UIElement content)
+        {
+            ScrollViewer scroll = new ScrollViewer();
+            scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
+            scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            scroll.Content = content;
+            return scroll;
+        }
+
+        static double Natural(Card card, double width)
+        {
+            if (card.Frame == null) return 0;
+            card.Frame.Measure(new Size(width, double.PositiveInfinity));
+            return card.Frame.DesiredSize.Height;
+        }
+
+        static void PlaceDockCard(Card card, double x, double y, double width, double height)
+        {
+            card.Window.SizeToContent = SizeToContent.Manual;
+            card.Window.Width = width;
+            card.Window.Height = height;
+            card.Window.Left = x;
+            card.Window.Top = y;
+        }
+
+        // Places the timeline at the top and the bottom cards from the floor, as the Linux dock_layout does.
+        static void LayoutDock()
+        {
+            Card timeline = null;
+            List<Card> bottom = new List<Card>();
+            foreach (Card card in Order)
+            {
+                if (card.Window == null || !card.Window.IsVisible || !IsDockCard(card)) continue;
+                if (timeline == null && IsTimelineCard(card)) timeline = card;
+                else bottom.Add(card);
+            }
+            if (timeline == null && bottom.Count == 0) return;
+            double width = Math.Max(DockMinWidth, dockRect.Width - 2 * DockMargin);
+            double timelineWanted = timeline == null ? 0 : Natural(timeline, width);
+            double[] wanted = new double[bottom.Count];
+            for (int i = 0; i < bottom.Count; i++) wanted[i] = Math.Min(Natural(bottom[i], width), DockMaxCard);
+            double timelineHeight;
+            double[] tops;
+            double[] heights;
+            DockLayout(dockRect.Height, timelineWanted, wanted, out timelineHeight, out tops, out heights);
+            double x = dockRect.Left + DockMargin;
+            for (int i = 0; i < bottom.Count; i++) PlaceDockCard(bottom[i], x, dockRect.Top + tops[i], width, heights[i]);
+            if (timeline != null) PlaceDockCard(timeline, x, dockRect.Top + DockMargin, width, timelineHeight);
+        }
+
+        // A port of overlay_geometry.dock_layout (packages/app-overlay/runtime/overlay_geometry.py). Keep the two equal.
+        static void DockLayout(double areaHeight, double timelineWanted, double[] wanted, out double timeline, out double[] tops, out double[] heights)
+        {
+            double usable = Math.Max(1, areaHeight - 2 * DockMargin);
+            bool hasTimeline = timelineWanted > 0;
+            double budget = usable;
+            if (hasTimeline)
+            {
+                double spare = usable - Math.Min(timelineWanted, usable) - DockMargin;
+                budget = Math.Min(Math.Max(areaHeight * DockBottomShare, spare), usable - DockMargin - DockMinTimeline);
+            }
+            int count = wanted.Length;
+            tops = new double[count];
+            heights = new double[count];
+            double floor = areaHeight - DockMargin;
+            double remaining = budget;
+            for (int i = 0; i < count; i++)
+            {
+                int later = count - i - 1;
+                double available = remaining - later * (DockMinBottom + DockMargin);
+                double height = Math.Max(DockMinBottom, Math.Min(wanted[i], available));
+                floor -= height;
+                heights[i] = height;
+                tops[i] = Math.Max(DockMargin, floor);
+                floor -= DockMargin;
+                remaining -= height + DockMargin;
+            }
+            timeline = 0;
+            if (hasTimeline)
+            {
+                double used = DockMargin * Math.Max(0, count - 1);
+                for (int i = 0; i < count; i++) used += heights[i];
+                double room = usable - used - (count > 0 ? DockMargin : 0);
+                timeline = Math.Max(DockMinTimeline, Math.Min(timelineWanted, room));
             }
         }
 
@@ -649,6 +995,7 @@ namespace AgentHostOverlay
             frame.CornerRadius = new CornerRadius(12);
             frame.Padding = new Thickness(14);
             frame.Child = stack;
+            card.Frame = frame;
             return frame;
         }
 
