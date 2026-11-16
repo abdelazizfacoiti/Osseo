@@ -1,6 +1,7 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { codexNotifyLine, codexNotifyAdd, codexNotifyRemove, codexNotifyState } from "./codex-notify.js";
 
 export const INTEGRATION_TARGETS = ["opencode", "claude", "codex", "copilot", "copilot-cli", "cursor"] as const;
@@ -19,12 +20,30 @@ export interface IntegrationPaths {
   platform?: NodeJS.Platform;
 }
 
+/** Whether a command is on PATH. On Windows the file has a PATHEXT extension (claude.exe, agenthost.cmd). */
+export function commandOnPath(command: string, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env): boolean {
+  const names = platform === "win32"
+    ? [command, ...(env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((ext) => ext !== "").map((ext) => `${command}${ext.toLowerCase()}`)]
+    : [command];
+  return (env.PATH ?? "").split(path.delimiter).some((dir) => dir !== "" && names.some((name) => existsSync(path.join(dir, name))));
+}
+
+/** The CLI this copy runs from: the release's bin wrapper (it sets the release root) or the built CLI in a checkout. */
+function cliEntry(): string {
+  const wrapper = fileURLToPath(new URL("../../../bin/agenthost.mjs", import.meta.url));
+  if (existsSync(wrapper)) return wrapper;
+  return fileURLToPath(new URL("./index.js", import.meta.url));
+}
+
 /**
  * How a client starts the server. On Windows `agenthost` is a .cmd file, and clients that launch the
  * program directly (without a shell) cannot run a .cmd by its bare name, so the entry goes through cmd.exe.
+ * With no `agenthost` on PATH (a checkout, or a terminal opened before the install), this copy runs under node.
  */
-export function serverCommand(platform: NodeJS.Platform = process.platform): { command: string; args: string[] } {
-  return platform === "win32" ? { command: "cmd", args: ["/c", "agenthost", "start"] } : { command: "agenthost", args: ["start"] };
+export function serverCommand(platform: NodeJS.Platform = process.platform, onPath: (command: string) => boolean = (command) => commandOnPath(command, platform)): { command: string; args: string[] } {
+  if (platform !== "win32") return { command: "agenthost", args: ["start"] };
+  if (onPath("agenthost")) return { command: "cmd", args: ["/c", "agenthost", "start"] };
+  return { command: process.execPath, args: [cliEntry(), "start"] };
 }
 
 /** The Codex `notify` key that raises the terminal when a turn ends. */
@@ -178,11 +197,19 @@ function isMcpServerEntry(command: unknown, args: unknown[]): boolean {
   return entry !== undefined && /mcp-server[\\/]dist[\\/]index\.js$/iu.test(entry);
 }
 
+/** `node <this CLI or its release wrapper> start`: the form serverCommand writes when there is no agenthost on PATH. */
+function isNodeCliStart(command: unknown, args: unknown[]): boolean {
+  if (typeof command !== "string") return false;
+  if (path.win32.basename(command).replace(/\.exe$/iu, "").toLowerCase() !== "node") return false;
+  const entry = args.find((arg): arg is string => typeof arg === "string" && !arg.startsWith("-"));
+  return entry !== undefined && /(agenthost-cli[\\/](dist|src)[\\/]index\.js|bin[\\/]agenthost\.mjs)$/iu.test(entry) && args.includes("start");
+}
+
 function isAgentHostEntry(entry: unknown): boolean {
   if (!isObject(entry) || entry.enabled === false) return false;
   if (typeof entry.command === "string") {
     const args = Array.isArray(entry.args) ? entry.args : [];
-    return isStartCommand(entry.command, args) || isMcpServerEntry(entry.command, args);
+    return isStartCommand(entry.command, args) || isMcpServerEntry(entry.command, args) || isNodeCliStart(entry.command, args);
   }
   if (Array.isArray(entry.command)) {
     const [command, ...args] = entry.command;

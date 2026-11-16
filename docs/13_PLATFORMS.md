@@ -90,8 +90,12 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
   with bounds; a synthetic click on Stop is refused; a real click on Stop is accepted
   (`emergency_stop_requested`); the state lists the card; dismiss removes it; close leaves no card behind.
   The check counts only the card it shows, so a card with the same title from another AgentHost session is ignored.
+- **Card look.** Timeline rows show a state glyph (green check for done, blue dot for running, amber circle for waiting,
+  red cross for failed), the label in bold with the detail under it, and the time at the right. Status badges are
+  tinted pills, key/value rows have a fixed key column, and cards use the Linux gradient and edge. Checked by eye on
+  the dock screenshot (2026-11-16), not by a pixel comparison with Linux.
 - **Verified on Windows.** The embedded C# compiled and ran under Windows PowerShell 5.1 (both smoke runs). Not yet
-  verified on Windows: the look of the cards against the Linux renderer, and the rail layout.
+  verified on Windows: the rail layout (not drawn on Windows).
 
 ## Windows browser (the agent's own Chrome)
 

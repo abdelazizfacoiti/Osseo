@@ -19,7 +19,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const rootPackage = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const lock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
 const version = rootPackage.version;
-if (process.platform !== "linux" || process.arch !== "x64") throw new Error("release_target_requires_linux_x64");
+// --stage-only builds the platform-neutral stage (the JavaScript, docs and production modules) without the Linux
+// tarball. The Windows zip is built from that stage on Windows (npm run release:build:windows).
+const stageOnly = process.argv.includes("--stage-only");
+if ((process.platform !== "linux" || process.arch !== "x64") && !stageOnly) throw new Error("release_target_requires_linux_x64");
 if (rootPackage.license !== PROJECT_LICENSE) throw new Error("release_project_license_invalid");
 for (const legalFile of LEGAL_FILES) {
   if (!(await stat(path.join(root, legalFile)).then((value) => value.isFile()).catch(() => false))) {
@@ -27,7 +30,8 @@ for (const legalFile of LEGAL_FILES) {
   }
 }
 const expectedNotices = renderThirdPartyNotices(productionDependencyInventory(lock));
-if (await readFile(path.join(root, "THIRD_PARTY_NOTICES"), "utf8") !== expectedNotices) {
+// A Windows checkout may hold CRLF line endings for this LF file; compare the text, not the line endings.
+if ((await readFile(path.join(root, "THIRD_PARTY_NOTICES"), "utf8")).replace(/\r\n/g, "\n") !== expectedNotices) {
   throw new Error("release_third_party_notices_stale");
 }
 const releaseRoot = path.join(root, "release");
@@ -117,6 +121,10 @@ await writeFile(path.join(stage, "version.json"), JSON.stringify(manifest, null,
 const treeFailures = await validateReleaseTree(stage, manifest);
 if (treeFailures.length > 0) {
   throw new Error(`release_tree_invalid:${treeFailures.join(",")}`);
+}
+if (stageOnly) {
+  console.log(JSON.stringify({ stage, version, fileCount: inventory.files.length, stageOnly: true }, null, 2));
+  process.exit(0);
 }
 await mkdir(releaseRoot, { recursive: true });
 const archive = path.join(releaseRoot, `agenthost-v${version}-linux-x64.tar.gz`);

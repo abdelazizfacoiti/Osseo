@@ -234,6 +234,9 @@ namespace AgentHostOverlay
         static Rect dockRect;
         static DispatcherTimer dockRelease;
         static readonly Brush StripFill = Rgb(14, 17, 26);
+        // The Linux card: a gradient from (24,28,39) to (13,16,24) with a faint blue edge.
+        static readonly Brush CardFill = CardGradient();
+        static readonly Brush CardEdge = Tint(126, 156, 210, 89);
 
         public static void Start()
         {
@@ -989,10 +992,10 @@ namespace AgentHostOverlay
             card.Interactive = wantInteractive && buttons > 0;
 
             Border frame = new Border();
-            frame.Background = Surface;
+            frame.Background = CardFill;
             frame.BorderBrush = BorderFor(Str(style, "semantic"));
             frame.BorderThickness = new Thickness(1);
-            frame.CornerRadius = new CornerRadius(12);
+            frame.CornerRadius = new CornerRadius(16);
             frame.Padding = new Thickness(14);
             frame.Child = stack;
             card.Frame = frame;
@@ -1007,12 +1010,12 @@ namespace AgentHostOverlay
             else if (type == "warning") stack.Children.Add(Text(Clip(Str(c, "text"), 1000), 13, true, Amber));
             else if (type == "divider") stack.Children.Add(RuleLine());
             else if (type == "icon") stack.Children.Add(Text(IconGlyph(Str(c, "token")), 13, true, Ink));
-            else if (type == "status_badge") stack.Children.Add(Text("[" + Clip(Str(c, "status"), 20) + "] " + Clip(Str(c, "text"), 300), 13, true, BrushFor(Str(c, "status"))));
+            else if (type == "status_badge") stack.Children.Add(StatusBadge(Str(c, "status"), Clip(Str(c, "text"), 300)));
             else if (type == "progress") AddProgress(stack, c);
             else if (type == "spinner") stack.Children.Add(Text("... " + Clip(Str(c, "label") ?? "working", 200), 13, false, Muted));
             else if (type == "checklist") AddChecklist(stack, c);
             else if (type == "timeline") AddTimeline(stack, c);
-            else if (type == "key_value") stack.Children.Add(Text(Clip(Str(c, "key"), 200) + ": " + Clip(Str(c, "value"), 500), 13, false, Ink));
+            else if (type == "key_value") stack.Children.Add(KeyValue(Clip(Str(c, "key"), 200), Clip(Str(c, "value"), 500)));
             else if (type == "comparison") stack.Children.Add(Text(Clip(Str(c, "before"), 500) + "  ->  " + Clip(Str(c, "after"), 500), 13, false, Ink));
             else if (type == "image_reference") stack.Children.Add(Text("[image: " + Clip(Str(c, "alt"), 200) + "]", 12, false, Muted));
             else if (type == "button" || type == "choice") return AddButton(footer, c, card, wantInteractive);
@@ -1076,19 +1079,126 @@ namespace AgentHostOverlay
             }
         }
 
+        // A timeline row as on Linux: a state glyph, the label bold with the detail dim under it, and the time at the right.
         static void AddTimeline(StackPanel stack, Dictionary<string, object> c)
         {
             foreach (object raw in Items(c, "entries"))
             {
                 Dictionary<string, object> entry = raw as Dictionary<string, object>;
                 if (entry == null) continue;
-                string line = "[" + Clip(Str(entry, "state"), 20) + "] " + Clip(Str(entry, "label"), 300);
-                string time = Str(entry, "time");
+                string state = Clip(Str(entry, "state"), 20);
+                Grid row = new Grid();
+                ColumnDefinition markerColumn = new ColumnDefinition();
+                markerColumn.Width = new GridLength(18);
+                ColumnDefinition bodyColumn = new ColumnDefinition();
+                bodyColumn.Width = new GridLength(1, GridUnitType.Star);
+                ColumnDefinition timeColumn = new ColumnDefinition();
+                timeColumn.Width = GridLength.Auto;
+                row.ColumnDefinitions.Add(markerColumn);
+                row.ColumnDefinitions.Add(bodyColumn);
+                row.ColumnDefinitions.Add(timeColumn);
+                TextBlock marker = Text(TimelineGlyph(state), 12, true, TimelineBrush(state));
+                Grid.SetColumn(marker, 0);
+                StackPanel body = new StackPanel();
+                body.Children.Add(Text(Clip(Str(entry, "label"), 300), 12, true, Ink));
                 string detail = Str(entry, "detail");
-                if (time != null) line += " (" + Clip(time, 40) + ")";
-                if (detail != null) line += " - " + Clip(detail, 300);
-                stack.Children.Add(Text(line, 12, false, Muted));
+                if (detail != null) body.Children.Add(Text(Clip(detail, 300), 11, false, Muted));
+                Grid.SetColumn(body, 1);
+                row.Children.Add(marker);
+                row.Children.Add(body);
+                string time = Str(entry, "time");
+                if (time != null)
+                {
+                    TextBlock stamp = Text(Clip(time, 40), 11, false, Muted);
+                    Grid.SetColumn(stamp, 2);
+                    row.Children.Add(stamp);
+                }
+                stack.Children.Add(row);
             }
+        }
+
+        static string TimelineGlyph(string state)
+        {
+            if (state == "done") return "\u2713";
+            if (state == "running") return "\u25CF";
+            if (state == "failed") return "\u2715";
+            return "\u25CB";
+        }
+
+        static Brush TimelineBrush(string state)
+        {
+            if (state == "done") return Green;
+            if (state == "running") return Blue;
+            if (state == "failed") return Red;
+            if (state == "waiting") return Amber;
+            return Muted;
+        }
+
+        static Brush Tint(byte r, byte g, byte b, byte a)
+        {
+            SolidColorBrush brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
+            brush.Freeze();
+            return brush;
+        }
+
+        static Brush CardGradient()
+        {
+            LinearGradientBrush brush = new LinearGradientBrush(Color.FromRgb(24, 28, 39), Color.FromRgb(13, 16, 24), new Point(0, 0), new Point(1, 1));
+            brush.Freeze();
+            return brush;
+        }
+
+        // A status badge as on Linux: a rounded pill tinted by its status. Unknown statuses are neutral.
+        static UIElement StatusBadge(string status, string text)
+        {
+            string key = status == "info" || status == "success" || status == "warning" || status == "danger" ? status : "neutral";
+            Border badge = new Border();
+            badge.CornerRadius = new CornerRadius(10);
+            badge.Padding = new Thickness(10, 2, 10, 2);
+            badge.Margin = new Thickness(0, 0, 0, 6);
+            badge.HorizontalAlignment = HorizontalAlignment.Left;
+            badge.Background = BadgeFill(key);
+            TextBlock block = Text(text ?? "", 12, true, BadgeInk(key));
+            block.Margin = new Thickness(0);
+            badge.Child = block;
+            return badge;
+        }
+
+        static Brush BadgeFill(string key)
+        {
+            if (key == "info") return Tint(59, 130, 246, 51);
+            if (key == "success") return Tint(52, 211, 153, 46);
+            if (key == "warning") return Tint(245, 184, 64, 46);
+            if (key == "danger") return Tint(248, 113, 113, 46);
+            return Tint(148, 163, 184, 41);
+        }
+
+        static Brush BadgeInk(string key)
+        {
+            if (key == "info") return Rgb(156, 194, 255);
+            if (key == "success") return Rgb(142, 240, 194);
+            if (key == "warning") return Rgb(255, 213, 138);
+            if (key == "danger") return Rgb(255, 173, 173);
+            return Rgb(203, 213, 225);
+        }
+
+        // A key/value row as on Linux: the key dim in a fixed column, the value bold.
+        static UIElement KeyValue(string key, string value)
+        {
+            Grid grid = new Grid();
+            ColumnDefinition keyColumn = new ColumnDefinition();
+            keyColumn.Width = new GridLength(96);
+            ColumnDefinition valueColumn = new ColumnDefinition();
+            valueColumn.Width = new GridLength(1, GridUnitType.Star);
+            grid.ColumnDefinitions.Add(keyColumn);
+            grid.ColumnDefinitions.Add(valueColumn);
+            TextBlock keyBlock = Text(key ?? "", 12, false, Muted);
+            TextBlock valueBlock = Text(value ?? "", 13, true, Ink);
+            Grid.SetColumn(keyBlock, 0);
+            Grid.SetColumn(valueBlock, 1);
+            grid.Children.Add(keyBlock);
+            grid.Children.Add(valueBlock);
+            return grid;
         }
 
         static TextBlock Text(string text, double size, bool bold, Brush brush)
@@ -1136,7 +1246,7 @@ namespace AgentHostOverlay
             if (semantic == "danger") return Red;
             if (semantic == "success") return Green;
             if (semantic == "info") return Blue;
-            return Neutral;
+            return CardEdge;
         }
     }
 

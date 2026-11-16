@@ -29,7 +29,7 @@ import { installLayout } from "./install-layout.js";
 import { rollbackJunctionRelease } from "./junction-release.js";
 import { updateFromZip } from "./update-zip.js";
 import { windowsScheduleAdd, windowsScheduleList, windowsScheduleRemove, type SchtasksRunner } from "./windows-schedule.js";
-import { INTEGRATION_TARGETS, integrationAdd, integrationRemove, integrationStatus, publicIntegrationReport, type IntegrationAction, type IntegrationPaths, type IntegrationTarget } from "./integrations.js";
+import { INTEGRATION_TARGETS, commandOnPath, integrationAdd, integrationRemove, integrationStatus, publicIntegrationReport, type IntegrationAction, type IntegrationPaths, type IntegrationTarget } from "./integrations.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const home = os.homedir();
@@ -61,13 +61,7 @@ function redact(value: unknown): unknown {
   return value;
 }
 /** Looks the program up on PATH without starting it (some clients open a window even for --version). */
-/** On Windows a command is a file with a PATHEXT extension (claude.exe, agenthost.cmd); elsewhere the bare name. */
-function onPath(command: string): boolean {
-  const names = process.platform === "win32"
-    ? [command, ...(process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";").filter((ext) => ext !== "").map((ext) => `${command}${ext.toLowerCase()}`)]
-    : [command];
-  return (process.env.PATH ?? "").split(path.delimiter).some((dir) => dir !== "" && names.some((name) => existsSync(path.join(dir, name))));
-}
+function onPath(command: string): boolean { return commandOnPath(command); }
 function commandExists(command: string): boolean { return spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0; }
 function pythonModuleExists(expression: string): boolean { return spawnSync("python3", ["-c", expression], { stdio: "ignore" }).status === 0; }
 async function probeMcp(entry: string): Promise<{ started: boolean; handshake: boolean; reason?: string }> {

@@ -56,8 +56,9 @@ try {
     architecture: "x64",
     requires: { node: ">=20" },
     limitations: [
-      "Not yet run on a real Windows machine.",
-      "Windows desktop control uses a PowerShell helper; accessibility tools and the visible overlay are not available yet."
+      "Checked on Windows 11 Pro (desktop helper, headless tools, browser, overlay guard and dock) only. Other Windows versions are not checked.",
+      "The visible overlay is opt-in (overlay.windows or AGENTHOST_WINDOWS_OVERLAY=1). The rail layout is not drawn on Windows.",
+      "The release is built from the platform-neutral stage (npm run release:build -- --stage-only); the Linux tarball is still built on Linux."
     ],
     files: inventory.files
   };
