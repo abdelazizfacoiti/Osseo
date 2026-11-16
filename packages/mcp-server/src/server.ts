@@ -104,7 +104,7 @@ import {
   createPortalDesktop,
   shouldUseWaylandPortal
 } from "@agenthost/os-linux";
-import { WindowsHelperProcess, createWindowsDesktop } from "@agenthost/os-windows";
+import { WindowsHelperProcess, createWindowsDesktop, openWindowsUrl } from "@agenthost/os-windows";
 import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator, WindowsOverlayRenderer, windowsOverlayEnabled, type OverlayRenderer } from "@agenthost/app-overlay";
 import type { AgentHostMcpContext, LinuxAutomation } from "./context.js";
 import { createDesktopTools } from "./tools/desktop.js";
@@ -483,7 +483,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     ? new PortalSession()
     : undefined;
   const linux: LinuxAutomation = windowsHelper !== undefined
-    ? { ...baseLinux, ...createWindowsDesktop(windowsHelper) }
+    // xdg-open does not exist on Windows: the default browser opens through the shell's own handler.
+    ? { ...baseLinux, ...createWindowsDesktop(windowsHelper), openUrl: (input) => openWindowsUrl(input) }
     : waylandPortal === undefined ? baseLinux : { ...baseLinux, ...createPortalDesktop(waylandPortal) };
   const serverModulePath = fileURLToPath(import.meta.url);
   const runtime = {
