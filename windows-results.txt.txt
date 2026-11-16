@@ -1,0 +1,289 @@
+PS C:\Users\Imqn\Desktop\AgentHost> powershell -ExecutionPolicy Bypass -File .\scripts\windows-check.ps1
+AgentHost Windows check (W1, headless)
+Windows: Microsoft Windows NT 10.0.26200.0
+PowerShell: 5.1.26100.9444
+Folder: C:\Users\Imqn\Desktop\AgentHost
+
+== Node 20 or newer
+node v26.13.1
+PASS: Node 20 or newer
+
+== npm ci
+
+added 151 packages in 9s
+npm warn install-scripts 1 package had install scripts blocked because they are not covered by allowScripts:
+npm warn install-scripts   esbuild@0.28.1 (postinstall: node install.js)
+npm warn install-scripts
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+PASS: npm ci
+
+== npm run build
+npm notice run agenthost@0.1.0 build
+npm notice run tsc -b
+PASS: npm run build
+
+== npm run lint
+npm notice run agenthost@0.1.0 lint
+npm notice run tsc -b --pretty false
+PASS: npm run lint
+
+== npm run test:windows (unit tests for the Windows path)
+npm notice run agenthost@0.1.0 test:windows
+npm notice run vitest run packages/core/src/__tests__/safety-windows.test.ts packages/core/src/__tests__/private-directory.test.ts packages/core/src/__tests__/workflow-expect.test.ts packages/core/src/__tests__/capabilities.test.ts packages/os-linux/src/__tests__/windows-helpers.test.ts packages/mcp-server/src/__tests__/lean-output.test.ts packages/mcp-server/src/__tests__/screen-read.test.ts packages/mcp-server/src/__tests__/screenshot-registry.test.ts packages/mcp-server/src/__tests__/set-field.test.ts packages/mcp-server/src/__tests__/label-target.test.ts packages/os-windows/src/__tests__/keys.test.ts packages/os-windows/src/__tests__/desktop.test.ts packages/os-windows/src/__tests__/helper.test.ts packages/os-windows/src/__tests__/uia.test.ts packages/mcp-server/src/__tests__/windows-accessibility.test.ts packages/core/src/__tests__/platform.test.ts packages/agenthost-cli/src/__tests__/zip.test.ts packages/agenthost-cli/src/__tests__/install-layout.test.ts packages/agenthost-cli/src/__tests__/update-zip.test.ts packages/agenthost-cli/src/__tests__/windows-schedule.test.ts packages/agenthost-cli/src/__tests__/integrations-windows.test.ts packages/agenthost-cli/src/__tests__/install-ps1.test.ts
+
+ RUN  v3.2.7 C:/Users/Imqn/Desktop/AgentHost
+
+ ✓ packages/agenthost-cli/src/__tests__/integrations-windows.test.ts (8 tests) 189ms
+ ✓ packages/agenthost-cli/src/__tests__/update-zip.test.ts (6 tests) 391ms
+ ✓ packages/core/src/__tests__/safety-windows.test.ts (17 tests) 74ms
+ ✓ packages/agenthost-cli/src/__tests__/windows-schedule.test.ts (7 tests) 35ms
+ ✓ packages/os-windows/src/__tests__/uia.test.ts (25 tests) 51ms
+ ✓ packages/os-windows/src/__tests__/desktop.test.ts (14 tests) 76ms
+ ✓ packages/mcp-server/src/__tests__/label-target.test.ts (14 tests) 35ms
+ ✓ packages/agenthost-cli/src/__tests__/zip.test.ts (6 tests) 54ms
+ ✓ packages/mcp-server/src/__tests__/windows-accessibility.test.ts (4 tests) 19ms
+ ✓ packages/mcp-server/src/__tests__/lean-output.test.ts (6 tests) 15ms
+ ✓ packages/os-linux/src/__tests__/windows-helpers.test.ts (9 tests) 20ms
+ ✓ packages/mcp-server/src/__tests__/screenshot-registry.test.ts (10 tests) 21ms
+ ✓ packages/core/src/__tests__/private-directory.test.ts (3 tests | 1 skipped) 27ms
+ ✓ packages/core/src/__tests__/capabilities.test.ts (5 tests) 11ms
+ ✓ packages/os-windows/src/__tests__/helper.test.ts (10 tests) 1781ms
+   ✓ WindowsHelperProcess > times out a request that is never answered  412ms
+   ✓ WindowsHelperProcess > rejects pending requests when the process dies, then restarts on the next request  521ms
+ ✓ packages/agenthost-cli/src/__tests__/install-layout.test.ts (4 tests) 15ms
+ ✓ packages/mcp-server/src/__tests__/screen-read.test.ts (5 tests) 13ms
+ ✓ packages/core/src/__tests__/platform.test.ts (2 tests) 9ms
+ ✓ packages/core/src/__tests__/workflow-expect.test.ts (3 tests) 10ms
+ ✓ packages/mcp-server/src/__tests__/set-field.test.ts (11 tests) 20ms
+ ✓ packages/os-windows/src/__tests__/keys.test.ts (3 tests) 11ms
+ ✓ packages/agenthost-cli/src/__tests__/install-ps1.test.ts (4 tests) 11271ms
+   ✓ scripts/install.ps1 > parses with PowerShell  11266ms
+
+ Test Files  22 passed (22)
+      Tests  175 passed | 1 skipped (176)
+   Start at  20:14:31
+   Duration  17.65s (transform 4.75s, setup 0ms, collect 15.24s, tests 14.15s, environment 10ms, prepare 6.96s)
+
+PASS: npm run test:windows (unit tests for the Windows path)
+
+== node scripts/windows-smoke.mjs (server over stdio, files, shell, browser, tasks)
+AgentHost headless check on win32 x64, Node v26.13.1
+PASS  server starts and answers initialize  (agenthost 0.1.0)
+PASS  tools are registered  (89 tools)
+PASS  system.get_info reports this platform  (win32)
+PASS  agent.status carries provenance  (version 0.1.0)
+PASS  files: write and read back inside AgentHost home
+PASS  protected system file is refused or needs approval  (confirmation_required)
+PASS  credential folder (.ssh) is blocked  (safety_blocked)
+PASS  shell: a harmless lookup runs  (exit 0)
+PASS  shell: a PowerShell/sh wrapper asks first and is not run  (confirmation_required)
+PASS  shell: a delete asks first and is not run  (confirmation_required)
+PASS  browser: headless Chrome or Edge opens a page
+PASS  tasks: create and read back  (task_4f75f07b-1035-4fcd-8252-e6985611692f)
+
+Summary: 12 passed, 0 failed, 0 notes, 0 skipped
+PASS: node scripts/windows-smoke.mjs (server over stdio, files, shell, browser, tasks)
+
+== scripts\install.ps1 -DryRun (Windows PowerShell 5.1; changes nothing)
+Dry run. Nothing will be changed.
+Archive: https://github.com/abdelazizfacoiti/AgentHost/releases/latest/download/agenthost-win-x64.zip
+Check SHA-256 against: https://github.com/abdelazizfacoiti/AgentHost/releases/latest/download/agenthost-win-x64.zip.sha256
+Install to: C:\Users\Imqn\AppData\Local\AgentHost\current
+Write launchers: C:\Users\Imqn\AppData\Local\AgentHost\bin\agenthost.cmd and C:\Users\Imqn\AppData\Local\AgentHost\bin\agenthost
+Add to the user Path when missing: C:\Users\Imqn\AppData\Local\AgentHost\bin
+PASS: scripts\install.ps1 -DryRun (Windows PowerShell 5.1; changes nothing)
+
+RESULT: PASSED (all steps)
+PS C:\Users\Imqn\Desktop\AgentHost> powershell -ExecutionPolicy Bypass -File .\scripts\windows-check.ps1 -SkipInstall
+AgentHost Windows check (W1, headless)
+Windows: Microsoft Windows NT 10.0.26200.0
+PowerShell: 5.1.26100.9444
+Folder: C:\Users\Imqn\Desktop\AgentHost
+
+== Node 20 or newer
+node v26.13.1
+PASS: Node 20 or newer
+
+== npm run build
+npm notice run agenthost@0.1.0 build
+npm notice run tsc -b
+PASS: npm run build
+
+== npm run lint
+npm notice run agenthost@0.1.0 lint
+npm notice run tsc -b --pretty false
+PASS: npm run lint
+
+== npm run test:windows (unit tests for the Windows path)
+npm notice run agenthost@0.1.0 test:windows
+npm notice run vitest run packages/core/src/__tests__/safety-windows.test.ts packages/core/src/__tests__/private-directory.test.ts packages/core/src/__tests__/workflow-expect.test.ts packages/core/src/__tests__/capabilities.test.ts packages/os-linux/src/__tests__/windows-helpers.test.ts packages/mcp-server/src/__tests__/lean-output.test.ts packages/mcp-server/src/__tests__/screen-read.test.ts packages/mcp-server/src/__tests__/screenshot-registry.test.ts packages/mcp-server/src/__tests__/set-field.test.ts packages/mcp-server/src/__tests__/label-target.test.ts packages/os-windows/src/__tests__/keys.test.ts packages/os-windows/src/__tests__/desktop.test.ts packages/os-windows/src/__tests__/helper.test.ts packages/os-windows/src/__tests__/uia.test.ts packages/mcp-server/src/__tests__/windows-accessibility.test.ts packages/core/src/__tests__/platform.test.ts packages/agenthost-cli/src/__tests__/zip.test.ts packages/agenthost-cli/src/__tests__/install-layout.test.ts packages/agenthost-cli/src/__tests__/update-zip.test.ts packages/agenthost-cli/src/__tests__/windows-schedule.test.ts packages/agenthost-cli/src/__tests__/integrations-windows.test.ts packages/agenthost-cli/src/__tests__/install-ps1.test.ts
+
+ RUN  v3.2.7 C:/Users/Imqn/Desktop/AgentHost
+
+ ✓ packages/agenthost-cli/src/__tests__/zip.test.ts (6 tests) 47ms
+ ✓ packages/agenthost-cli/src/__tests__/integrations-windows.test.ts (8 tests) 225ms
+ ✓ packages/agenthost-cli/src/__tests__/update-zip.test.ts (6 tests) 596ms
+ ✓ packages/os-windows/src/__tests__/desktop.test.ts (14 tests) 75ms
+ ✓ packages/os-windows/src/__tests__/uia.test.ts (25 tests) 53ms
+ ✓ packages/agenthost-cli/src/__tests__/windows-schedule.test.ts (7 tests) 34ms
+ ✓ packages/core/src/__tests__/safety-windows.test.ts (17 tests) 83ms
+ ✓ packages/core/src/__tests__/private-directory.test.ts (3 tests | 1 skipped) 36ms
+ ✓ packages/mcp-server/src/__tests__/screenshot-registry.test.ts (10 tests) 21ms
+ ✓ packages/mcp-server/src/__tests__/label-target.test.ts (14 tests) 31ms
+ ✓ packages/agenthost-cli/src/__tests__/install-ps1.test.ts (4 tests) 1352ms
+   ✓ scripts/install.ps1 > parses with PowerShell  1342ms
+ ✓ packages/os-linux/src/__tests__/windows-helpers.test.ts (9 tests) 20ms
+ ✓ packages/os-windows/src/__tests__/helper.test.ts (10 tests) 1746ms
+   ✓ WindowsHelperProcess > times out a request that is never answered  477ms
+   ✓ WindowsHelperProcess > rejects pending requests when the process dies, then restarts on the next request  474ms
+ ✓ packages/mcp-server/src/__tests__/lean-output.test.ts (6 tests) 13ms
+ ✓ packages/mcp-server/src/__tests__/windows-accessibility.test.ts (4 tests) 21ms
+ ✓ packages/agenthost-cli/src/__tests__/install-layout.test.ts (4 tests) 12ms
+ ✓ packages/os-windows/src/__tests__/keys.test.ts (3 tests) 12ms
+ ✓ packages/mcp-server/src/__tests__/screen-read.test.ts (5 tests) 12ms
+ ✓ packages/mcp-server/src/__tests__/set-field.test.ts (11 tests) 18ms
+ ✓ packages/core/src/__tests__/capabilities.test.ts (5 tests) 13ms
+ ✓ packages/core/src/__tests__/workflow-expect.test.ts (3 tests) 11ms
+ ✓ packages/core/src/__tests__/platform.test.ts (2 tests) 8ms
+
+ Test Files  22 passed (22)
+      Tests  175 passed | 1 skipped (176)
+   Start at  20:15:43
+   Duration  4.95s (transform 4.25s, setup 0ms, collect 11.65s, tests 4.44s, environment 9ms, prepare 5.38s)
+
+PASS: npm run test:windows (unit tests for the Windows path)
+
+== node scripts/windows-smoke.mjs (server over stdio, files, shell, browser, tasks)
+AgentHost headless check on win32 x64, Node v26.13.1
+PASS  server starts and answers initialize  (agenthost 0.1.0)
+PASS  tools are registered  (89 tools)
+PASS  system.get_info reports this platform  (win32)
+PASS  agent.status carries provenance  (version 0.1.0)
+PASS  files: write and read back inside AgentHost home
+PASS  protected system file is refused or needs approval  (confirmation_required)
+PASS  credential folder (.ssh) is blocked  (safety_blocked)
+PASS  shell: a harmless lookup runs  (exit 0)
+PASS  shell: a PowerShell/sh wrapper asks first and is not run  (confirmation_required)
+PASS  shell: a delete asks first and is not run  (confirmation_required)
+PASS  browser: headless Chrome or Edge opens a page
+PASS  tasks: create and read back  (task_9606dc67-3d96-41a1-a119-fb2bd0c02bfb)
+
+Summary: 12 passed, 0 failed, 0 notes, 0 skipped
+PASS: node scripts/windows-smoke.mjs (server over stdio, files, shell, browser, tasks)
+
+== scripts\install.ps1 -DryRun (Windows PowerShell 5.1; changes nothing)
+Dry run. Nothing will be changed.
+Archive: https://github.com/abdelazizfacoiti/AgentHost/releases/latest/download/agenthost-win-x64.zip
+Check SHA-256 against: https://github.com/abdelazizfacoiti/AgentHost/releases/latest/download/agenthost-win-x64.zip.sha256
+Install to: C:\Users\Imqn\AppData\Local\AgentHost\current
+Write launchers: C:\Users\Imqn\AppData\Local\AgentHost\bin\agenthost.cmd and C:\Users\Imqn\AppData\Local\AgentHost\bin\agenthost
+Add to the user Path when missing: C:\Users\Imqn\AppData\Local\AgentHost\bin
+PASS: scripts\install.ps1 -DryRun (Windows PowerShell 5.1; changes nothing)
+
+RESULT: PASSED (all steps)
+PS C:\Users\Imqn\Desktop\AgentHost>
+
+
+PS C:\Users\Imqn\Desktop\AgentHost> powershell -ExecutionPolicy Bypass -File .\scripts\windows-desktop-check.ps1
+AgentHost Windows desktop check (W2)
+Windows: Microsoft Windows NT 10.0.26200.0
+PowerShell: 5.1.26100.9444
+Folder: C:\Users\Imqn\Desktop\AgentHost
+
+== npm ci
+
+added 151 packages in 5s
+npm warn install-scripts 1 package had install scripts blocked because they are not covered by allowScripts:
+npm warn install-scripts   esbuild@0.28.1 (postinstall: node install.js)
+npm warn install-scripts
+npm warn install-scripts Run `npm install-scripts ls` to review, or `npm install-scripts approve <pkg>` to allow.
+PASS: npm ci
+
+== npm run build
+npm notice run agenthost@0.1.0 build
+npm notice run tsc -b
+PASS: npm run build
+
+== npm run test:windows (unit tests for the Windows path)
+npm notice run agenthost@0.1.0 test:windows
+npm notice run vitest run packages/core/src/__tests__/safety-windows.test.ts packages/core/src/__tests__/private-directory.test.ts packages/core/src/__tests__/workflow-expect.test.ts packages/core/src/__tests__/capabilities.test.ts packages/os-linux/src/__tests__/windows-helpers.test.ts packages/mcp-server/src/__tests__/lean-output.test.ts packages/mcp-server/src/__tests__/screen-read.test.ts packages/mcp-server/src/__tests__/screenshot-registry.test.ts packages/mcp-server/src/__tests__/set-field.test.ts packages/mcp-server/src/__tests__/label-target.test.ts packages/os-windows/src/__tests__/keys.test.ts packages/os-windows/src/__tests__/desktop.test.ts packages/os-windows/src/__tests__/helper.test.ts packages/os-windows/src/__tests__/uia.test.ts packages/mcp-server/src/__tests__/windows-accessibility.test.ts packages/core/src/__tests__/platform.test.ts packages/agenthost-cli/src/__tests__/zip.test.ts packages/agenthost-cli/src/__tests__/install-layout.test.ts packages/agenthost-cli/src/__tests__/update-zip.test.ts packages/agenthost-cli/src/__tests__/windows-schedule.test.ts packages/agenthost-cli/src/__tests__/integrations-windows.test.ts packages/agenthost-cli/src/__tests__/install-ps1.test.ts
+
+ RUN  v3.2.7 C:/Users/Imqn/Desktop/AgentHost
+
+ ✓ packages/agenthost-cli/src/__tests__/integrations-windows.test.ts (8 tests) 188ms
+ ✓ packages/agenthost-cli/src/__tests__/update-zip.test.ts (6 tests) 390ms
+ ✓ packages/core/src/__tests__/safety-windows.test.ts (17 tests) 42ms
+ ✓ packages/os-windows/src/__tests__/desktop.test.ts (14 tests) 61ms
+ ✓ packages/os-windows/src/__tests__/uia.test.ts (25 tests) 47ms
+ ✓ packages/mcp-server/src/__tests__/label-target.test.ts (14 tests) 39ms
+ ✓ packages/agenthost-cli/src/__tests__/windows-schedule.test.ts (7 tests) 28ms
+ ✓ packages/mcp-server/src/__tests__/windows-accessibility.test.ts (4 tests) 23ms
+ ✓ packages/agenthost-cli/src/__tests__/zip.test.ts (6 tests) 53ms
+ ✓ packages/mcp-server/src/__tests__/lean-output.test.ts (6 tests) 17ms
+ ✓ packages/os-linux/src/__tests__/windows-helpers.test.ts (9 tests) 19ms
+ ✓ packages/mcp-server/src/__tests__/screenshot-registry.test.ts (10 tests) 23ms
+ ✓ packages/core/src/__tests__/private-directory.test.ts (3 tests | 1 skipped) 30ms
+ ✓ packages/core/src/__tests__/capabilities.test.ts (5 tests) 14ms
+ ✓ packages/os-windows/src/__tests__/helper.test.ts (10 tests) 1803ms
+   ✓ WindowsHelperProcess > times out a request that is never answered  410ms
+   ✓ WindowsHelperProcess > rejects pending requests when the process dies, then restarts on the next request  527ms
+ ✓ packages/agenthost-cli/src/__tests__/install-layout.test.ts (4 tests) 14ms
+ ✓ packages/mcp-server/src/__tests__/screen-read.test.ts (5 tests) 12ms
+ ✓ packages/mcp-server/src/__tests__/set-field.test.ts (11 tests) 19ms
+ ✓ packages/core/src/__tests__/platform.test.ts (2 tests) 10ms
+ ✓ packages/core/src/__tests__/workflow-expect.test.ts (3 tests) 9ms
+ ✓ packages/os-windows/src/__tests__/keys.test.ts (3 tests) 9ms
+ ✓ packages/agenthost-cli/src/__tests__/install-ps1.test.ts (4 tests) 888ms
+   ✓ scripts/install.ps1 > parses with PowerShell  884ms
+
+ Test Files  22 passed (22)
+      Tests  175 passed | 1 skipped (176)
+   Start at  20:24:17
+   Duration  6.51s (transform 4.04s, setup 0ms, collect 12.74s, tests 3.74s, environment 8ms, prepare 8.17s)
+
+PASS: npm run test:windows (unit tests for the Windows path)
+
+== node scripts/windows-desktop-smoke.mjs (helper, windows, screenshots, clipboard, test window)
+AgentHost Windows desktop check, Node v26.13.1, 10.0.26200
+PASS  helper starts and answers (PowerShell compiled the C# class)
+NOTE  helper start-up  (1402 ms)
+PASS  the foreground window is read
+PASS  windows are listed with ids and bounds
+PASS  the screen geometry is read
+PASS  a full-screen PNG screenshot is written
+PASS  a half-size JPEG of the active window is written
+PASS  the clipboard round trip works
+PASS  the test window appears in the window list
+PASS  the test window is focused by id
+PASS  the helper reports UI Automation as available
+PASS  uia.tree lists the Save button
+PASS  uia.tree marks the password box sensitive and carries no text for it
+PASS  uia.tree also works by process id
+PASS  uia.find finds Save with bounds inside the window
+PASS  uia.find by pid finds the Probe button
+PASS  uia.activate invokes the Probe button
+PASS  the form shows that Probe was invoked (it wrote its file)
+PASS  uia.setText fills the Name box
+PASS  uia.getText reads it back exactly
+PASS  the field read-back used by set_field sees the same text
+PASS  uia.setText refuses the password box
+PASS  uia.getText never returns the password
+PASS  an unknown control is reported as not found, not as an error
+PASS  a click is delivered to the test window
+PASS  text is pasted
+NOTE  foreground window before ctrl+a  ({"windowId":"1050130","title":"AgentHost Check Window","expected":"1050130"})
+PASS  a hotkey (ctrl+a) is sent
+NOTE  keys the test text box received  (ControlKey ctrl=True shift=False | V ctrl=True shift=False | ControlKey ctrl=True shift=False | A ctrl=True shift=False)
+PASS  the text box received Ctrl+A (the key reached the control)
+PASS  unicode text is pasted
+FAIL  the box holds exactly the unicode text (the old text was selected and replaced)  (box holds "uia text éèwrong textAgentHost W2 check éè ✓")
+PASS  the Save button is clicked
+FAIL  the text box held exactly the pasted text (click, paste, select-all all landed)  (got "uia text éèwrong textAgentHost W2 check éè ✓")
+PASS  the prior clipboard text came back after pasting
+NOTE  elevated windows are not tested  (run again with --elevated-probe to check the refusal)
+
+Summary: 30 passed, 2 failed, 4 notes, 0 skipped
+FAIL: node scripts/windows-desktop-smoke.mjs (helper, windows, screenshots, clipboard, test window) (exit code 1)
+
+RESULT: FAILED (1 step(s) failed)
+PS C:\Users\Imqn\Desktop\AgentHost>
