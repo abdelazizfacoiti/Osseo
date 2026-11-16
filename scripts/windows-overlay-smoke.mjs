@@ -64,9 +64,12 @@ const card = {
   }
 };
 
+// Another AgentHost process (the MCP server of a running session) draws cards with the same title. Only a window
+// that appeared after this run's snapshot is this run's card.
+let titledBefore = null;
 async function cardWindow() {
   const listed = await desktop.listWindows({ limit: 200, includeTitles: true });
-  return listed.windows.find((window) => window.title === CARD_TITLE);
+  return listed.windows.find((window) => window.title === CARD_TITLE && (titledBefore === null || !titledBefore.has(window.windowId)));
 }
 
 /** One line per node: depth, role, name, bounds. Printed when UI Automation does not find the Stop button. */
@@ -80,6 +83,8 @@ function treeLines(node, depth = 0, out = []) {
 
 try {
   const started = Date.now();
+  titledBefore = new Set((await desktop.listWindows({ limit: 200, includeTitles: true })).windows.filter((window) => window.title === CARD_TITLE).map((window) => window.windowId));
+  if (titledBefore.size > 0) record("NOTE", "AgentHost cards from another process are ignored by this check", `${titledBefore.size} window(s)`);
   // warmup() starts the process in the background and returns at once, so wait here until the start settles.
   await renderer.warmup();
   let report = await renderer.capabilities();
