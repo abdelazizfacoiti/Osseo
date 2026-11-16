@@ -52,7 +52,7 @@ JSON lines on stdin and stdout, like the GTK renderer on Linux. Nothing is insta
 
 ## Windows overlay (W3)
 
-Built, opt-in, and not yet run on a Windows machine. With `AGENTHOST_WINDOWS_OVERLAY=1` the server draws the
+Built and opt-in. The safety guard passed on Windows 11 Pro 10.0.26200 on 2026-11-16 (see Check it below). The dock, the look of the cards and screenshot suppression have not been run on Windows. With `AGENTHOST_WINDOWS_OVERLAY=1` the server draws the
 action, task and approval cards with WPF, in one Windows PowerShell process that speaks the same protocol as
 the Linux renderer. Without the variable nothing changes: the headless renderer runs, as before.
 
@@ -69,8 +69,14 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
   Windows.
 - **Check it.** After `npm run build`, run `node scripts\windows-overlay-smoke.mjs`. It asks for one real click
   on the test card's Stop button within 30 seconds, and it checks that a synthetic click is refused.
-- **Not verified.** The C# was checked with a syntax parser only. There is no C# compiler and no PowerShell
-  in the build environment, so the first Windows run decides whether it compiles and works.
+  Last run, Windows 11 Pro 10.0.26200, 2026-11-16: 10 passed, 0 failed, exit 0. The checks were: the process
+  starts and installs the mouse guard; the test card is shown and listed; UI Automation finds the Stop button
+  with bounds; a synthetic click on Stop is refused; a real click on Stop is accepted
+  (`emergency_stop_requested`); the state lists the card; dismiss removes it; close leaves no card behind.
+  The check counts only the card it shows, so a card with the same title from another AgentHost session is ignored.
+- **Verified on Windows.** The embedded C# compiled and ran under Windows PowerShell 5.1 for that run. Not yet
+  verified on Windows: the dock (windows-handoff step 2), the look of the cards against the Linux renderer, and
+  screenshot suppression.
 
 ## Windows packaging (W4)
 
