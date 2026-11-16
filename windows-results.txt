@@ -287,3 +287,48 @@ FAIL: node scripts/windows-desktop-smoke.mjs (helper, windows, screenshots, clip
 
 RESULT: FAILED (1 step(s) failed)
 PS C:\Users\Imqn\Desktop\AgentHost>
+
+********************
+agenthost logs
+Windows PowerShell
+Copyright (C) Microsoft Corporation. All rights reserved.
+
+PS C:\WINDOWS\system32> cd ..
+PS C:\WINDOWS> cd ..
+PS C:\> cd .\Users\
+PS C:\Users> cd .\Imqn\
+PS C:\Users\Imqn> cd .\Desktop\AgentHost\
+PS C:\Users\Imqn\Desktop\AgentHost> node -v
+v26.13.1
+PS C:\Users\Imqn\Desktop\AgentHost> node .\packages\agenthost-cli\dist\index.js show --last 30
+agenthost show: unknown_command
+PS C:\Users\Imqn\Desktop\AgentHost> node .\packages\agenthost-cli\dist\index.js failures show --last 30
+2026-11-16T20:32:28.936Z browser.snapshot browser_not_open (session_34899ba5) No browser page is open. Call browser.open first.
+    input: Read browser page
+    hint: No action was executed.
+2026-11-16T20:32:30.642Z browser.open browser_open_failed (session_34899ba5) connection_closed
+    input: Open browser at https://www.avito.ma/fr/maroc/voitures_d_occasion.
+    hint: connection_closed
+2026-11-16T20:32:47.876Z browser.navigate browser_not_open (session_2121c93c) No browser page is open. Call browser.open first.
+    input: Browser goto https://www.avito.ma/fr/maroc/voitures_d_occasion.
+    hint: No action was executed.
+2026-11-16T20:32:47.876Z browser.snapshot browser_not_open (session_2121c93c) No browser page is open. Call browser.open first.
+    input: Read browser page
+    hint: No action was executed.
+(4 of 4)
+PS C:\Users\Imqn\Desktop\AgentHost> node .\packages\agenthost-cli\dist\index.js failures show
+2026-11-16T20:32:28.936Z browser.snapshot browser_not_open (session_34899ba5) No browser page is open. Call browser.open first.
+    input: Read browser page
+    hint: No action was executed.
+2026-11-16T20:32:30.642Z browser.open browser_open_failed (session_34899ba5) connection_closed
+    input: Open browser at https://www.avito.ma/fr/maroc/voitures_d_occasion.
+    hint: connection_closed
+2026-11-16T20:32:47.876Z browser.navigate browser_not_open (session_2121c93c) No browser page is open. Call browser.open first.
+    input: Browser goto https://www.avito.ma/fr/maroc/voitures_d_occasion.
+    hint: No action was executed.
+2026-11-16T20:32:47.876Z browser.snapshot browser_not_open (session_2121c93c) No browser page is open. Call browser.open first.
+    input: Read browser page
+    hint: No action was executed.
+(4 of 4)
+PS C:\Users\Imqn\Desktop\AgentHost> claude mcp list
+agenthost: cmd /c agenthost start - √ Co
