@@ -588,11 +588,13 @@ async function setupDeps(args: ReturnType<typeof parseFlags>): Promise<Output> {
   return { ok: result.status === 0, command: "setup deps", data: { installed: result.status === 0, elevation: plan.elevation, stillMissing: missingAptPackages(after) }, ...(result.status === 0 ? {} : { error: "apt_install_failed_or_cancelled" }) };
 }
 async function doctor(): Promise<Output> {
-  const config = await configValidate(); const mcp = await probeMcp(mcpEntry()); const checks = { platform: process.platform === "linux", architecture: process.arch === "x64", node: Number(process.versions.node.split(".")[0]) >= 20, python: commandExists("python3"), x11: Boolean(process.env.DISPLAY), gtkProbe: pythonModuleExists("import gi; from gi.repository import Gtk"), mcpEntry: existsSync(mcpEntry()), mcpHandshake: mcp.handshake, codexConfig: existsSync(path.join(process.env.CODEX_HOME ?? path.join(home, ".codex"), "config.toml")), storage: existsSync(agentHome) };
+  const config = await configValidate(); const mcp = await probeMcp(mcpEntry()); const windows = process.platform === "win32";
+  // Linux-only checks are left out on Windows: they are not part of a Windows install.
+  const checks = { platform: process.platform === "linux" || windows, architecture: process.arch === "x64", node: Number(process.versions.node.split(".")[0]) >= 20, python: windows ? undefined : commandExists("python3"), x11: windows ? undefined : Boolean(process.env.DISPLAY), gtkProbe: windows ? undefined : pythonModuleExists("import gi; from gi.repository import Gtk"), mcpEntry: existsSync(mcpEntry()), mcpHandshake: mcp.handshake, codexConfig: existsSync(path.join(process.env.CODEX_HOME ?? path.join(home, ".codex"), "config.toml")), storage: existsSync(agentHome) };
   const desktopPlatform = describeDesktopPlatform();
-  const warnings = [!checks.architecture ? "x86_64 is the public RC target." : "", !checks.python ? "Install Python 3 for overlay diagnostics." : "", ...desktopPlatform.guidance].filter(Boolean);
+  const warnings = [!checks.architecture ? "x86_64 is the public RC target." : "", checks.python === false ? "Install Python 3 for overlay diagnostics." : "", ...desktopPlatform.guidance].filter(Boolean);
   if (!mcp.handshake) warnings.push(mcp.reason ?? "mcp_handshake_unavailable");
-  const desktopDependencies = await checkLinuxRequirements();
+  const desktopDependencies = windows ? [] : await checkLinuxRequirements();
   const missingPackages = missingAptPackages(desktopDependencies);
   if (missingPackages.length > 0) warnings.push(`Missing desktop tools (${desktopDependencies.filter((dependency) => !dependency.installed).map((dependency) => dependency.name).join(", ")}). Run: agenthost setup deps --apply (or sudo apt install ${missingPackages.join(" ")})`);
   return { ok: config.ok, command: "doctor", data: { version: AGENTHOST_VERSION, checks, desktopPlatform, desktopDependencies, config: config.ok ? "valid" : config.error, mcp, process: await status(), activity: (await readActivityStatus(agentHome)) ?? null, host: await hostDoctorLine(agentHome).catch(() => undefined), paths: { agentHostHome: "[agenthost-home]", config: "[config]", mcpEntry: "[installed-mcp-runtime]" } }, warnings };

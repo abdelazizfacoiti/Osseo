@@ -25,7 +25,7 @@ export function describeDesktopPlatform(input: { platform?: NodeJS.Platform; env
     return {
       os: "windows", session: "native-windows", control: "full",
       guidance: [
-        "Windows desktop control (windows, mouse, keyboard, screenshots, clipboard) and accessibility (ui.*, screen.read, label clicks, set_field read-back, through Windows UI Automation) run through a PowerShell helper. None of it has been verified on a real Windows machine yet: run scripts\\windows-desktop-check.ps1.",
+        "Windows desktop control (windows, mouse, keyboard, screenshots, clipboard) and accessibility (ui.*, screen.read, label clicks, set_field read-back, through Windows UI Automation) run through a PowerShell helper. Checked on Windows 11 Pro (2026-11-16): the desktop helper (scripts\\windows-desktop-check.ps1), the headless tools, the overlay guard and dock, and the agent's own Chrome. Other Windows versions are not checked.",
         "Windows that run as administrator reject input and UI Automation and are refused; UAC prompts and the lock screen cannot be automated; there is no OCR fallback for label clicks on Windows, so a control that exposes no UI Automation name needs a screenshot and coordinates."
       ]
     };

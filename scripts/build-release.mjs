@@ -63,6 +63,13 @@ await mkdir(path.join(stage, "node_modules", "@agenthost"), { recursive: true })
 for (const packageName of ["core", "os-linux", "os-windows", "app-overlay", "mcp-server"]) {
   const link = path.join(stage, "node_modules", "@agenthost", packageName);
   await rm(link, { recursive: true, force: true }).catch(() => undefined);
+  if (process.platform === "win32") {
+    // A Windows stage holds copies. A junction reads back as an absolute path, and the cleanup below removes
+    // absolute links, so the packages would vanish from the zip.
+    await copy(path.join(root, "packages", packageName, "dist"), path.join(link, "dist"));
+    await copy(path.join(root, "packages", packageName, "package.json"), path.join(link, "package.json"));
+    continue;
+  }
   await symlink(path.join("..", "..", "packages", packageName), link, "junction");
 }
 await pruneNonProductionPackages(stage, lock);

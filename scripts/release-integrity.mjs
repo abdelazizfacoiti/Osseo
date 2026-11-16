@@ -187,6 +187,11 @@ export async function validateReleaseTree(root, manifest, options = {}) {
 
 export async function pruneNonProductionPackages(stageRoot, lock) {
   const allowed = new Set(productionDependencyInventory(lock).map((record) => record.lockPath));
+  // This repo's own packages are npm "link" entries. The stage copies them on purpose (Windows) or links them (Linux),
+  // so they are kept; any other package outside the production inventory is still removed.
+  for (const [lockPath, record] of Object.entries(lock.packages ?? {})) {
+    if (record?.link === true && lockPath.startsWith("node_modules/@agenthost/")) allowed.add(lockPath);
+  }
   const nodeModules = path.join(stageRoot, "node_modules");
   async function walk(directory) {
     for (const entry of await readdir(directory, { withFileTypes: true }).catch(() => [])) {
