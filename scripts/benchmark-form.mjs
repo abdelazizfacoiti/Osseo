@@ -35,6 +35,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { startPrivateBus } from "./private-bus.mjs";
 
 // These scripts list and count tools, so they run the full tool list.
 process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
@@ -368,6 +369,8 @@ async function main() {
   }
   const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-form-bench-"));
   const results = [];
+  // Private session bus: the nested displays' accessibility services never touch the real AT-SPI socket.
+  const bus = startPrivateBus();
   try {
     results.push(await runPixelRoute("pixel-before", freeDisplay(131), pixelBefore, root));
     results.push(await runPixelRoute("pixel-after", freeDisplay(140), pixelAfter, root));
@@ -375,6 +378,7 @@ async function main() {
     results.push(await runPixelRoute("numbered", freeDisplay(149), numberedRoute, root));
   } finally {
     rmSync(root, { recursive: true, force: true });
+    bus.stop();
   }
 
   console.log("| route | calls | bytes | failed calls | misclicks | unverified | final state | seconds |");

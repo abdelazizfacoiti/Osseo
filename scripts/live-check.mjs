@@ -16,6 +16,9 @@
  *      task card. Closing the client's stdin must end the server and its card renderer;
  *      a killed server must take its renderer down too.
  *
+ * Everything it starts runs on its own private D-Bus session bus and runtime directory (private-bus.mjs), so
+ * the accessibility services of the nested displays never touch your real AT-SPI socket.
+ *
  * Needs: Xephyr, python3 with GTK 3 (PyGObject), Chrome or Chromium, and a host DISPLAY.
  * Set LIVE_CHECK_LAYOUT=fr to run the desktop checks on a French (AZERTY) keyboard layout.
  * It prints PASS or FAIL for each check and exits non-zero if anything failed.
@@ -25,6 +28,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { startPrivateBus } from "./private-bus.mjs";
 
 // These scripts list and count tools, so they run the full tool list.
 process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
@@ -702,8 +706,9 @@ async function numberedChecks(mcp, work) {
   check("a numbered click on Send asks first and sends nothing", asked.error === "confirmation_required", asked.error ?? "clicked");
 }
 
-// LIVE_CHECK_ONLY=numbered: only the numbered-action section, in headless Chrome, with no window opened.
-async function numberedOnly() {
+// The numbered-action section runs on its own server with no DISPLAY: the agent's browser page counts as the
+// active window only when there is no window system, and the desktop probe would otherwise be the active window.
+async function numberedSection() {
   const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-live-numbered-"));
   const home = path.join(root, "home");
   const work = path.join(root, "work");
@@ -723,6 +728,11 @@ async function numberedOnly() {
     await sleep(500);
     rmSync(root, { recursive: true, force: true });
   }
+}
+
+// LIVE_CHECK_ONLY=numbered: only the numbered-action section, in headless Chrome, with no window opened.
+async function numberedOnly() {
+  await numberedSection();
   const failed = results.filter((item) => !item.ok);
   console.log(`\n${results.length - failed.length} passed, ${failed.length} failed`);
   process.exitCode = failed.length === 0 ? 0 : 1;
@@ -741,6 +751,8 @@ async function main() {
     process.exitCode = 2;
     return;
   }
+  const bus = startPrivateBus();
+  if (bus.shared) console.log("(dbus-daemon not found: sharing your session bus, so a crashed run could leave AT-SPI services behind)");
   const chrome = ["google-chrome-stable", "google-chrome", "chromium-browser", "chromium"].some(hasCommand);
   const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-live-"));
   const home = path.join(root, "home");
@@ -790,7 +802,7 @@ async function main() {
     if (chrome) {
       console.log("== Browser (headless Chrome)");
       await browserChecks(mcp, work, env);
-      await numberedChecks(mcp, work);
+      await numberedSection();
     } else {
       console.log("== Browser: SKIPPED (no Chrome or Chromium found)");
     }
@@ -811,6 +823,7 @@ async function main() {
     } catch {
       /* Chrome may still be flushing its profile; the temp folder is harmless. */
     }
+    bus.stop();
   }
   const failed = results.filter((item) => !item.ok);
   console.log(`\n${results.length - failed.length} passed, ${failed.length} failed`);
