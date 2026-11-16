@@ -66,3 +66,41 @@ Session summary
 Verification
    - Read the file back after writing it.
    - Commit hash: see git log for this commit.
+
+Overlay check (2026-11-16, after the session above)
+
+Question: the tester did not see the overlay. Is AGENTHOST_WINDOWS_OVERLAY set to 1?
+
+Findings
+   - claude mcp get agenthost: Status Connected, Environment AGENTHOST_WINDOWS_OVERLAY=1.
+   - Code: packages/mcp-server/src/server.ts:327 enables the Windows overlay when the
+     platform is Windows, AGENTHOST_WINDOWS_OVERLAY === "1", and the renderer mode is
+     auto or gtk3-native (the default). packages/app-overlay/src/windows-renderer.ts:23.
+   - The MCP server running at the time (PID 14460) started at 21:19:15, before the
+     env var was added. Claude Code reads MCP config only at startup, so that server
+     ran without the setting. Fix: quit and restart Claude Code.
+   - ~/.agenthost/run/activity.json, recorded 21:23:44 by the earlier server:
+       overlay.started true, overlay.visible false, error overlay_not_visible.
+     That record predates the env var; it came from the GTK path, not the Windows overlay.
+   - ~/.agenthost/config.json had a UTF-8 byte-order mark from PowerShell Set-Content,
+     which stopped the server at start. Rewritten without the BOM; overlay.mode is "always".
+
+Smoke test: node scripts/windows-overlay-smoke.mjs with AGENTHOST_WINDOWS_OVERLAY=1
+   - PASS  the overlay process starts and installs the mouse guard
+   - NOTE  overlay start-up 1301 ms
+   - PASS  the test card is shown
+   - PASS  the card window is in the window list
+   - FAIL  UI Automation finds the Stop button with bounds
+           (windows-uia, candidates: [], "Found 0 UI Automation match(es).")
+   - PASS  state lists the card as visible
+   - PASS  dismiss acknowledges the card
+   - PASS  the card window is gone after dismiss
+   - PASS  close leaves no card window behind
+   Summary: 7 passed, 1 failed, 1 note, 0 skipped. Exit code 1.
+
+Open
+   - Restart Claude Code, then run one AgentHost action (for example see) and confirm
+     the card appears on screen.
+   - Investigate why UI Automation does not find the card's Stop button.
+   - The overlay draws cards only during actions. overlay.mode "always" controls which
+     actions trigger a card, not whether the overlay is on.
