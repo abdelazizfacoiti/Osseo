@@ -77,10 +77,10 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
   process dies. `dockReserveSpace: false` draws the strip without reserving space. `rail` is not drawn on Windows,
   so its cards float.
 - **Check the dock.** `node scripts\windows-dock-smoke.mjs` needs no click. Last run on Windows 11 Pro 10.0.26200 at
-  150% scale, 2026-11-16: 15 passed, 0 failed, exit 0. The work area shrinks by the strip (360 device pixels of
+  150% scale, 2026-11-16: 17 passed, 0 failed, exit 0. The work area shrinks by the strip (360 device pixels of
   1920) while the cards are up; the strip and the three dock cards lie inside it; a maximized window ends at its
   edge; dismiss, killing the overlay process, emergency hide and close each give the work area back; a clear keeps
-  the reservation through the grace period. The maximized window is a test form, not Chrome.
+  the reservation through the grace period. The maximized window is a test form, and the agent's own Chrome is maximized too; both end at the strip.
 - **Screenshots** clear the cards around each capture, the same suppression as on Linux. The strip keeps its
   reservation through the clear. Not yet checked with a picture of a full display taken under the strip.
 - **Check it.** After `npm run build`, run `node scripts\windows-overlay-smoke.mjs`. It asks for one real click

@@ -18,6 +18,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -25,6 +26,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const APP_OVERLAY = path.join(REPO, "packages", "app-overlay", "dist", "index.js");
 const OS_WINDOWS = path.join(REPO, "packages", "os-windows", "dist", "index.js");
+const OS_LINUX = path.join(REPO, "packages", "os-linux", "dist", "index.js");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const counts = { PASS: 0, FAIL: 0, SKIP: 0, NOTE: 0 };
 const record = (status, name, detail = "") => {
@@ -44,6 +46,7 @@ if (!existsSync(APP_OVERLAY) || !existsSync(OS_WINDOWS)) {
 
 const { WindowsOverlayRenderer } = await import(pathToFileURL(APP_OVERLAY).href);
 const { createWindowsDesktop, WindowsHelperProcess } = await import(pathToFileURL(OS_WINDOWS).href);
+const { BrowserSession } = await import(pathToFileURL(OS_LINUX).href);
 
 const DOCK = { layout: "dock", dockSide: "right", dockWidthPercent: 18, dockReserveSpace: true };
 const CARD_TITLE = "AgentHost overlay";
@@ -124,6 +127,12 @@ const task = (overlayId, title) => ({
   }
 });
 
+/** Maximizes a window by its handle (SW_MAXIMIZE = 3): the shell then fits it to the work area, which the strip reserves. */
+function maximizeWindow(windowId) {
+  const script = `Add-Type -Namespace AgentHostSmoke -Name Win -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"user32.dll\")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);'; [void][AgentHostSmoke.Win]::ShowWindow([IntPtr][long]${windowId}, 3)`;
+  spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
+}
+
 /** Kills the overlay process this check started (a child of this process). Returns how many were stopped. */
 function killOverlayChild() {
   // $PID excludes this query's own PowerShell, whose command line also contains the script name.
@@ -184,6 +193,31 @@ try {
     }
     form.kill();
     check("a maximized window ends at the strip's edge", formBounds !== undefined && Math.abs(formBounds.x + formBounds.width - stripLeft) <= 2 && Math.abs(formBounds.y - before.work.y) <= 2, formBounds === undefined ? "the test window did not appear" : `window ${rectText(formBounds)}, strip starts at ${stripLeft}`);
+
+    // The agent's own Chrome, maximized, must end at the strip too (the handoff's acceptance for task 2).
+    const page = http.createServer((request, response) => {
+      response.setHeader("content-type", "text/html; charset=utf-8");
+      response.end("<title>Dock check page</title><h1>Dock check page</h1>");
+    });
+    await new Promise((resolve) => page.listen(0, "127.0.0.1", resolve));
+    const chrome = new BrowserSession({ agentHostDir: homes[0] });
+    try {
+      const opened = await chrome.open({ url: `http://127.0.0.1:${page.address().port}/`, headless: false });
+      check("the agent's Chrome opens for the dock check", opened.opened === true, opened.reason ?? "");
+      let chromeWindow;
+      const chromeDeadline = Date.now() + 20_000;
+      while (chromeWindow === undefined && Date.now() < chromeDeadline) {
+        await sleep(300);
+        chromeWindow = (await titled("Dock check page - Google Chrome"))[0];
+      }
+      if (chromeWindow !== undefined) maximizeWindow(chromeWindow.windowId);
+      await sleep(1_200);
+      const maximized = (await titled("Dock check page - Google Chrome"))[0]?.bounds;
+      check("the agent's Chrome, maximized, ends at the strip's edge", maximized !== undefined && Math.abs(maximized.x + maximized.width - stripLeft) <= 2 && Math.abs(maximized.y - before.work.y) <= 2, maximized === undefined ? "the Chrome window was not found" : `window ${rectText(maximized)}, strip starts at ${stripLeft}`);
+    } finally {
+      await chrome.close().catch(() => undefined);
+      page.close();
+    }
 
     for (const overlayId of shown) await a.renderer.dismiss(overlayId);
     await sleep(3_500);
