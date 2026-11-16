@@ -69,6 +69,15 @@ async function cardWindow() {
   return listed.windows.find((window) => window.title === CARD_TITLE);
 }
 
+/** One line per node: depth, role, name, bounds. Printed when UI Automation does not find the Stop button. */
+function treeLines(node, depth = 0, out = []) {
+  if (node === undefined || node === null || out.length >= 80) return out;
+  const b = node.bounds;
+  out.push(`${"  ".repeat(depth)}${node.role ?? "?"} ${JSON.stringify(node.name ?? "")}${node.enabled === false ? " [disabled]" : ""}${b === undefined ? "" : ` @${b.x},${b.y} ${b.width}x${b.height}`}`);
+  for (const child of node.children ?? []) treeLines(child, depth + 1, out);
+  return out;
+}
+
 try {
   const started = Date.now();
   // warmup() starts the process in the background and returns at once, so wait here until the start settles.
@@ -90,7 +99,21 @@ try {
     const stop = await desktop.findAccessibilityElement({ windowId: window.windowId, query: "Stop", role: "push button" });
     const stopHit = stop.candidates?.find((candidate) => candidate.name === "Stop" && candidate.bounds !== undefined);
     check("UI Automation finds the Stop button with bounds", stopHit !== undefined, JSON.stringify(stop));
-    if (stopHit !== undefined) {
+    if (stopHit === undefined) {
+      // Say what UI Automation does see, so the next run explains itself.
+      record("NOTE", "card window", JSON.stringify({ windowId: window.windowId, pid: window.pid, title: window.title, bounds: window.bounds }));
+      for (const [label, target] of [["by window id", { windowId: window.windowId }], ["by process id", window.pid === undefined ? undefined : { pid: window.pid }]]) {
+        if (target === undefined) continue;
+        try {
+          const tree = await desktop.getAccessibilityTree({ ...target, maxDepth: 14, maxNodes: 120 });
+          record("NOTE", `UI Automation tree ${label}`, `supported=${tree.supported} ${tree.reason ?? ""}`);
+          for (const line of treeLines(tree.root)) console.log(`        ${line}`);
+        } catch (error) {
+          record("NOTE", `UI Automation tree ${label}`, error instanceof Error ? error.message : String(error));
+        }
+      }
+      record("NOTE", "synthetic click check", "skipped: the Stop button could not be located, so the agent's click was not tried");
+    } else {
       const x = Math.round(stopHit.bounds.x + stopHit.bounds.width / 2);
       const y = Math.round(stopHit.bounds.y + stopHit.bounds.height / 2);
       // The agent's own click, sent straight to the helper (no focus change): the guard must refuse it.
@@ -98,18 +121,19 @@ try {
       await sleep(800);
       const synthetic = await renderer.drainEvents();
       check("a synthetic click on Stop is refused: no event comes back", !synthetic.some((event) => event.event === "emergency_stop_requested"), JSON.stringify(synthetic));
-
-      console.log("");
-      console.log("CLICK STOP: click the red-bordered card's Stop button with the mouse now (30 s). Do not use the keyboard.");
-      const deadline = Date.now() + 30_000;
-      let received = [];
-      while (Date.now() < deadline && !received.some((event) => event.event === "emergency_stop_requested")) {
-        await sleep(500);
-        received = received.concat(await renderer.drainEvents());
-      }
-      check("a real click on Stop is accepted: emergency_stop_requested arrives", received.some((event) => event.event === "emergency_stop_requested"), received.length === 0 ? "no event within 30 s" : JSON.stringify(received));
-      record("NOTE", "events after the real click", JSON.stringify(received.map((event) => event.event)));
     }
+
+    // The real click does not need UI Automation: you click the card yourself.
+    console.log("");
+    console.log("CLICK STOP: click the red-bordered card's Stop button with the mouse now (30 s). Do not use the keyboard.");
+    const deadline = Date.now() + 30_000;
+    let received = [];
+    while (Date.now() < deadline && !received.some((event) => event.event === "emergency_stop_requested")) {
+      await sleep(500);
+      received = received.concat(await renderer.drainEvents());
+    }
+    check("a real click on Stop is accepted: emergency_stop_requested arrives", received.some((event) => event.event === "emergency_stop_requested"), received.length === 0 ? "no event within 30 s" : JSON.stringify(received));
+    record("NOTE", "events after the real click", JSON.stringify(received.map((event) => event.event)));
   }
 
   const state = await renderer.state();
