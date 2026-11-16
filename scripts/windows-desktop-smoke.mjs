@@ -63,7 +63,11 @@ $box.Location = New-Object System.Drawing.Point(20, 20)
 $box.Size = New-Object System.Drawing.Size(360, 24)
 $box.AccessibleName = 'Name'
 $keylog = $env:AH_CHECK_KEYLOG
-$box.Add_KeyDown({ param($s, $e) [System.IO.File]::AppendAllText($keylog, ('{0} ctrl={1} shift={2}' -f $e.KeyCode, $e.Control, $e.Shift) + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false))) })
+$box.Add_KeyDown({ param($s, $e)
+  [System.IO.File]::AppendAllText($keylog, ('{0} ctrl={1} shift={2}' -f $e.KeyCode, $e.Control, $e.Shift) + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding($false)))
+  # A Windows Forms TextBox has no built-in Ctrl+A (Notepad, Chrome and Word do). Without this the paste appends.
+  if ($e.Control -and $e.KeyCode -eq [System.Windows.Forms.Keys]::A) { $s.SelectAll(); $e.SuppressKeyPress = $true }
+})
 $pw = New-Object System.Windows.Forms.TextBox
 $pw.Location = New-Object System.Drawing.Point(20, 120)
 $pw.Size = New-Object System.Drawing.Size(360, 24)
