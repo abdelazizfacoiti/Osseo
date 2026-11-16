@@ -163,7 +163,15 @@ async function setupGuide(args: ReturnType<typeof parseFlags>): Promise<Output> 
     },
     clients: async (): Promise<GuideClient[]> => Promise.all(programs.map(async (program) => {
       const report = await integrationStatus(program.target, paths).catch(() => undefined);
-      return { target: program.target, label: program.label, installed: onPath(program.command), registered: report?.configured === true && report.matches !== false };
+      const claudeCode = program.target === "claude";
+      return {
+        target: program.target,
+        label: program.label,
+        installed: onPath(program.command),
+        registered: report?.configured === true && report.matches !== false,
+        // Works from a checkout (no `agenthost` on PATH). User scope: the default is the current folder only.
+        ...(claudeCode ? { registerCommand: `claude mcp add agenthost --scope user -- node "${mcpEntry()}"`, verifyCommand: "claude mcp list" } : {})
+      };
     }))
   });
   const text = guide.lines.join("\n");

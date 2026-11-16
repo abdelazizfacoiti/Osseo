@@ -54,6 +54,15 @@ describe("agenthost setup guide", () => {
     expect(text).toContain("Register it with your agent client");
   });
 
+  it("uses a client's own register and verify commands when it has them", async () => {
+    const result = await runGuide({ ...passing, clients: async () => [{ target: "claude", label: "Claude Code", installed: true, registered: false, registerCommand: 'claude mcp add agenthost --scope user -- node "C:\\AgentHost\\index.js"', verifyCommand: "claude mcp list" }] });
+    const text = result.lines.join("\n");
+    expect(text).toContain('claude mcp add agenthost --scope user -- node "C:\\AgentHost\\index.js"');
+    expect(text).toContain("Then check it: claude mcp list");
+    expect(text).not.toContain("integrations claude add");
+    expect(text).toContain("agenthost failures");
+  });
+
   it("says so when no client is installed", async () => {
     const result = await runGuide({ ...passing, clients: async () => [{ target: "claude", label: "Claude Code", installed: false, registered: false }] });
     expect(result.lines.join("\n")).toContain("No agent client found");

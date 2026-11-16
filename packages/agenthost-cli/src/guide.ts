@@ -9,7 +9,16 @@
  *   5. Try it   one safe first prompt to paste into the agent
  */
 
-export interface GuideClient { target: string; label: string; installed: boolean; registered: boolean }
+export interface GuideClient {
+  target: string;
+  label: string;
+  installed: boolean;
+  registered: boolean;
+  /** The exact command that registers this client. Defaults to `agenthost integrations <target> add --apply`. */
+  registerCommand?: string;
+  /** How to confirm the client now lists AgentHost. */
+  verifyCommand?: string;
+}
 export interface GuideDeps {
   platform: NodeJS.Platform;
   homeLabel: string;
@@ -26,6 +35,12 @@ export interface GuideResult {
 }
 
 export const FIRST_PROMPT = "Use AgentHost to open https://example.com in its own browser, then call see and tell me the page title and the numbered controls. Do not click anything.";
+
+function registerLines(client: GuideClient): string[] {
+  const lines = [`Register ${client.label}: ${client.registerCommand ?? `agenthost integrations ${client.target} add --apply`}`];
+  if (client.verifyCommand !== undefined) lines.push(`Then check it: ${client.verifyCommand}`);
+  return lines;
+}
 
 export async function runGuide(deps: GuideDeps): Promise<GuideResult> {
   const steps: GuideResult["steps"] = [];
@@ -72,10 +87,10 @@ export async function runGuide(deps: GuideDeps): Promise<GuideResult> {
     add("Clients", "todo", "No agent client found on this machine.", ["Install one (Claude Code, Codex, opencode, Cursor or Copilot), then run: agenthost setup guide"]);
   } else if (present.some((client) => client.registered)) {
     add("Clients", "ok", present.map((client) => `${client.label} ${client.registered ? "registered" : "not registered"}`).join(", ") + ".",
-      present.filter((client) => !client.registered).map((client) => `Register ${client.label}: agenthost integrations ${client.target} add --apply`));
+      present.filter((client) => !client.registered).flatMap(registerLines));
   } else {
     add("Clients", "todo", `${present.map((client) => client.label).join(", ")} found, AgentHost not registered yet.`,
-      present.map((client) => `Register ${client.label}: agenthost integrations ${client.target} add --apply`));
+      present.flatMap(registerLines));
   }
 
   lines.push("");
@@ -87,6 +102,7 @@ export async function runGuide(deps: GuideDeps): Promise<GuideResult> {
   } else {
     lines.push("Fix the failed step first, then run: agenthost setup guide");
   }
+  lines.push("If something fails, the reasons are recorded: agenthost failures");
   lines.push("Sends, uploads, deletes and payments ask you first. Pause and Stop stay on screen.");
   return { ok: selftestOk, lines, steps };
 }
