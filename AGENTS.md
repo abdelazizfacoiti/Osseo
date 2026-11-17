@@ -27,6 +27,7 @@ GUI clicking/typing is fallback only. Use guide mode for unsupported or sensitiv
 
 ## Architecture rules
 
+- **No run-time compile on Windows**: no `Add-Type -TypeDefinition` or `-MemberDefinition` (C#). The Win32 bindings are emitted in memory by `NATIVE_PS` (`packages/os-windows/src/native-ps.ts`), so no DLL is written (an antivirus quarantined one, 2026-11-17). Smoke scripts follow the same rule.
 - **Core must be app-agnostic** — no app-specific imports in `packages/core`
 - **Core must not import Linux-specific implementations**
 - App-specific code stays out of core; there are no app adapters in this tree

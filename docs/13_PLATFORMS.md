@@ -19,7 +19,7 @@ desktop adapter.
 ## Windows desktop (W2)
 
 `packages/os-windows` fills the same contract as the Linux adapter. TypeScript holds the logic; one
-long-lived `powershell.exe -STA` process (`helper-script.ts`) compiles a small C# class and answers
+long-lived `powershell.exe -STA` process (`helper-script.ts`) emits its Win32 bindings in memory (`native-ps.ts`: no C# compile, no DLL written) and answers
 JSON lines on stdin and stdout, like the GTK renderer on Linux. Nothing is installed.
 
 - **Windows:** `EnumWindows` (visible, titled, not cloaked), frame bounds from DWM, `SetForegroundWindow`
@@ -34,10 +34,10 @@ JSON lines on stdin and stdout, like the GTK renderer on Linux. Nothing is insta
 - **Elevated windows:** Windows drops input from a normal process to an administrator window (UIPI).
   The helper checks the target's token first and refuses with `elevated_window`. UAC prompts and the
   lock screen cannot be automated; hand those to the person.
-- **Accessibility (UI Automation):** the helper compiles a second C# class that uses
+- **Accessibility (UI Automation):** the helper loads the UI Automation assemblies (no compile) and runs a PowerShell worker (`uia-script.ts`) that uses
   `System.Windows.Automation` (control view). It is loaded on its own, so if it fails the rest of the helper
   still works and the accessibility tools report why. Each request runs on a worker thread with a deadline
-  (8 s); a hung app returns what was read with `truncated`, never a hang. Elements are found again on every
+  (8 s); a hung app returns what was read with `truncated`, never a hang. A window root is found with a desktop `FindFirst` by its handle: `AutomationElement.FromHandle` returned WinForms children as generic panes (`Pane`, no buttons or edit boxes), so it is only the fallback. Elements are found again on every
   call from an id made of the window handle, a child-index path and a hash of role and name (no COM object is
   kept between calls). Roles use the Linux names (`push button`, `entry`, `check box`, `link`, `menu item`,
   `page tab`, `list item`, `combo box`, `label`, `password text`). Password controls and credential-looking
@@ -94,9 +94,9 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
   red cross for failed), the label in bold with the detail under it, and the time at the right. Status badges are
   tinted pills, key/value rows have a fixed key column, and cards use the Linux gradient and edge. Checked by eye on
   the dock screenshot (2026-11-16), not by a pixel comparison with Linux.
-- **Antivirus.** On 2026-11-17 Avira quarantined `0shr3uze.dll`, the temporary DLL that PowerShell writes when it compiles the overlay C# (`Add-Type`). The overlay still started that time. If a quarantine stops the overlay at start-up, add an antivirus exception for the temp folder.
-- **Real click, current build.** `windows-overlay-smoke.mjs` on 2026-11-17: the card shows and the synthetic click is refused, but no real click on Stop reached the card in five attempts (two smoke runs, three probes), so this is open until a person clicks Stop during the run. The 10 of 10 pass above was on the build before the card look change.
-- **Verified on Windows.** The embedded C# compiled and ran under Windows PowerShell 5.1 (both smoke runs). Not yet
+- **Antivirus (history).** On 2026-11-17 Avira quarantined `0shr3uze.dll`, a temporary DLL that PowerShell wrote when it compiled the overlay C# (`Add-Type`). Nothing is compiled now, so no DLL is written and that quarantine cannot recur. The helper, the UI Automation worker, the overlay and the smoke scripts use the same in-memory bindings.
+- **Real click, current build.** `windows-overlay-smoke.mjs` on 2026-11-17 after the in-memory port: 9 of 10. The card shows, the synthetic click is refused, state, dismiss and close pass, and the mouse hook installs and receives events (a relative mouse move was counted). No real click on Stop reached the card in that run, and none reached it in five earlier attempts, so this stays open until a person clicks Stop during the run and the event arrives.
+- **Verified on Windows (no C#, no DLL), 2026-11-17.** Desktop check 32 of 32, headless check 12 of 12, browser check 6 of 6, numbered-action check 7 of 7, dock check 17 of 17, overlay smoke 9 of 10 (the real click is open). `npm run test:windows` 183 passed, lint clean, and no new DLL in the temp folder for any run. Not yet
   verified on Windows: the rail layout (not drawn on Windows).
 
 ## Windows browser (the agent's own Chrome)
