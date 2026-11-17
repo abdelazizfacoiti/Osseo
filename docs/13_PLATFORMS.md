@@ -94,6 +94,8 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
   red cross for failed), the label in bold with the detail under it, and the time at the right. Status badges are
   tinted pills, key/value rows have a fixed key column, and cards use the Linux gradient and edge. Checked by eye on
   the dock screenshot (2026-11-16), not by a pixel comparison with Linux.
+- **Antivirus.** On 2026-11-17 Avira quarantined `0shr3uze.dll`, the temporary DLL that PowerShell writes when it compiles the overlay C# (`Add-Type`). The overlay still started that time. If a quarantine stops the overlay at start-up, add an antivirus exception for the temp folder.
+- **Real click, current build.** `windows-overlay-smoke.mjs` on 2026-11-17: the card shows and the synthetic click is refused, but no real click on Stop reached the card in five attempts (two smoke runs, three probes), so this is open until a person clicks Stop during the run. The 10 of 10 pass above was on the build before the card look change.
 - **Verified on Windows.** The embedded C# compiled and ran under Windows PowerShell 5.1 (both smoke runs). Not yet
   verified on Windows: the rail layout (not drawn on Windows).
 
@@ -112,9 +114,7 @@ the agent's browser unless `in: "my-browser"` is given.
 
 ## Windows packaging (W4)
 
-Added. The install dry run passes on Windows 11 (2026-11-16, `scripts\windows-check.ps1`). Not yet run: the zip build
-(`npm run release:build` refuses to run on Windows, `release_target_requires_linux_x64`, so the Linux release stage must
-come first) and a real install or update on a clean user. What exists:
+Installed on Windows 11 (2026-11-17). The zip is built on Windows from the stage (`npm run release:build -- --stage-only`, then `npm run release:build:windows`); `scripts\install.ps1` with `AGENTHOST_ARCHIVE` installed it into this account, an update to a later release and `update --rollback` switched the release junction, and `agenthost doctor` passes. Not run: a clean user (creating one needs administrator rights), and client registration with the installed release. What exists:
 
 - **Installer.** `scripts/install.ps1` (Windows PowerShell 5.1): checks OS, x64 and Node 20+, takes the
   archive from `AGENTHOST_ARCHIVE`, `AGENTHOST_ARCHIVE_URL` or the latest release
