@@ -289,15 +289,15 @@ describe("Windows accessibility: capabilities and the helper script", () => {
     await desktop.readAccessibilityText(target);
     const uia = [...seen].filter((method) => method.startsWith("uia."));
     expect(uia.length).toBe(9);
-    for (const method of uia) expect(HELPER_SCRIPT, `no case for ${method}`).toContain(`case "${method}":`);
+    for (const method of uia) expect(HELPER_SCRIPT, `no case for ${method}`).toContain(`'${method}'`);
   });
 
   it("gives every UI Automation request a deadline and a worker thread", () => {
-    expect(HELPER_SCRIPT).toContain("worker.Join(timeoutMs)");
-    expect(HELPER_SCRIPT).toContain("ApartmentState.MTA");
+    expect(HELPER_SCRIPT).toContain("AsyncWaitHandle.WaitOne($timeout)");
+    expect(HELPER_SCRIPT).toContain("ApartmentState]::MTA");
     expect(HELPER_SCRIPT).toContain("elevated_window");
     // Passwords: flagged by the control, and credential-looking names, and never read.
-    expect(HELPER_SCRIPT).toContain("c.IsPassword");
-    expect(HELPER_SCRIPT).toContain("SecretName");
+    expect(HELPER_SCRIPT).toContain("$info.IsPassword");
+    expect(HELPER_SCRIPT).toContain("ahSecretPattern");
   });
 });

@@ -43,12 +43,14 @@ if (!existsSync(DIST)) {
 }
 const args = new Set(process.argv.slice(2));
 const { createWindowsDesktop, WindowsHelperProcess } = await import(pathToFileURL(DIST).href);
+// The Win32 bindings are built in memory (no DLL is compiled or written): the same module the helper uses.
+const { NATIVE_PS } = await import(pathToFileURL(path.join(path.dirname(DIST), "native-ps.js")).href);
 
 const FORM = `
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
-Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class Dpi { [DllImport("user32.dll")] public static extern bool SetProcessDPIAware(); }'
-[void][Dpi]::SetProcessDPIAware()
+${NATIVE_PS}
+[AhNative.Native]::SetProcessDPIAware() | Out-Null
 $out = $env:AH_CHECK_OUT
 $probe = $env:AH_CHECK_PROBE
 $form = New-Object System.Windows.Forms.Form
@@ -100,7 +102,7 @@ console.log(`AgentHost Windows desktop check, Node ${process.version}, ${os.rele
 try {
   const started = Date.now();
   const capabilities = await desktop.getDesktopCapabilities();
-  check("helper starts and answers (PowerShell compiled the C# class)", capabilities.guiInput.supported === true, capabilities.guiInput.reason);
+  check("helper starts and answers (in-memory Win32 bindings, no DLL)", capabilities.guiInput.supported === true, capabilities.guiInput.reason);
   if (!capabilities.guiInput.supported) throw new Error("the helper did not start; nothing else can run");
   record("NOTE", "helper start-up", `${Date.now() - started} ms`);
 

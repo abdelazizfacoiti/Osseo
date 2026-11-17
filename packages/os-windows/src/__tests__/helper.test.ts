@@ -83,30 +83,35 @@ describe("WindowsHelperProcess", () => {
 describe("helper script", () => {
   const source = HELPER_SCRIPT;
 
-  it("avoids C# newer than the compiler in Windows PowerShell 5.1 (C# 5)", () => {
-    expect(source).not.toMatch(/\$"/); // string interpolation
-    expect(source).not.toMatch(/\?\./); // null-conditional
-    expect(source).not.toMatch(/\bnameof\s*\(/);
-    expect(source).not.toMatch(/out var /);
-    expect(source).not.toMatch(/\)\s*=>\s*[^{]/); // expression-bodied members and lambdas
+  it("compiles nothing at run time, so no DLL is written to disk", () => {
+    expect(source).not.toMatch(/Add-Type\s+-TypeDefinition/i);
+    expect(source).not.toMatch(/-MemberDefinition/i);
+    expect(source).not.toMatch(/Add-Type\s+-Namespace/i);
+    expect(source).not.toMatch(/-Language\s+CSharp/i);
+    expect(source).toContain("DefineDynamicAssembly"); // the Win32 bindings are emitted in memory
+    expect(source).toContain("Initialize-AhNative");
+  });
+
+  it("is safe to embed: no backticks, no dollar-brace, CRLF line endings only", () => {
     expect(source).not.toContain("`");
+    expect(source).not.toContain("${");
+    expect(source).not.toMatch(/[^\r]\n/);
   });
 
-  it("is a well-formed here-string with the closing marker at the start of a line", () => {
-    expect(source).toContain("$source = @'\r\n");
-    expect(source).toContain("\r\n'@\r\n");
-    expect(source.match(/^'@$/gm)).toHaveLength(2); // the Win32 class and the UI Automation class
+  it("closes the embedded UI Automation text on its own line", () => {
+    const lines = source.split("\r\n");
+    expect(lines.filter((line) => line === "'@")).toHaveLength(1);
+    expect(source).toContain("$script:uiaDefinitions = @'\r\n");
   });
 
-  it("routes uia.* lines to the UI Automation class and keeps it optional", () => {
-    expect(source).toContain("IndexOf('\"method\":\"uia.')");
-    expect(source).toContain("[AgentHostUia.Uia]::Handle($line)");
-    expect(source).toContain("[AgentHostWin.Host]::Handle($line)");
-    // The UI Automation class is compiled on its own, inside try/catch, so a failure cannot take the rest down.
-    const compile = source.indexOf("Add-Type -TypeDefinition $uiaSource");
-    expect(compile).toBeGreaterThan(source.indexOf("try {"));
-    expect(source.slice(source.indexOf("try {", source.indexOf("$uiaError = ''")), compile)).toContain("UIAutomationClient");
-    expect(source).toContain("uia_unavailable");
+  it("routes uia.* lines to the UI Automation worker and keeps it optional", () => {
+    expect(source).toContain("IndexOf('\"method\":\"uia.') -ge 0");
+    expect(source).toContain("Invoke-UiaLine $line");
+    // UI Automation loads inside try/catch, so a failure cannot take the rest of the helper down.
+    const at = source.indexOf("$script:uiaError = ''");
+    expect(at).toBeGreaterThan(0);
+    expect(source.slice(at, at + 200)).toContain("try {");
+    expect(source).toContain("'uia_unavailable'");
   });
 
   it("handles every method the adapter sends", async () => {
@@ -152,6 +157,6 @@ describe("helper script", () => {
     await desktop.readAccessibilityText(uia);
     expect(seen.size).toBeGreaterThan(10);
     for (const method of ["uia.ping", "uia.tree", "uia.find", "uia.textAtPoint", "uia.inspect", "uia.activate", "uia.setText", "uia.focus", "uia.getText"]) expect(seen.has(method), `the adapter never sends ${method}`).toBe(true);
-    for (const method of seen) expect(source, `the script has no case for ${method}`).toContain(`case "${method}":`);
+    for (const method of seen) expect(source, `the script has no case for ${method}`).toContain(`'${method}'`);
   });
 });

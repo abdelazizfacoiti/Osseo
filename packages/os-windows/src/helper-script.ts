@@ -1,686 +1,565 @@
 /*
- * The Windows helper: one long-lived PowerShell 5.1 process (it ships with every Windows 10/11)
- * that compiles a small C# class and answers JSON lines on stdin/stdout. Same shape as the GTK
- * renderer on Linux. Requests: {"id":1,"method":"windows.list","params":{...}}. Replies:
- * {"id":1,"ok":true,"result":...} or {"id":1,"ok":false,"error":{"code":"...","message":"..."}}.
+ * The Windows helper: one long-lived Windows PowerShell 5.1 process (it ships with every Windows 10/11) that
+ * answers JSON lines on stdin/stdout. Same shape as the GTK renderer on Linux. Requests:
+ * {"id":1,"method":"windows.list","params":{...}}. Replies: {"id":1,"ok":true,"result":...} or
+ * {"id":1,"ok":false,"error":{"code":"...","message":"..."}}.
  *
- * The C# targets the C# 5 compiler that Windows PowerShell 5.1 uses: no string interpolation, no
- * "?.", no expression-bodied members. Keep it that way. The text must not contain a backtick or
- * the characters dollar-brace, because it lives in a template string.
+ * Win32 calls go through the in-memory bindings in native-ps.ts (Reflection.Emit): nothing is compiled and
+ * nothing is written to disk. UI Automation runs in a worker runspace per request (uia-script.ts), with the
+ * request's deadline. Keep the text free of backticks and dollar-brace: it lives in a template string.
  *
- * Not yet run on a real Windows machine: scripts\windows-desktop-check.ps1 is the first test.
+ * Input uses keybd_event and mouse_event, which inject the same events SendInput does (the overlay's guard
+ * reads the same injected flag). Elevated windows are refused before any input is sent.
  */
 
-import { UIA_CSHARP } from "./uia-script.js";
+import { NATIVE_PS } from "./native-ps.js";
+import { UIA_WORKER_PS } from "./uia-script.js";
 
 export const HELPER_PROTOCOL_VERSION = 1;
 
-const CSHARP = String.raw`
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
-using System.IO;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
-using System.Web.Script.Serialization;
-using System.Windows.Forms;
+const HELPER_PS = String.raw`
+function Get-HelperParam($p, [string]$key) {
+  if ($null -eq $p) { return $null }
+  $prop = $p.PSObject.Properties[$key]
+  if ($null -eq $prop) { return $null }
+  return $prop.Value
+}
 
-namespace AgentHostWin
-{
-    public class HelperError : Exception
-    {
-        public string Code;
-        public HelperError(string code, string message) : base(message) { Code = code; }
+function Get-IntParam($p, [string]$key, [int]$fallback) {
+  $value = Get-HelperParam $p $key
+  if ($null -eq $value) { return $fallback }
+  return [int][Math]::Round([double]$value)
+}
+
+function Get-DoubleParam($p, [string]$key, [double]$fallback) {
+  $value = Get-HelperParam $p $key
+  if ($null -eq $value) { return $fallback }
+  return [double]$value
+}
+
+function Get-StrParam($p, [string]$key, [string]$fallback) {
+  $value = Get-HelperParam $p $key
+  if ($null -eq $value) { return $fallback }
+  return [string]$value
+}
+
+function Throw-HelperError([string]$code, [string]$message) {
+  $ex = New-Object System.Exception($message)
+  $ex.Data['code'] = $code
+  throw $ex
+}
+
+function Get-HwndParam($p, [string]$key) {
+  $text = Get-StrParam $p $key ''
+  [long]$value = 0
+  if ($text.Length -eq 0 -or -not [long]::TryParse($text, [ref]$value)) { Throw-HelperError 'bad_window' 'A window handle is required.' }
+  return [IntPtr][long]$value
+}
+
+function Test-IsZeroHandle([IntPtr]$hwnd) { return ($hwnd.ToInt64() -eq 0) }
+
+# ---------- windows ----------
+
+function Get-PingResult {
+  return [ordered]@{ protocol = 1; os = [Environment]::OSVersion.VersionString; elevated = $script:selfElevated }
+}
+
+function Get-WindowRecord([IntPtr]$hwnd) {
+  if ((Test-IsZeroHandle $hwnd) -or -not [AhNative.Native]::IsWindow($hwnd)) { return $null }
+  $processId = Get-AhProcessId $hwnd
+  $rect = Get-AhFrameRect $hwnd
+  return [ordered]@{
+    hwnd = $hwnd.ToInt64().ToString()
+    title = (Get-AhWindowText $hwnd)
+    pid = $processId
+    process = (Get-AhProcessName $processId)
+    x = $rect.Left
+    y = $rect.Top
+    width = $rect.Right - $rect.Left
+    height = $rect.Bottom - $rect.Top
+    minimized = [AhNative.Native]::IsIconic($hwnd)
+  }
+}
+
+function Get-WindowListResult([int]$limit) {
+  $script:windowCandidates = New-Object System.Collections.ArrayList
+  $collect = [AhNative.EnumWindowsProc]{ param($hwnd, $lparam)
+    if (-not [AhNative.Native]::IsWindowVisible($hwnd)) { return $true }
+    if ([AhNative.Native]::GetWindowTextLengthW($hwnd) -eq 0) { return $true }
+    if (Test-AhCloaked $hwnd) { return $true }
+    [void]$script:windowCandidates.Add($hwnd)
+    return $true
+  }
+  [void][AhNative.Native]::EnumWindows($collect, [IntPtr]::Zero)
+  $list = New-Object System.Collections.ArrayList
+  $truncated = $false
+  foreach ($hwnd in $script:windowCandidates) {
+    if ($list.Count -ge $limit) { $truncated = $true; break }
+    $record = Get-WindowRecord $hwnd
+    if ($null -ne $record) { [void]$list.Add($record) }
+  }
+  return [ordered]@{ windows = @($list.ToArray()); truncated = $truncated }
+}
+
+function Set-WindowFocus([IntPtr]$hwnd) {
+  if (-not [AhNative.Native]::IsWindow($hwnd)) { Throw-HelperError 'window_gone' 'That window no longer exists.' }
+  $previous = Get-WindowRecord ([AhNative.Native]::GetForegroundWindow())
+  if ([AhNative.Native]::IsIconic($hwnd)) { [void][AhNative.Native]::ShowWindow($hwnd, 9) }
+  [uint32]$ignored = 0
+  $foregroundThread = [AhNative.Native]::GetWindowThreadProcessId([AhNative.Native]::GetForegroundWindow(), [ref]$ignored)
+  $thisThread = [AhNative.Native]::GetCurrentThreadId()
+  $attached = $false
+  if ($foregroundThread -ne 0 -and $foregroundThread -ne $thisThread) { $attached = [AhNative.Native]::AttachThreadInput($thisThread, $foregroundThread, $true) }
+  [void][AhNative.Native]::SetForegroundWindow($hwnd)
+  if ($attached) { [void][AhNative.Native]::AttachThreadInput($thisThread, $foregroundThread, $false) }
+  Start-Sleep -Milliseconds 80
+  $focused = ([AhNative.Native]::GetForegroundWindow().ToInt64() -eq $hwnd.ToInt64())
+  return [ordered]@{ focused = $focused; previous = $previous; window = (Get-WindowRecord $hwnd) }
+}
+
+# ---------- elevation (UIPI): input to a higher-integrity window is dropped, so refuse it ----------
+
+function Test-HelperReachable([IntPtr]$hwnd) {
+  if ($script:selfElevated -or (Test-IsZeroHandle $hwnd)) { return }
+  $processId = Get-AhProcessId $hwnd
+  if (Test-AhElevated ([uint32]$processId)) {
+    Throw-HelperError 'elevated_window' 'That window runs as administrator, so Windows drops input from a normal process. Ask the person to use it themselves.'
+  }
+}
+
+function Test-HelperReachableAt([int]$x, [int]$y) {
+  $point = New-Object AhNative.POINT
+  $point.X = $x
+  $point.Y = $y
+  $hwnd = [AhNative.Native]::WindowFromPoint($point)
+  if (-not (Test-IsZeroHandle $hwnd)) { $hwnd = [AhNative.Native]::GetAncestor($hwnd, 2) }
+  Test-HelperReachable $hwnd
+}
+
+# ---------- screen ----------
+
+function Get-ScreenGeometry {
+  $area = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  return [ordered]@{ x = $area.X; y = $area.Y; width = $area.Width; height = $area.Height }
+}
+
+function Get-ScreenshotResult($p) {
+  $screen = [System.Windows.Forms.SystemInformation]::VirtualScreen
+  $area = $screen
+  $hwndText = Get-StrParam $p 'hwnd' ''
+  if ($hwndText.Length -gt 0) {
+    $rect = Get-AhFrameRect (Get-HwndParam $p 'hwnd')
+    $window = New-Object System.Drawing.Rectangle -ArgumentList ($rect.Left), ($rect.Top), ($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top)
+    $area = [System.Drawing.Rectangle]::Intersect($screen, $window)
+  }
+  $region = Get-HelperParam $p 'region'
+  if ($null -ne $region) {
+    $wanted = New-Object System.Drawing.Rectangle -ArgumentList ($area.X + (Get-IntParam $region 'x' 0)), ($area.Y + (Get-IntParam $region 'y' 0)), (Get-IntParam $region 'width' $area.Width), (Get-IntParam $region 'height' $area.Height)
+    $area = [System.Drawing.Rectangle]::Intersect($area, $wanted)
+  }
+  if ($area.Width -le 0 -or $area.Height -le 0) { Throw-HelperError 'empty_capture' 'The area to capture is empty or off screen.' }
+  $scale = Get-DoubleParam $p 'scale' 1.0
+  if ($scale -le 0 -or $scale -gt 1) { $scale = 1.0 }
+  $format = Get-StrParam $p 'format' 'png'
+  $quality = Get-IntParam $p 'quality' 80
+
+  $full = New-Object System.Drawing.Bitmap -ArgumentList $area.Width, $area.Height, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+  $resized = $null
+  try {
+    $graphics = [System.Drawing.Graphics]::FromImage($full)
+    try {
+      $size = New-Object System.Drawing.Size -ArgumentList $area.Width, $area.Height
+      $graphics.CopyFromScreen($area.X, $area.Y, 0, 0, $size, [System.Drawing.CopyPixelOperation]::SourceCopy)
+    } finally { $graphics.Dispose() }
+    $output = $full
+    if ($scale -lt 1.0) {
+      $w = [Math]::Max(1, [int][Math]::Round($area.Width * $scale))
+      $h = [Math]::Max(1, [int][Math]::Round($area.Height * $scale))
+      $resized = New-Object System.Drawing.Bitmap -ArgumentList $w, $h, ([System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+      $scaler = [System.Drawing.Graphics]::FromImage($resized)
+      try {
+        $scaler.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $scaler.DrawImage($full, 0, 0, $w, $h)
+      } finally { $scaler.Dispose() }
+      $output = $resized
     }
+    $stream = New-Object System.IO.MemoryStream
+    try {
+      if ($format -eq 'jpeg') {
+        $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+        $encoder = New-Object System.Drawing.Imaging.EncoderParameters -ArgumentList 1
+        $qualityValue = [long][Math]::Max(1, [Math]::Min(100, $quality))
+        $encoder.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter -ArgumentList ([System.Drawing.Imaging.Encoder]::Quality), $qualityValue
+        $output.Save($stream, $codec, $encoder)
+      } else {
+        $output.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
+      }
+      return [ordered]@{
+        data = [Convert]::ToBase64String($stream.ToArray())
+        width = $output.Width
+        height = $output.Height
+        originX = $area.X
+        originY = $area.Y
+        captureWidth = $area.Width
+        captureHeight = $area.Height
+      }
+    } finally { $stream.Dispose() }
+  } finally {
+    if ($null -ne $resized) { $resized.Dispose() }
+    $full.Dispose()
+  }
+}
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
+# ---------- input (keybd_event and mouse_event inject flagged events, like SendInput) ----------
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct POINT { public int X; public int Y; }
+function Get-MouseFlags([string]$button) {
+  if ($button -eq 'right') { return @([uint32]0x0008, [uint32]0x0010) }
+  if ($button -eq 'middle') { return @([uint32]0x0020, [uint32]0x0040) }
+  return @([uint32]0x0002, [uint32]0x0004)
+}
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MOUSEINPUT { public int dx; public int dy; public uint mouseData; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+function Invoke-Move([int]$x, [int]$y) {
+  Test-HelperReachableAt $x $y
+  [void][AhNative.Native]::SetCursorPos($x, $y)
+  return [ordered]@{ x = $x; y = $y }
+}
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct KEYBDINPUT { public ushort wVk; public ushort wScan; public uint dwFlags; public uint time; public IntPtr dwExtraInfo; }
+function Invoke-Click($p) {
+  $x = Get-IntParam $p 'x' 0
+  $y = Get-IntParam $p 'y' 0
+  $count = [Math]::Max(1, [Math]::Min(3, (Get-IntParam $p 'count' 1)))
+  $flags = Get-MouseFlags (Get-StrParam $p 'button' 'left')
+  Test-HelperReachableAt $x $y
+  [void][AhNative.Native]::SetCursorPos($x, $y)
+  Start-Sleep -Milliseconds 30
+  for ($i = 0; $i -lt $count; $i++) {
+    [AhNative.Native]::mouse_event($flags[0], 0, 0, 0, [IntPtr]::Zero)
+    [AhNative.Native]::mouse_event($flags[1], 0, 0, 0, [IntPtr]::Zero)
+    if ($i + 1 -lt $count) { Start-Sleep -Milliseconds 60 }
+  }
+  return [ordered]@{ x = $x; y = $y }
+}
 
-    [StructLayout(LayoutKind.Explicit)]
-    public struct InputUnion
-    {
-        [FieldOffset(0)] public MOUSEINPUT mi;
-        [FieldOffset(0)] public KEYBDINPUT ki;
+function Invoke-Scroll($p) {
+  if ($null -ne (Get-HelperParam $p 'x') -and $null -ne (Get-HelperParam $p 'y')) {
+    $x = Get-IntParam $p 'x' 0
+    $y = Get-IntParam $p 'y' 0
+    Test-HelperReachableAt $x $y
+    [void][AhNative.Native]::SetCursorPos($x, $y)
+    Start-Sleep -Milliseconds 30
+  }
+  $vertical = Get-IntParam $p 'vertical' 0
+  $horizontal = Get-IntParam $p 'horizontal' 0
+  if ($vertical -ne 0) { [AhNative.Native]::mouse_event([uint32]0x0800, 0, 0, [uint32](($vertical * 120) -band 0xFFFFFFFF), [IntPtr]::Zero) }
+  if ($horizontal -ne 0) { [AhNative.Native]::mouse_event([uint32]0x1000, 0, 0, [uint32](($horizontal * 120) -band 0xFFFFFFFF), [IntPtr]::Zero) }
+  return [ordered]@{ vertical = $vertical; horizontal = $horizontal }
+}
+
+function Invoke-Drag($p) {
+  $x1 = Get-IntParam $p 'x1' 0
+  $y1 = Get-IntParam $p 'y1' 0
+  $x2 = Get-IntParam $p 'x2' 0
+  $y2 = Get-IntParam $p 'y2' 0
+  $duration = [Math]::Max(50, [Math]::Min(10000, (Get-IntParam $p 'durationMs' 300)))
+  Test-HelperReachableAt $x1 $y1
+  [void][AhNative.Native]::SetCursorPos($x1, $y1)
+  Start-Sleep -Milliseconds 40
+  [AhNative.Native]::mouse_event([uint32]0x0002, 0, 0, 0, [IntPtr]::Zero)
+  $steps = [Math]::Max(4, [int][Math]::Floor($duration / 25))
+  for ($i = 1; $i -le $steps; $i++) {
+    [void][AhNative.Native]::SetCursorPos([int]($x1 + ($x2 - $x1) * $i / $steps), [int]($y1 + ($y2 - $y1) * $i / $steps))
+    Start-Sleep -Milliseconds ([int][Math]::Floor($duration / $steps))
+  }
+  [AhNative.Native]::mouse_event([uint32]0x0004, 0, 0, 0, [IntPtr]::Zero)
+  return [ordered]@{ x = $x2; y = $y2 }
+}
+
+function Send-KeyEvent([int]$vk, [bool]$up) {
+  $flags = [uint32]0
+  if ($up) { $flags = $flags -bor [uint32]0x0002 }
+  if (($vk -ge 0x21 -and $vk -le 0x28) -or $vk -eq 0x2d -or $vk -eq 0x2e -or $vk -eq 0x5b) { $flags = $flags -bor [uint32]0x0001 }
+  $scan = [byte]([AhNative.Native]::MapVirtualKeyW([uint32]$vk, 0) -band 0xFF)
+  [AhNative.Native]::keybd_event([byte]$vk, $scan, $flags, [IntPtr]::Zero)
+}
+
+function Invoke-Keys($p) {
+  $raw = Get-HelperParam $p 'vks'
+  if ($null -eq $raw) { Throw-HelperError 'bad_keys' 'vks is required.' }
+  $vks = @($raw | ForEach-Object { [int]$_ })
+  if ($vks.Count -eq 0) { Throw-HelperError 'bad_keys' 'No keys were given.' }
+  $repeat = [Math]::Max(1, [Math]::Min(50, (Get-IntParam $p 'repeat' 1)))
+  $delay = [Math]::Max(0, [Math]::Min(1000, (Get-IntParam $p 'delayMs' 20)))
+  Test-HelperReachable ([AhNative.Native]::GetForegroundWindow())
+  for ($round = 0; $round -lt $repeat; $round++) {
+    foreach ($vk in $vks) { Send-KeyEvent $vk $false }
+    for ($i = $vks.Count - 1; $i -ge 0; $i--) { Send-KeyEvent $vks[$i] $true }
+    if ($round + 1 -lt $repeat -and $delay -gt 0) { Start-Sleep -Milliseconds $delay }
+  }
+  return [ordered]@{ sent = $repeat }
+}
+
+# ---------- clipboard (this process runs on an STA thread) ----------
+
+function Get-ClipboardResult {
+  for ($attempt = 0; $attempt -lt 5; $attempt++) {
+    try {
+      $text = $null
+      if ([System.Windows.Forms.Clipboard]::ContainsText()) { $text = [System.Windows.Forms.Clipboard]::GetText() }
+      return [ordered]@{ text = $text }
+    } catch [System.Runtime.InteropServices.ExternalException] {
+      Start-Sleep -Milliseconds 60
     }
+  }
+  Throw-HelperError 'clipboard_busy' 'Another program is holding the clipboard.'
+}
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct INPUT { public uint type; public InputUnion U; }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct LASTINPUTINFO { public uint cbSize; public uint dwTime; }
-
-    public delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-    public static class Native
-    {
-        [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
-        [DllImport("user32.dll")] public static extern bool EnumWindows(EnumWindowsProc proc, IntPtr lParam);
-        [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
-        [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr hWnd);
-        [DllImport("user32.dll")] public static extern bool IsIconic(IntPtr hWnd);
-        [DllImport("user32.dll")] public static extern int GetWindowTextLength(IntPtr hWnd);
-        [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
-        [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
-        [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
-        [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
-        [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int cmd);
-        [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
-        [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
-        [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
-        [DllImport("user32.dll")] public static extern uint SendInput(uint count, INPUT[] inputs, int size);
-        [DllImport("user32.dll")] public static extern bool GetLastInputInfo(ref LASTINPUTINFO info);
-        [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT point);
-        [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
-        [DllImport("user32.dll")] public static extern uint MapVirtualKey(uint code, uint mapType);
-        [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
-        [DllImport("kernel32.dll")] public static extern uint GetTickCount();
-        [DllImport("kernel32.dll")] public static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
-        [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr handle);
-        [DllImport("advapi32.dll")] public static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
-        [DllImport("advapi32.dll")] public static extern bool GetTokenInformation(IntPtr token, int infoClass, IntPtr info, uint length, out uint returned);
-        [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out RECT value, int size);
-        [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out int value, int size);
+function Set-ClipboardResult([string]$text) {
+  for ($attempt = 0; $attempt -lt 5; $attempt++) {
+    try {
+      if ($text.Length -eq 0) { [System.Windows.Forms.Clipboard]::Clear() } else { [System.Windows.Forms.Clipboard]::SetDataObject($text, $true) }
+      return [ordered]@{ length = $text.Length }
+    } catch [System.Runtime.InteropServices.ExternalException] {
+      Start-Sleep -Milliseconds 60
     }
+  }
+  Throw-HelperError 'clipboard_busy' 'Another program is holding the clipboard.'
+}
 
-    public static class Host
-    {
-        static JavaScriptSerializer json = new JavaScriptSerializer();
-        static bool selfElevated;
+function Get-IdleResult {
+  $info = New-Object AhNative.LASTINPUTINFO
+  $info.cbSize = [uint32]8
+  if (-not [AhNative.Native]::GetLastInputInfo([ref]$info)) { Throw-HelperError 'idle_unavailable' 'Windows did not report the last input time.' }
+  [long]$tick = [long][AhNative.Native]::GetTickCount64()
+  [long]$idle = (($tick -band 4294967295) - [long]$info.dwTime) -band 4294967295
+  return [ordered]@{ idleMs = [long]$idle }
+}
 
-        static Host()
-        {
-            json.MaxJsonLength = int.MaxValue;
-            try { Native.SetProcessDPIAware(); } catch (Exception) { }
-            selfElevated = IsElevatedProcess((uint)Process.GetCurrentProcess().Id);
-        }
+function Invoke-HelperMethod([string]$method, $p) {
+  switch ($method) {
+    'ping' { return Get-PingResult }
+    'windows.list' { return Get-WindowListResult (Get-IntParam $p 'limit' 50) }
+    'window.active' { return Get-WindowRecord ([AhNative.Native]::GetForegroundWindow()) }
+    'window.focus' { return Set-WindowFocus (Get-HwndParam $p 'hwnd') }
+    'screenshot' { return Get-ScreenshotResult $p }
+    'screen.geometry' { return Get-ScreenGeometry }
+    'input.move' { return Invoke-Move (Get-IntParam $p 'x' 0) (Get-IntParam $p 'y' 0) }
+    'input.click' { return Invoke-Click $p }
+    'input.scroll' { return Invoke-Scroll $p }
+    'input.drag' { return Invoke-Drag $p }
+    'input.keys' { return Invoke-Keys $p }
+    'clipboard.get' { return Get-ClipboardResult }
+    'clipboard.set' { return Set-ClipboardResult (Get-StrParam $p 'text' '') }
+    'idle' { return Get-IdleResult }
+    default { Throw-HelperError 'unknown_method' ('Unknown method ' + $method) }
+  }
+}
 
-        // ---------- protocol ----------
+# ---------- UI Automation: the requests run in a worker runspace with a deadline ----------
 
-        public static string Handle(string line)
-        {
-            object id = null;
-            try
-            {
-                Dictionary<string, object> request = json.Deserialize<Dictionary<string, object>>(line);
-                if (request.ContainsKey("id")) id = request["id"];
-                string method = (string)request["method"];
-                Dictionary<string, object> p = new Dictionary<string, object>();
-                if (request.ContainsKey("params") && request["params"] != null) p = (Dictionary<string, object>)request["params"];
-                Dictionary<string, object> reply = new Dictionary<string, object>();
-                reply["id"] = id;
-                reply["ok"] = true;
-                reply["result"] = Dispatch(method, p);
-                return json.Serialize(reply);
-            }
-            catch (HelperError e)
-            {
-                return Fail(id, e.Code, e.Message);
-            }
-            catch (Exception e)
-            {
-                return Fail(id, "helper_exception", e.GetType().Name + ": " + e.Message);
-            }
-        }
+function Get-UiaRunspace {
+  if ($null -ne $script:uiaSpare) {
+    $spare = $script:uiaSpare
+    $script:uiaSpare = $null
+    return $spare
+  }
+  $runspace = [runspacefactory]::CreateRunspace()
+  $runspace.ApartmentState = [System.Threading.ApartmentState]::MTA
+  $runspace.ThreadOptions = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
+  $runspace.Open()
+  $init = [System.Management.Automation.PowerShell]::Create()
+  $init.Runspace = $runspace
+  [void]$init.AddScript($script:uiaDefinitions)
+  [void]$init.Invoke()
+  return $runspace
+}
 
-        static string Fail(object id, string code, string message)
-        {
-            Dictionary<string, object> error = new Dictionary<string, object>();
-            error["code"] = code;
-            error["message"] = message;
-            Dictionary<string, object> reply = new Dictionary<string, object>();
-            reply["id"] = id;
-            reply["ok"] = false;
-            reply["error"] = error;
-            return json.Serialize(reply);
-        }
+function Get-UiaRoots([string]$method, $p) {
+  if ($method -eq 'uia.textAtPoint') {
+    Test-HelperReachableAt (Get-IntParam $p 'x' 0) (Get-IntParam $p 'y' 0)
+    return @()
+  }
+  $hwndText = Get-StrParam $p 'hwnd' ''
+  if ($hwndText.Length -gt 0) {
+    [long]$value = 0
+    if (-not [long]::TryParse($hwndText, [ref]$value)) { Throw-HelperError 'bad_window' 'A window handle is required.' }
+    $hwnd = [IntPtr][long]$value
+    if (-not [AhNative.Native]::IsWindow($hwnd)) { Throw-HelperError 'window_gone' 'That window no longer exists.' }
+    Test-HelperReachable $hwnd
+    return @([long]$value)
+  }
+  if ($null -ne (Get-HelperParam $p 'elementId')) { return @() }
+  $processId = Get-IntParam $p 'pid' 0
+  if ($processId -le 0) { Throw-HelperError 'bad_target' 'A window handle or a process id is required.' }
+  $found = @(Get-AhWindowsOfProcess $processId)
+  $roots = New-Object System.Collections.ArrayList
+  foreach ($hwnd in $found) {
+    Test-HelperReachable $hwnd
+    [void]$roots.Add([long]$hwnd.ToInt64())
+  }
+  return $roots.ToArray()
+}
 
-        static object Dispatch(string method, Dictionary<string, object> p)
-        {
-            switch (method)
-            {
-                case "ping": return Ping();
-                case "windows.list": return WindowList(IntOr(p, "limit", 50));
-                case "window.active": return WindowRecord(Native.GetForegroundWindow());
-                case "window.focus": return Focus(Hwnd(p, "hwnd"));
-                case "screenshot": return Screenshot(p);
-                case "screen.geometry": return ScreenGeometry();
-                case "input.move": return Move(IntOr(p, "x", 0), IntOr(p, "y", 0));
-                case "input.click": return Click(p);
-                case "input.scroll": return Scroll(p);
-                case "input.drag": return Drag(p);
-                case "input.keys": return Keys(p);
-                case "clipboard.get": return ClipboardGet();
-                case "clipboard.set": return ClipboardSet(StrOr(p, "text", ""));
-                case "idle": return Idle();
-                default: throw new HelperError("unknown_method", "Unknown method " + method);
-            }
-        }
-
-        // ---------- parameter helpers ----------
-
-        static int IntOr(Dictionary<string, object> p, string key, int fallback)
-        {
-            if (!p.ContainsKey(key) || p[key] == null) return fallback;
-            return (int)Math.Round(Convert.ToDouble(p[key]));
-        }
-
-        static double DoubleOr(Dictionary<string, object> p, string key, double fallback)
-        {
-            if (!p.ContainsKey(key) || p[key] == null) return fallback;
-            return Convert.ToDouble(p[key]);
-        }
-
-        static string StrOr(Dictionary<string, object> p, string key, string fallback)
-        {
-            if (!p.ContainsKey(key) || p[key] == null) return fallback;
-            return Convert.ToString(p[key]);
-        }
-
-        static IntPtr Hwnd(Dictionary<string, object> p, string key)
-        {
-            string text = StrOr(p, key, "");
-            long value;
-            if (text.Length == 0 || !long.TryParse(text, out value)) throw new HelperError("bad_window", "A window handle is required.");
-            return new IntPtr(value);
-        }
-
-        // ---------- windows ----------
-
-        static object Ping()
-        {
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["protocol"] = 1;
-            r["os"] = Environment.OSVersion.VersionString;
-            r["elevated"] = selfElevated;
-            return r;
-        }
-
-        static RECT FrameBounds(IntPtr hwnd)
-        {
-            RECT rect;
-            // The extended frame excludes the invisible resize border that GetWindowRect includes.
-            if (Native.DwmGetWindowAttribute(hwnd, 9, out rect, Marshal.SizeOf(typeof(RECT))) != 0)
-            {
-                Native.GetWindowRect(hwnd, out rect);
-            }
-            return rect;
-        }
-
-        static bool IsCloaked(IntPtr hwnd)
-        {
-            int cloaked;
-            if (Native.DwmGetWindowAttribute(hwnd, 14, out cloaked, 4) != 0) return false;
-            return cloaked != 0;
-        }
-
-        static object WindowRecord(IntPtr hwnd)
-        {
-            if (hwnd == IntPtr.Zero || !Native.IsWindow(hwnd)) return null;
-            int length = Native.GetWindowTextLength(hwnd);
-            StringBuilder title = new StringBuilder(length + 1);
-            Native.GetWindowText(hwnd, title, title.Capacity);
-            uint pid;
-            Native.GetWindowThreadProcessId(hwnd, out pid);
-            string processName = "";
-            try { processName = Process.GetProcessById((int)pid).ProcessName; } catch (Exception) { }
-            RECT rect = FrameBounds(hwnd);
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["hwnd"] = hwnd.ToInt64().ToString();
-            r["title"] = title.ToString();
-            r["pid"] = (int)pid;
-            r["process"] = processName;
-            r["x"] = rect.Left;
-            r["y"] = rect.Top;
-            r["width"] = rect.Right - rect.Left;
-            r["height"] = rect.Bottom - rect.Top;
-            r["minimized"] = Native.IsIconic(hwnd);
-            return r;
-        }
-
-        static object WindowList(int limit)
-        {
-            List<IntPtr> handles = new List<IntPtr>();
-            EnumWindowsProc collect = delegate(IntPtr hwnd, IntPtr lParam)
-            {
-                if (!Native.IsWindowVisible(hwnd)) return true;
-                if (Native.GetWindowTextLength(hwnd) == 0) return true;
-                if (IsCloaked(hwnd)) return true;
-                handles.Add(hwnd);
-                return true;
-            };
-            Native.EnumWindows(collect, IntPtr.Zero);
-            ArrayList list = new ArrayList();
-            bool truncated = false;
-            foreach (IntPtr hwnd in handles)
-            {
-                if (list.Count >= limit) { truncated = true; break; }
-                object record = WindowRecord(hwnd);
-                if (record != null) list.Add(record);
-            }
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["windows"] = list;
-            r["truncated"] = truncated;
-            return r;
-        }
-
-        static object Focus(IntPtr hwnd)
-        {
-            if (!Native.IsWindow(hwnd)) throw new HelperError("window_gone", "That window no longer exists.");
-            object previous = WindowRecord(Native.GetForegroundWindow());
-            if (Native.IsIconic(hwnd)) Native.ShowWindow(hwnd, 9);
-            uint ignored;
-            uint foregroundThread = Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out ignored);
-            uint thisThread = Native.GetCurrentThreadId();
-            bool attached = false;
-            if (foregroundThread != 0 && foregroundThread != thisThread) attached = Native.AttachThreadInput(thisThread, foregroundThread, true);
-            Native.SetForegroundWindow(hwnd);
-            if (attached) Native.AttachThreadInput(thisThread, foregroundThread, false);
-            Thread.Sleep(80);
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["focused"] = Native.GetForegroundWindow() == hwnd;
-            r["previous"] = previous;
-            r["window"] = WindowRecord(hwnd);
-            return r;
-        }
-
-        // ---------- elevation (UIPI): input to a higher-integrity window is dropped, so refuse it ----------
-
-        static bool IsElevatedProcess(uint pid)
-        {
-            IntPtr process = Native.OpenProcess(0x1000, false, pid);
-            if (process == IntPtr.Zero) return true;
-            try
-            {
-                IntPtr token;
-                if (!Native.OpenProcessToken(process, 8, out token)) return true;
-                try
-                {
-                    IntPtr buffer = Marshal.AllocHGlobal(4);
-                    try
-                    {
-                        uint returned;
-                        if (!Native.GetTokenInformation(token, 20, buffer, 4, out returned)) return true;
-                        return Marshal.ReadInt32(buffer) != 0;
-                    }
-                    finally { Marshal.FreeHGlobal(buffer); }
-                }
-                finally { Native.CloseHandle(token); }
-            }
-            finally { Native.CloseHandle(process); }
-        }
-
-        static void RequireReachable(IntPtr hwnd)
-        {
-            if (selfElevated || hwnd == IntPtr.Zero) return;
-            uint pid;
-            Native.GetWindowThreadProcessId(hwnd, out pid);
-            if (IsElevatedProcess(pid))
-            {
-                throw new HelperError("elevated_window", "That window runs as administrator, so Windows drops input from a normal process. Ask the person to use it themselves.");
-            }
-        }
-
-        static void RequireReachableAt(int x, int y)
-        {
-            POINT point = new POINT();
-            point.X = x;
-            point.Y = y;
-            IntPtr hwnd = Native.WindowFromPoint(point);
-            if (hwnd != IntPtr.Zero) hwnd = Native.GetAncestor(hwnd, 2);
-            RequireReachable(hwnd);
-        }
-
-        // ---------- screen ----------
-
-        static object ScreenGeometry()
-        {
-            Rectangle area = SystemInformation.VirtualScreen;
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["x"] = area.X;
-            r["y"] = area.Y;
-            r["width"] = area.Width;
-            r["height"] = area.Height;
-            return r;
-        }
-
-        static object Screenshot(Dictionary<string, object> p)
-        {
-            Rectangle screen = SystemInformation.VirtualScreen;
-            Rectangle area = screen;
-            string hwndText = StrOr(p, "hwnd", "");
-            if (hwndText.Length > 0)
-            {
-                RECT rect = FrameBounds(Hwnd(p, "hwnd"));
-                area = Rectangle.Intersect(screen, new Rectangle(rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top));
-            }
-            if (p.ContainsKey("region") && p["region"] != null)
-            {
-                Dictionary<string, object> region = (Dictionary<string, object>)p["region"];
-                Rectangle wanted = new Rectangle(area.X + IntOr(region, "x", 0), area.Y + IntOr(region, "y", 0), IntOr(region, "width", area.Width), IntOr(region, "height", area.Height));
-                area = Rectangle.Intersect(area, wanted);
-            }
-            if (area.Width <= 0 || area.Height <= 0) throw new HelperError("empty_capture", "The area to capture is empty or off screen.");
-            double scale = DoubleOr(p, "scale", 1.0);
-            if (scale <= 0 || scale > 1) scale = 1.0;
-            string format = StrOr(p, "format", "png");
-            int quality = IntOr(p, "quality", 80);
-
-            using (Bitmap full = new Bitmap(area.Width, area.Height, PixelFormat.Format32bppArgb))
-            {
-                using (Graphics g = Graphics.FromImage(full))
-                {
-                    g.CopyFromScreen(area.X, area.Y, 0, 0, new Size(area.Width, area.Height), CopyPixelOperation.SourceCopy);
-                }
-                Bitmap output = full;
-                Bitmap resized = null;
-                if (scale < 1.0)
-                {
-                    int w = Math.Max(1, (int)Math.Round(area.Width * scale));
-                    int h = Math.Max(1, (int)Math.Round(area.Height * scale));
-                    resized = new Bitmap(w, h, PixelFormat.Format32bppArgb);
-                    using (Graphics g = Graphics.FromImage(resized))
-                    {
-                        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-                        g.DrawImage(full, 0, 0, w, h);
-                    }
-                    output = resized;
-                }
-                try
-                {
-                    using (MemoryStream stream = new MemoryStream())
-                    {
-                        if (format == "jpeg")
-                        {
-                            ImageCodecInfo codec = null;
-                            foreach (ImageCodecInfo candidate in ImageCodecInfo.GetImageEncoders())
-                            {
-                                if (candidate.MimeType == "image/jpeg") { codec = candidate; break; }
-                            }
-                            EncoderParameters encoder = new EncoderParameters(1);
-                            encoder.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)Math.Max(1, Math.Min(100, quality)));
-                            output.Save(stream, codec, encoder);
-                        }
-                        else
-                        {
-                            output.Save(stream, ImageFormat.Png);
-                        }
-                        Dictionary<string, object> r = new Dictionary<string, object>();
-                        r["data"] = Convert.ToBase64String(stream.ToArray());
-                        r["width"] = output.Width;
-                        r["height"] = output.Height;
-                        r["originX"] = area.X;
-                        r["originY"] = area.Y;
-                        r["captureWidth"] = area.Width;
-                        r["captureHeight"] = area.Height;
-                        return r;
-                    }
-                }
-                finally
-                {
-                    if (resized != null) resized.Dispose();
-                }
-            }
-        }
-
-        // ---------- input ----------
-
-        static void Send(INPUT[] inputs)
-        {
-            uint sent = Native.SendInput((uint)inputs.Length, inputs, Marshal.SizeOf(typeof(INPUT)));
-            if (sent != (uint)inputs.Length) throw new HelperError("input_blocked", "Windows accepted " + sent + " of " + inputs.Length + " input events. A higher-integrity window or the secure desktop may be in front.");
-        }
-
-        static INPUT MouseEvent(uint flags, uint data)
-        {
-            INPUT input = new INPUT();
-            input.type = 0;
-            input.U.mi.dwFlags = flags;
-            input.U.mi.mouseData = data;
-            return input;
-        }
-
-        static bool IsExtendedKey(int vk)
-        {
-            return (vk >= 0x21 && vk <= 0x28) || vk == 0x2d || vk == 0x2e || vk == 0x5b;
-        }
-
-        static INPUT KeyEvent(int vk, bool up)
-        {
-            INPUT input = new INPUT();
-            input.type = 1;
-            input.U.ki.wVk = (ushort)vk;
-            input.U.ki.wScan = (ushort)Native.MapVirtualKey((uint)vk, 0);
-            uint flags = 0;
-            if (up) flags |= 0x0002;
-            if (IsExtendedKey(vk)) flags |= 0x0001;
-            input.U.ki.dwFlags = flags;
-            return input;
-        }
-
-        static object Move(int x, int y)
-        {
-            RequireReachableAt(x, y);
-            Native.SetCursorPos(x, y);
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["x"] = x;
-            r["y"] = y;
-            return r;
-        }
-
-        static object Click(Dictionary<string, object> p)
-        {
-            int x = IntOr(p, "x", 0);
-            int y = IntOr(p, "y", 0);
-            int count = Math.Max(1, Math.Min(3, IntOr(p, "count", 1)));
-            string button = StrOr(p, "button", "left");
-            uint down = 0x0002;
-            uint up = 0x0004;
-            if (button == "right") { down = 0x0008; up = 0x0010; }
-            else if (button == "middle") { down = 0x0020; up = 0x0040; }
-            RequireReachableAt(x, y);
-            Native.SetCursorPos(x, y);
-            Thread.Sleep(30);
-            for (int i = 0; i < count; i++)
-            {
-                Send(new INPUT[] { MouseEvent(down, 0), MouseEvent(up, 0) });
-                if (i + 1 < count) Thread.Sleep(60);
-            }
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["x"] = x;
-            r["y"] = y;
-            return r;
-        }
-
-        static object Scroll(Dictionary<string, object> p)
-        {
-            if (p.ContainsKey("x") && p.ContainsKey("y") && p["x"] != null && p["y"] != null)
-            {
-                int x = IntOr(p, "x", 0);
-                int y = IntOr(p, "y", 0);
-                RequireReachableAt(x, y);
-                Native.SetCursorPos(x, y);
-                Thread.Sleep(30);
-            }
-            int vertical = IntOr(p, "vertical", 0);
-            int horizontal = IntOr(p, "horizontal", 0);
-            if (vertical != 0) Send(new INPUT[] { MouseEvent(0x0800, unchecked((uint)(vertical * 120))) });
-            if (horizontal != 0) Send(new INPUT[] { MouseEvent(0x1000, unchecked((uint)(horizontal * 120))) });
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["vertical"] = vertical;
-            r["horizontal"] = horizontal;
-            return r;
-        }
-
-        static object Drag(Dictionary<string, object> p)
-        {
-            int x1 = IntOr(p, "x1", 0);
-            int y1 = IntOr(p, "y1", 0);
-            int x2 = IntOr(p, "x2", 0);
-            int y2 = IntOr(p, "y2", 0);
-            int duration = Math.Max(50, Math.Min(10000, IntOr(p, "durationMs", 300)));
-            RequireReachableAt(x1, y1);
-            Native.SetCursorPos(x1, y1);
-            Thread.Sleep(40);
-            Send(new INPUT[] { MouseEvent(0x0002, 0) });
-            int steps = Math.Max(4, duration / 25);
-            for (int i = 1; i <= steps; i++)
-            {
-                Native.SetCursorPos(x1 + (x2 - x1) * i / steps, y1 + (y2 - y1) * i / steps);
-                Thread.Sleep(duration / steps);
-            }
-            Send(new INPUT[] { MouseEvent(0x0004, 0) });
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["x"] = x2;
-            r["y"] = y2;
-            return r;
-        }
-
-        static object Keys(Dictionary<string, object> p)
-        {
-            List<int> vks = new List<int>();
-            IEnumerable raw = p["vks"] as IEnumerable;
-            if (raw == null) throw new HelperError("bad_keys", "vks is required.");
-            foreach (object item in raw) vks.Add(Convert.ToInt32(item));
-            if (vks.Count == 0) throw new HelperError("bad_keys", "No keys were given.");
-            int repeat = Math.Max(1, Math.Min(50, IntOr(p, "repeat", 1)));
-            int delay = Math.Max(0, Math.Min(1000, IntOr(p, "delayMs", 20)));
-            RequireReachable(Native.GetForegroundWindow());
-            for (int round = 0; round < repeat; round++)
-            {
-                List<INPUT> events = new List<INPUT>();
-                foreach (int vk in vks) events.Add(KeyEvent(vk, false));
-                for (int i = vks.Count - 1; i >= 0; i--) events.Add(KeyEvent(vks[i], true));
-                Send(events.ToArray());
-                if (round + 1 < repeat && delay > 0) Thread.Sleep(delay);
-            }
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["sent"] = repeat;
-            return r;
-        }
-
-        // ---------- clipboard (needs the STA thread this process runs on) ----------
-
-        static object ClipboardGet()
-        {
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            for (int attempt = 0; attempt < 5; attempt++)
-            {
-                try
-                {
-                    r["text"] = Clipboard.ContainsText() ? Clipboard.GetText() : null;
-                    return r;
-                }
-                catch (ExternalException) { Thread.Sleep(60); }
-            }
-            throw new HelperError("clipboard_busy", "Another program is holding the clipboard.");
-        }
-
-        static object ClipboardSet(string text)
-        {
-            for (int attempt = 0; attempt < 5; attempt++)
-            {
-                try
-                {
-                    if (text.Length == 0) Clipboard.Clear();
-                    else Clipboard.SetDataObject(text, true);
-                    Dictionary<string, object> r = new Dictionary<string, object>();
-                    r["length"] = text.Length;
-                    return r;
-                }
-                catch (ExternalException) { Thread.Sleep(60); }
-            }
-            throw new HelperError("clipboard_busy", "Another program is holding the clipboard.");
-        }
-
-        static object Idle()
-        {
-            LASTINPUTINFO info = new LASTINPUTINFO();
-            info.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
-            if (!Native.GetLastInputInfo(ref info)) throw new HelperError("idle_unavailable", "Windows did not report the last input time.");
-            uint idle = unchecked(Native.GetTickCount() - info.dwTime);
-            Dictionary<string, object> r = new Dictionary<string, object>();
-            r["idleMs"] = (long)idle;
-            return r;
-        }
+function Invoke-UiaAsync([string]$method, $p, $roots) {
+  $timeout = [Math]::Max(1000, [Math]::Min(30000, (Get-IntParam $p 'timeoutMs' 8000)))
+  if ($method -eq 'uia.tree' -and $roots.Count -eq 0) {
+    return [ordered]@{ root = $null; nodeCount = 0; truncated = $false; redacted = $false; timedOut = $false; found = $false }
+  }
+  $state = [hashtable]::Synchronized(@{
+    cancel = $false; done = $false; root = $null; result = $null; count = 0; truncated = $false; redacted = $false
+    failure = $null; phase = ''; selfElevated = $script:selfElevated; items = [System.Collections.ArrayList]::Synchronized((New-Object System.Collections.ArrayList))
+  })
+  $runspace = Get-UiaRunspace
+  $worker = [System.Management.Automation.PowerShell]::Create()
+  $worker.Runspace = $runspace
+  [void]$worker.AddScript('param($method, $p, $roots, $state) Invoke-UiaWorker $method $p $roots $state')
+  [void]$worker.AddArgument($method)
+  [void]$worker.AddArgument($p)
+  [void]$worker.AddArgument($roots)
+  [void]$worker.AddArgument($state)
+  $async = $worker.BeginInvoke()
+  $finished = $async.AsyncWaitHandle.WaitOne($timeout)
+  $state.cancel = $true
+  if ($finished) {
+    [void]$worker.EndInvoke($async)
+    $worker.Dispose()
+    $script:uiaSpare = $runspace
+  }
+  if ($finished -and $null -ne $state.failure) {
+    Throw-HelperError ([string]$state.failure.code) ([string]$state.failure.message)
+  }
+  switch ($method) {
+    'uia.tree' {
+      return [ordered]@{ root = $state.root; nodeCount = $state.count; truncated = ($state.truncated -or -not $finished); redacted = $state.redacted; timedOut = (-not $finished); found = ($null -ne $state.root) }
     }
+    'uia.find' {
+      $limit = [Math]::Max(1, [Math]::Min(50, (Get-IntParam $p 'limit' 10)))
+      $ranked = New-Object System.Collections.ArrayList
+      $index = 0
+      foreach ($item in @($state.items.ToArray())) {
+        [void]$ranked.Add([ordered]@{ order = $index; confidence = [double]$item['confidence']; item = $item })
+        $index++
+      }
+      $sorted = @($ranked.ToArray() | Sort-Object -Property @{ Expression = { $_.confidence }; Descending = $true }, @{ Expression = { $_.order }; Descending = $false })
+      $candidates = @($sorted | Select-Object -First $limit | ForEach-Object { $_.item })
+      return [ordered]@{ candidates = $candidates; truncated = ($state.truncated -or -not $finished); timedOut = (-not $finished); windows = $roots.Count }
+    }
+    default {
+      if ($finished) {
+        if ($null -eq $state.result) { Throw-HelperError 'uia_error' ('UI Automation gave no answer for ' + $method + '.') }
+        return $state.result
+      }
+      $partial = $state.result
+      if ($null -ne $partial -and $state.phase -eq 'acting') {
+        # The call went out but the app has not returned (a modal dialog blocks Invoke until it closes).
+        $late = [ordered]@{}
+        foreach ($key in $partial.Keys) { $late[$key] = $partial[$key] }
+        $late['timedOut'] = $true
+        if ($method -eq 'uia.activate') {
+          $late['performed'] = $true
+          $late['reason'] = 'The action was sent, but the app did not return in time (a dialog may be open). Check the screen.'
+        } elseif ($method -eq 'uia.setText') {
+          $late['changed'] = $true
+          $late['reason'] = 'The value was sent, but the app did not return in time. Read it back to check.'
+        }
+        return $late
+      }
+      Throw-HelperError 'uia_timeout' 'The app did not answer UI Automation in time. It may be busy or hung.'
+    }
+  }
+}
+
+function ConvertTo-HelperReply($id, $result) {
+  return (ConvertTo-Json -InputObject ([ordered]@{ id = $id; ok = $true; result = $result }) -Depth 30 -Compress)
+}
+
+function ConvertTo-HelperFailure($id, [string]$code, [string]$message) {
+  $error = [ordered]@{ code = $code; message = (Get-AhPlain $message) }
+  return (ConvertTo-Json -InputObject ([ordered]@{ id = $id; ok = $false; error = $error }) -Depth 5 -Compress)
+}
+
+function Get-ExceptionCode($exception) {
+  if ($exception.Data.Contains('code')) { return [string]$exception.Data['code'] }
+  return ''
+}
+
+function Invoke-HelperLine([string]$line) {
+  $request = $null
+  try { $request = $line | ConvertFrom-Json } catch { return (ConvertTo-HelperFailure $null 'helper_exception' 'The request is not valid JSON.') }
+  $id = $request.id
+  try {
+    $result = Invoke-HelperMethod ([string]$request.method) $request.params
+    return (ConvertTo-HelperReply $id $result)
+  } catch {
+    $code = Get-ExceptionCode $_.Exception
+    if ($code.Length -gt 0) { return (ConvertTo-HelperFailure $id $code $_.Exception.Message) }
+    return (ConvertTo-HelperFailure $id 'helper_exception' ($_.Exception.GetType().Name + ': ' + $_.Exception.Message))
+  }
+}
+
+function Invoke-UiaLine([string]$line) {
+  $request = $null
+  try { $request = $line | ConvertFrom-Json } catch { return (ConvertTo-HelperFailure $null 'helper_exception' 'The request is not valid JSON.') }
+  $id = $request.id
+  $method = [string]$request.method
+  try {
+    if ($method -eq 'uia.ping') { return (ConvertTo-HelperReply $id ([ordered]@{ uia = $true; elevated = $script:selfElevated })) }
+    if ($script:uiaError.Length -gt 0) { return (ConvertTo-HelperFailure $id 'uia_unavailable' ('UI Automation could not be loaded: ' + $script:uiaError)) }
+    $roots = @(Get-UiaRoots $method $request.params)
+    $result = Invoke-UiaAsync $method $request.params $roots
+    return (ConvertTo-HelperReply $id $result)
+  } catch {
+    $code = Get-ExceptionCode $_.Exception
+    if ($code.Length -gt 0) { return (ConvertTo-HelperFailure $id $code $_.Exception.Message) }
+    return (ConvertTo-HelperFailure $id 'helper_exception' ($_.Exception.GetType().Name + ': ' + $_.Exception.Message))
+  }
 }
 `;
 
-const POWERSHELL_HEAD = String.raw`
+const HELPER_HEAD = String.raw`
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
 try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
-$source = @'
-`;
-
-const POWERSHELL_MID = String.raw`
-'@
-Add-Type -TypeDefinition $source -ReferencedAssemblies 'System.Drawing','System.Windows.Forms','System.Web.Extensions'
-$uiaSource = @'
-`;
-
-// UI Automation is compiled on its own and inside try/catch: if it fails to load, only uia.* is
-// unavailable (with the reason in the reply), and windows, input and screenshots keep working.
-const POWERSHELL_TAIL = String.raw`
-'@
-$uiaError = ''
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+$script:uiaError = ''
 try {
   Add-Type -AssemblyName UIAutomationClient
   Add-Type -AssemblyName UIAutomationTypes
   Add-Type -AssemblyName WindowsBase
-  $uiaRefs = @('System.Web.Extensions')
-  foreach ($uiaType in @([System.Windows.Automation.AutomationElement], [System.Windows.Automation.ControlType], [System.Windows.Rect])) { $uiaRefs += $uiaType.Assembly.Location }
-  Add-Type -TypeDefinition $uiaSource -ReferencedAssemblies $uiaRefs
 } catch {
-  $uiaError = ($_.Exception.Message -replace '\s+', ' ')
-  if ($uiaError.Length -gt 600) { $uiaError = $uiaError.Substring(0, 600) }
+  $script:uiaError = (($_.Exception.Message -replace '\s+', ' ') -replace '[\\"]', ' ')
+  if ($script:uiaError.Length -gt 600) { $script:uiaError = $script:uiaError.Substring(0, 600) }
 }
-function Write-UiaError([string]$line, [string]$code, [string]$message) {
-  $idMatch = [regex]::Match($line, '"id":(-?\d+)')
-  $idText = 'null'
-  if ($idMatch.Success) { $idText = $idMatch.Groups[1].Value }
-  $clean = ($message -replace '\s+', ' ') -replace '[\\"]', ' '
-  [Console]::Out.WriteLine('{"id":' + $idText + ',"ok":false,"error":{"code":"' + $code + '","message":"' + $clean + '"}}')
-}
+$script:uiaSpare = $null
+`;
+
+const HELPER_LOOP = String.raw`
+[AhNative.Native]::SetProcessDPIAware() | Out-Null
+$script:selfElevated = Test-AhElevated ([uint32]$PID)
 $reader = [Console]::In
 while ($true) {
   $line = $reader.ReadLine()
   if ($null -eq $line) { break }
   if ($line.Length -eq 0) { continue }
   if ($line.IndexOf('"method":"uia.') -ge 0) {
-    if ($uiaError -ne '') {
-      Write-UiaError $line 'uia_unavailable' ('UI Automation could not be loaded: ' + $uiaError)
-    } else {
-      try { [Console]::Out.WriteLine([AgentHostUia.Uia]::Handle($line)) }
-      catch { Write-UiaError $line 'helper_exception' $_.Exception.Message }
-    }
-    [Console]::Out.Flush()
-    continue
+    [Console]::Out.WriteLine((Invoke-UiaLine $line))
+  } else {
+    [Console]::Out.WriteLine((Invoke-HelperLine $line))
   }
-  [Console]::Out.WriteLine([AgentHostWin.Host]::Handle($line))
   [Console]::Out.Flush()
 }
 `;
 
+/** The definitions the UI Automation worker runs once in each new runspace: the bindings and the worker. */
+const UIA_DEFINITIONS = [NATIVE_PS, UIA_WORKER_PS].join("\r\n");
+
 /** The whole script, written to a file and started with `powershell.exe -STA -File`. */
 export const HELPER_SCRIPT = [
-  POWERSHELL_HEAD.replace(/^\n/, "").replace(/\n$/, ""),
-  CSHARP,
-  POWERSHELL_MID.replace(/^\n/, "").replace(/\n$/, ""),
-  UIA_CSHARP,
-  POWERSHELL_TAIL.replace(/^\n/, "")
-].join("\r\n").replace(/\r?\n/g, "\r\n");
+  HELPER_HEAD.replace(/^\n/, "").replace(/\n$/, ""),
+  NATIVE_PS.replace(/^\n/, "").replace(/\n$/, ""),
+  HELPER_PS.replace(/^\n/, "").replace(/\n$/, ""),
+  "$script:uiaDefinitions = @'",
+  UIA_DEFINITIONS,
+  "'@",
+  HELPER_LOOP.replace(/^\n/, "").replace(/\n$/, "")
+].join("\r\n").replace(/\r?\n/g, "\r\n") + "\r\n";
