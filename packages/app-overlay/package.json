@@ -6,5 +6,5 @@
   "type": "module",
   "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
   "scripts": { "build": "tsc -b" },
-  "dependencies": { "@agenthost/core": "file:../core" }
+  "dependencies": { "@agenthost/core": "file:../core", "@agenthost/os-windows": "file:../os-windows" }
 }

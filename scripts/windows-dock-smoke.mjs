@@ -22,6 +22,8 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+// The Win32 bindings are emitted in memory by the same module the overlay uses: no DLL is compiled or written.
+import { NATIVE_PS } from "../packages/os-windows/dist/index.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const APP_OVERLAY = path.join(REPO, "packages", "app-overlay", "dist", "index.js");
@@ -64,7 +66,7 @@ const desktop = createWindowsDesktop(helper);
  * per WPF unit, which is what the strip is sized in.
  */
 function displayRects() {
-  const script = "Add-Type -Namespace AgentHostSmoke -Name Dpi -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();'; [void][AgentHostSmoke.Dpi]::SetProcessDPIAware(); Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $s = [System.Windows.Forms.Screen]::PrimaryScreen; $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $dpi = $g.DpiX; $g.Dispose(); '{0},{1},{2},{3},{4},{5},{6},{7},{8}' -f $s.Bounds.X, $s.Bounds.Y, $s.Bounds.Width, $s.Bounds.Height, $s.WorkingArea.X, $s.WorkingArea.Y, $s.WorkingArea.Width, $s.WorkingArea.Height, $dpi";
+  const script = NATIVE_PS + "\r\n[void][AhNative.Native]::SetProcessDPIAware(); Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; $s =[System.Windows.Forms.Screen]::PrimaryScreen; $g = [System.Drawing.Graphics]::FromHwnd([IntPtr]::Zero); $dpi = $g.DpiX; $g.Dispose(); '{0},{1},{2},{3},{4},{5},{6},{7},{8}' -f $s.Bounds.X, $s.Bounds.Y, $s.Bounds.Width, $s.Bounds.Height, $s.WorkingArea.X, $s.WorkingArea.Y, $s.WorkingArea.Width, $s.WorkingArea.Height, $dpi";
   const out = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true });
   const n = String(out.stdout).trim().split(",").map(Number);
   if (n.length !== 9 || n.some((value) => !Number.isFinite(value))) throw new Error(`display_query_failed: ${String(out.stderr).slice(0, 200)}`);
@@ -129,7 +131,7 @@ const task = (overlayId, title) => ({
 
 /** Maximizes a window by its handle (SW_MAXIMIZE = 3): the shell then fits it to the work area, which the strip reserves. */
 function maximizeWindow(windowId) {
-  const script = `Add-Type -Namespace AgentHostSmoke -Name Win -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"user32.dll\")] public static extern bool ShowWindow(System.IntPtr hWnd, int nCmdShow);'; [void][AgentHostSmoke.Win]::ShowWindow([IntPtr][long]${windowId}, 3)`;
+  const script = `${NATIVE_PS}\r\n[void][AhNative.Native]::ShowWindow([IntPtr][long]${windowId}, 3)`;
   spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { windowsHide: true });
 }
 
@@ -144,7 +146,7 @@ function killOverlayChild() {
 
 function saveScreenshot(file) {
   // Device pixels, so the picture covers the whole display and not only its top-left corner.
-  const script = "Add-Type -Namespace AgentHostSmoke -Name Dpi -MemberDefinition '[System.Runtime.InteropServices.DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware();'; [void][AgentHostSmoke.Dpi]::SetProcessDPIAware(); Add-Type -AssemblyName System.Drawing; Add-Type -AssemblyName System.Windows.Forms; $s = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $b = New-Object System.Drawing.Bitmap $s.Width, $s.Height; $g = [System.Drawing.Graphics]::FromImage($b); $g.CopyFromScreen($s.X, $s.Y, 0, 0, $b.Size); $b.Save($env:DOCK_SHOT_PATH, [System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $b.Dispose()";
+  const script = NATIVE_PS + "\r\n[void][AhNative.Native]::SetProcessDPIAware(); Add-Type -AssemblyName System.Drawing; Add-Type -AssemblyName System.Windows.Forms; $s =[System.Windows.Forms.Screen]::PrimaryScreen.Bounds; $b = New-Object System.Drawing.Bitmap $s.Width, $s.Height; $g = [System.Drawing.Graphics]::FromImage($b); $g.CopyFromScreen($s.X, $s.Y, 0, 0, $b.Size); $b.Save($env:DOCK_SHOT_PATH, [System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $b.Dispose()";
   const out = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], { encoding: "utf8", windowsHide: true, env: { ...process.env, DOCK_SHOT_PATH: file } });
   return out.status === 0 && existsSync(file);
 }

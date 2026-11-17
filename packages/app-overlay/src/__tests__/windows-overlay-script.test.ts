@@ -13,22 +13,36 @@ describe("windows-overlay-script", () => {
     expect(/^[\x00-\x7F]*$/u.test(SOURCE)).toBe(true);
   });
 
-  it("holds the real-press guard, the protocol commands and the entry point", () => {
-    for (const needle of ["WhMouseLl", "LlmhfInjected", "PreviewMouseLeftButtonDown", "PreviewMouseLeftButtonUp", "AgentHostOverlay.Program", "wpf-windows", "emergency_hide", "emergency_hidden", "renderer_token_invalid", "overlay_input_guard_unavailable"]) {
+  it("holds the real-press guard, the protocol commands and the Win32 bindings it needs", () => {
+    for (const needle of [
+      "SetWindowsHookExW",
+      "ReadInt32($lParam, 12)",
+      "PreviewMouseLeftButtonDown",
+      "PreviewMouseLeftButtonUp",
+      "SHAppBarMessage",
+      "Invoke-OvRunCommand",
+      "wpf-windows",
+      "emergency_hide",
+      "emergency_hidden",
+      "renderer_token_invalid",
+      "overlay_input_guard_unavailable"
+    ]) {
       expect(WINDOWS_OVERLAY_SCRIPT, needle).toContain(needle);
     }
   });
 
-  it("reads JSON arrays as any IList: JavaScriptSerializer returns ArrayList for Dictionary<string, object>, so an object[]-only cast left every card without a body", () => {
-    expect(WINDOWS_OVERLAY_SCRIPT).toContain("System.Collections.IList list = value as System.Collections.IList");
-    expect(WINDOWS_OVERLAY_SCRIPT).not.toContain("value as object[]");
+  it("reads JSON arrays as any IList: JavaScriptSerializer returns ArrayList for Dictionary<string, object>, so an object[]-only check left every card without a body", () => {
+    expect(WINDOWS_OVERLAY_SCRIPT).toContain("-isnot [System.Collections.IList]");
+    expect(WINDOWS_OVERLAY_SCRIPT).not.toContain("-is [object[]]");
   });
 
-  it("stays within C# 5 and Windows PowerShell 5.1 syntax", () => {
-    expect(WINDOWS_OVERLAY_SCRIPT).not.toMatch(/\$"/);
-    expect(WINDOWS_OVERLAY_SCRIPT).not.toContain("?.");
-    expect(WINDOWS_OVERLAY_SCRIPT).not.toMatch(/\bnameof\(/);
-    expect(WINDOWS_OVERLAY_SCRIPT).not.toContain("=>");
+  it("compiles nothing at run time, so no DLL is written: the Win32 bindings come from NATIVE_PS in memory", () => {
+    expect(WINDOWS_OVERLAY_SCRIPT).not.toMatch(/Add-Type\s+-TypeDefinition/i);
+    expect(WINDOWS_OVERLAY_SCRIPT).not.toMatch(/-MemberDefinition/i);
+    expect(WINDOWS_OVERLAY_SCRIPT).not.toMatch(/Add-Type\s+-Namespace/i);
+    expect(WINDOWS_OVERLAY_SCRIPT).not.toMatch(/-Language\s+CSharp/i);
+    expect(WINDOWS_OVERLAY_SCRIPT).toContain("DefineDynamicAssembly");
+    expect(WINDOWS_OVERLAY_SCRIPT).toContain("Initialize-AhNative");
   });
 
   it("cannot break its template literal: no backtick, no dollar-brace, CRLF line endings only", () => {
@@ -37,7 +51,7 @@ describe("windows-overlay-script", () => {
     expect(WINDOWS_OVERLAY_SCRIPT).not.toMatch(/[^\r]\n/);
   });
 
-  it.skipIf(pwsh === undefined)("parses as PowerShell, with the C# here-string intact", () => {
+  it.skipIf(pwsh === undefined)("parses as PowerShell with no compile step", () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), "agenthost-win-overlay-parse-"));
     try {
       const file = path.join(dir, "overlay.ps1");

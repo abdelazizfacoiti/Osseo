@@ -3,1278 +3,1203 @@
  * speaks the same JSON-line protocol as the GTK renderer (hello, show, update, dismiss, clear, emergency_hide,
  * state, events, close). It exits when its stdin closes, so the cards go with the server.
  *
- * Control buttons act only on a real mouse press. A low-level mouse hook records whether each left-button
- * event came from the hardware or was injected (SendInput, mouse_event). WPF's preview events tell us which
- * button the event reached, so a press is real only if the same button saw a real press and a real release.
- * Keyboard activation, touch, UI Automation's Invoke and the agent's own clicks never pass that check.
+ * The script is PowerShell only. The Win32 calls (the mouse hook, window styles, the dock's app bar) come from
+ * NATIVE_PS in @agenthost/os-windows, which emits them in memory: nothing is compiled and no DLL is written, so it
+ * runs where an antivirus or policy blocks run-time compiled assemblies.
  *
- * Checked on Windows 11 with scripts\windows-overlay-smoke.mjs (cards and the guard) and scripts\windows-dock-smoke.mjs
- * (the dock strip). The C# must
- * stay C# 5 (Windows PowerShell 5.1 compiles it with Add-Type): no string interpolation, no "?.", no
- * expression-bodied members. The text must not contain a backtick or the characters dollar-brace.
+ * Control buttons act only on a real mouse press. A low-level mouse hook records whether each left-button event came
+ * from the hardware or was injected (SendInput, mouse_event). WPF's preview events tell us which button the event
+ * reached, so a press is real only if the same button saw a real press and a real release. Keyboard activation,
+ * touch, UI Automation's Invoke and the agent's own clicks never pass that check.
+ *
+ * The text must not contain a backtick or the characters dollar-brace (it is embedded in a template literal).
+ * Checked on Windows 11 with scriptswindows-overlay-smoke.mjs (cards and the guard) and
+ * scriptswindows-dock-smoke.mjs (the dock strip).
  */
 
-const CSHARP = String.raw`
-using System;
-using System.Collections.Generic;
-using System.Globalization;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
-using System.Web.Script.Serialization;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Interop;
-using System.Windows.Media;
-using System.Windows.Threading;
-
-namespace AgentHostOverlay
-{
-    public delegate IntPtr LowLevelMouseProc(int nCode, IntPtr wParam, IntPtr lParam);
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MsllPoint
-    {
-        public int X;
-        public int Y;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct MsllHookStruct
-    {
-        public MsllPoint Pt;
-        public uint MouseData;
-        public uint Flags;
-        public uint Time;
-        public IntPtr ExtraInfo;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    public struct NativeRect
-    {
-        public int Left;
-        public int Top;
-        public int Right;
-        public int Bottom;
-    }
-
-    // APPBARDATA, for SHAppBarMessage (the dock's reserved strip).
-    [StructLayout(LayoutKind.Sequential)]
-    public struct AppBarData
-    {
-        public int cbSize;
-        public IntPtr hWnd;
-        public uint uCallbackMessage;
-        public uint uEdge;
-        public NativeRect rc;
-        public IntPtr lParam;
-    }
-
-    public static class Native
-    {
-        public const int WhMouseLl = 14;
-        public const int WmLButtonDown = 0x0201;
-        public const int WmLButtonUp = 0x0202;
-        public const uint LlmhfInjected = 0x00000001;
-        public const uint LlmhfLowerIlInjected = 0x00000002;
-        public const int GwlExStyle = -20;
-        public const int WsExTransparent = 0x00000020;
-        public const int WsExToolWindow = 0x00000080;
-        public const int WsExNoActivate = 0x08000000;
-        public const uint AbmNew = 0;
-        public const uint AbmRemove = 1;
-        public const uint AbmQueryPos = 2;
-        public const uint AbmSetPos = 3;
-        public const uint AbeLeft = 0;
-        public const uint AbeRight = 2;
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern IntPtr SetWindowsHookEx(int idHook, LowLevelMouseProc lpfn, IntPtr hMod, uint dwThreadId);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        public static extern bool UnhookWindowsHookEx(IntPtr hhk);
-
-        [DllImport("user32.dll")]
-        public static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern IntPtr GetModuleHandle(string moduleName);
-
-        [DllImport("user32.dll")]
-        public static extern int GetWindowLong(IntPtr hWnd, int index);
-
-        [DllImport("user32.dll")]
-        public static extern int SetWindowLong(IntPtr hWnd, int index, int value);
-
-        [DllImport("shell32.dll")]
-        public static extern IntPtr SHAppBarMessage(uint message, ref AppBarData data);
-
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        public static extern uint RegisterWindowMessage(string text);
-    }
-
-    // The hook sees every left-button event and whether Windows marks it injected. Only a press that is
-    // not injected counts as a person's press.
-    public static class PressGuard
-    {
-        static IntPtr hook = IntPtr.Zero;
-        static LowLevelMouseProc keepAlive;
-
-        public static bool LastDownReal;
-        public static bool LastUpReal;
-
-        public static bool Install()
-        {
-            if (hook != IntPtr.Zero) return true;
-            keepAlive = HookProc;
-            hook = Native.SetWindowsHookEx(Native.WhMouseLl, keepAlive, Native.GetModuleHandle(null), 0);
-            return hook != IntPtr.Zero;
-        }
-
-        public static void Remove()
-        {
-            if (hook != IntPtr.Zero) Native.UnhookWindowsHookEx(hook);
-            hook = IntPtr.Zero;
-        }
-
-        static IntPtr HookProc(int nCode, IntPtr wParam, IntPtr lParam)
-        {
-            if (nCode >= 0)
-            {
-                int message = wParam.ToInt32();
-                if (message == Native.WmLButtonDown || message == Native.WmLButtonUp)
-                {
-                    MsllHookStruct data = (MsllHookStruct)Marshal.PtrToStructure(lParam, typeof(MsllHookStruct));
-                    bool real = (data.Flags & (Native.LlmhfInjected | Native.LlmhfLowerIlInjected)) == 0;
-                    if (message == Native.WmLButtonDown) LastDownReal = real;
-                    else LastUpReal = real;
-                }
-            }
-            return Native.CallNextHookEx(hook, nCode, wParam, lParam);
-        }
-    }
-
-    // One button's last press and release, each marked real or synthetic by the hook.
-    public sealed class RealPress
-    {
-        public bool Down;
-        public bool Up;
-    }
-
-    public sealed class Card
-    {
-        public string OverlayId = "";
-        public string Sensitivity = "public";
-        public string Placement = "top_right";
-        public bool Interactive;
-        public List<string> AllowedEvents = new List<string>();
-        public Window Window;
-        public Border Frame;
-        public int Sequence;
-        public string CreatedAt = "";
-        public string UpdatedAt = "";
-    }
-
-    public static class Renderer
-    {
-        const int Version = 1;
-        const int MaxBytes = 256 * 1024;
-        const int MaxCards = 12;
-        const double CardWidth = 340;
-        const double Margin = 16;
-        const double Gap = 8;
-        const double OffscreenPosition = -20000;
-        // The dock: the same numbers as the Linux renderer (CARD_MARGIN, dock_layout), in WPF units.
-        const double DockMargin = 24;
-        const double DockMinWidth = 160;
-        const double DockMaxCard = 420;
-        const double DockMinTimeline = 96;
-        const double DockMinBottom = 64;
-        const double DockBottomShare = 0.45;
-        const int DockReleaseMs = 2000;
-        const string TimelinePrefix = "agenthost-timeline-";
-
-        static readonly string[] Commands = new string[] { "hello", "capabilities", "show", "update", "dismiss", "clear", "emergency_hide", "state", "events", "close" };
-        static readonly string[] Placements = new string[] { "top_left", "top_center", "top_right", "bottom_left", "bottom_center", "bottom_right" };
-        static readonly string[] Limitations = new string[] {
-            "Primitives such as rings, pointers, highlights and pills are not drawn.",
-            "Cards are placed on the primary display only.",
-            "Buttons act only on a real mouse press. Keyboard, touch, UI Automation and injected input are refused.",
-            "Cards without buttons pass clicks through.",
-            "The rail layout is not drawn on Windows: its cards float over the work area."
-        };
-        static readonly Brush Ink = Rgb(238, 242, 250);
-        static readonly Brush Muted = Rgb(160, 172, 196);
-        static readonly Brush Amber = Rgb(255, 196, 92);
-        static readonly Brush Red = Rgb(255, 140, 140);
-        static readonly Brush Green = Rgb(140, 220, 160);
-        static readonly Brush Blue = Rgb(140, 180, 255);
-        static readonly Brush Neutral = Rgb(126, 156, 210);
-        static readonly Brush Rule = Rgb(51, 65, 90);
-        static readonly Brush Surface = Rgb(24, 28, 39);
-        static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
-        static readonly Dictionary<string, Card> Cards = new Dictionary<string, Card>();
-        static readonly List<Card> Order = new List<Card>();
-        static readonly List<Dictionary<string, object>> Events = new List<Dictionary<string, object>>();
-        static Dispatcher dispatcher;
-        static string token;
-        static string sessionId = "unknown";
-        static int rendererEpoch;
-        static int sequence;
-        static bool emergencyHidden;
-        static bool guardReady;
-        static string layoutMode = "ambient";
-        static string dockSide = "right";
-        static int dockPercent = 18;
-        static bool dockReserve = true;
-        static Window dockOwner;
-        static Window dockPanel;
-        static bool dockRegistered;
-        static uint dockCallback;
-        static Rect dockRect;
-        static DispatcherTimer dockRelease;
-        static readonly Brush StripFill = Rgb(14, 17, 26);
-        // The Linux card: a gradient from (24,28,39) to (13,16,24) with a faint blue edge.
-        static readonly Brush CardFill = CardGradient();
-        static readonly Brush CardEdge = Tint(126, 156, 210, 89);
-
-        public static void Start()
-        {
-            Json.MaxJsonLength = MaxBytes * 4;
-            dispatcher = Dispatcher.CurrentDispatcher;
-            Thread reader = new Thread(ReadInput);
-            reader.IsBackground = true;
-            reader.Start();
-        }
-
-        static void ReadInput()
-        {
-            string line;
-            while ((line = Console.In.ReadLine()) != null)
-            {
-                string captured = line;
-                dispatcher.BeginInvoke(new Action(delegate() { HandleLine(captured); }));
-            }
-            dispatcher.BeginInvoke(new Action(delegate() { Shutdown(); }));
-        }
-
-        static void HandleLine(string line)
-        {
-            if (string.IsNullOrEmpty(line) || Encoding.UTF8.GetByteCount(line) > MaxBytes) return;
-            Dictionary<string, object> request;
-            try { request = Json.Deserialize<Dictionary<string, object>>(line); }
-            catch (Exception) { return; }
-            string id = Str(request, "id");
-            if (id == null || id.Length < 1 || id.Length > 100) return;
-            string command = Str(request, "command");
-            string candidate = Str(request, "token");
-            if (Int(request, "version", 0) != Version || candidate == null || candidate.Length < 32 || candidate.Length > 200 || command == null || Array.IndexOf(Commands, command) < 0)
-            {
-                Reply(id, false, null, "renderer_request_invalid");
-                return;
-            }
-            Dictionary<string, object> payload = Dict(request, "payload") ?? new Dictionary<string, object>();
-            if (token == null)
-            {
-                if (command != "hello")
-                {
-                    Reply(id, false, null, "renderer_handshake_required");
-                    return;
-                }
-                token = candidate;
-                string session = Str(payload, "sessionId");
-                if (session != null && session.Length >= 1 && session.Length <= 200) sessionId = session;
-            }
-            if (candidate != token)
-            {
-                Reply(id, false, null, "renderer_token_invalid");
-                return;
-            }
-            try { Run(id, command, payload); }
-            catch (Exception) { Reply(id, false, null, "renderer_command_failed"); }
-        }
-
-        static void Run(string id, string command, Dictionary<string, object> payload)
-        {
-            if (command == "hello") { Hello(id, payload); return; }
-            if (command == "capabilities") { Reply(id, true, Capabilities(), null); return; }
-            if (command == "show" || command == "update") { ShowOrUpdate(id, command, payload); return; }
-            if (command == "dismiss") { Dismiss(id, Str(payload, "overlayId")); return; }
-            if (command == "clear") { ClearAll(id); return; }
-            if (command == "emergency_hide") { EmergencyHide(id); return; }
-            if (command == "state") { Reply(id, true, State(), null); return; }
-            if (command == "events")
-            {
-                Dictionary<string, object> drained = new Dictionary<string, object>();
-                drained["events"] = DrainEvents();
-                Reply(id, true, drained, null);
-                return;
-            }
-            if (command == "close")
-            {
-                Dictionary<string, object> closing = new Dictionary<string, object>();
-                closing["reason"] = "renderer_closing";
-                Reply(id, true, closing, null);
-                Shutdown();
-            }
-        }
-
-        static void Hello(string id, Dictionary<string, object> payload)
-        {
-            int epoch = Int(payload, "rendererEpoch", 0);
-            if (epoch < 1)
-            {
-                Reply(id, false, null, "renderer_epoch_required");
-                return;
-            }
-            rendererEpoch = epoch;
-            ReadVisual(payload);
-            if (!guardReady) guardReady = PressGuard.Install();
-            Dictionary<string, object> data = new Dictionary<string, object>();
-            data["protocolVersion"] = Version;
-            data["rendererEpoch"] = rendererEpoch;
-            data["capabilities"] = Capabilities();
-            Reply(id, true, data, null);
-        }
-
-        static Dictionary<string, object> Capabilities()
-        {
-            bool ready = guardReady;
-            Dictionary<string, object> c = new Dictionary<string, object>();
-            c["supported"] = ready;
-            c["available"] = true;
-            c["visible"] = ready;
-            c["renderer"] = "wpf-windows";
-            c["rendererStatus"] = ready ? "available" : "unavailable";
-            c["sessionType"] = "unknown";
-            c["displayAvailable"] = true;
-            c["clickThrough"] = ready;
-            c["interactiveWidgets"] = ready;
-            c["multipleDisplays"] = false;
-            c["globalOverlayAvailable"] = ready;
-            c["clickThroughAvailable"] = ready;
-            c["multiDisplayAvailable"] = false;
-            c["animationAvailable"] = false;
-            c["interactiveWidgetsAvailable"] = ready;
-            c["compositorAvailable"] = true;
-            c["transparentWindowsAvailable"] = ready;
-            c["reason"] = ready ? "wpf_overlay_ready" : "overlay_input_guard_unavailable";
-            c["limitations"] = Limitations;
-            return c;
-        }
-
-        static void ShowOrUpdate(string id, string command, Dictionary<string, object> payload)
-        {
-            string overlayId = Str(payload, "overlayId");
-            Dictionary<string, object> body = Dict(payload, "payload");
-            if (overlayId == null || overlayId.Length < 1 || overlayId.Length > 200 || body == null)
-            {
-                Reply(id, false, null, "render_record_invalid");
-                return;
-            }
-            if (!guardReady)
-            {
-                Reply(id, false, null, "overlay_input_guard_unavailable");
-                return;
-            }
-            if ((Str(payload, "type") ?? "widget") != "widget")
-            {
-                Reply(id, false, null, "overlay_primitive_unsupported");
-                return;
-            }
-            Card card;
-            bool exists = Cards.TryGetValue(overlayId, out card);
-            if (command == "update" && !exists)
-            {
-                Reply(id, false, null, "overlay_not_found");
-                return;
-            }
-            if (!exists && Cards.Count >= MaxCards)
-            {
-                Reply(id, false, null, "overlay_limit_reached");
-                return;
-            }
-            if (!exists)
-            {
-                card = new Card();
-                card.OverlayId = overlayId;
-                card.Sequence = ++sequence;
-                card.CreatedAt = Now();
-            }
-            UIElement content = BuildContent(card, body);
-            if (IsDockCard(card))
-            {
-                EnsureDock();
-                content = DockScroll(content);
-            }
-            card.UpdatedAt = Now();
-            if (card.Window == null) card.Window = NewWindow();
-            card.Window.Content = content;
-            if (!card.Window.IsVisible) card.Window.Show();
-            if (!exists)
-            {
-                Cards[overlayId] = card;
-                Order.Add(card);
-            }
-            ApplyWindowStyle(card);
-            card.Window.UpdateLayout();
-            Reposition();
-            if (!card.Window.IsVisible)
-            {
-                RemoveCard(card);
-                Reply(id, false, null, "overlay_live_registration_missing");
-                return;
-            }
-            emergencyHidden = false;
-            bool shown = command == "show";
-            Reply(id, true, Ack(command, shown ? "visible" : "updated", overlayId, shown ? "wpf_overlay_shown" : "wpf_overlay_updated", id), null);
-        }
-
-        static void Dismiss(string id, string overlayId)
-        {
-            Card card;
-            if (overlayId != null && Cards.TryGetValue(overlayId, out card)) RemoveCard(card);
-            Reply(id, true, Ack("dismiss", "dismissed", overlayId, "wpf_overlay_dismissed", id), null);
-        }
-
-        static void ClearAll(string id)
-        {
-            foreach (Card card in new List<Card>(Order)) RemoveCard(card);
-            Reply(id, true, Ack("clear", "cleared", null, "wpf_overlays_cleared", id), null);
-        }
-
-        static void EmergencyHide(string id)
-        {
-            foreach (Card card in new List<Card>(Order)) RemoveCard(card);
-            ReleaseDockNow();
-            emergencyHidden = true;
-            Reply(id, true, Ack("emergency_hide", "emergency_hidden", null, "wpf_emergency_hidden", id), null);
-        }
-
-        static void Shutdown()
-        {
-            foreach (Card card in new List<Card>(Order)) RemoveCard(card);
-            ReleaseDockNow();
-            PressGuard.Remove();
-            if (dispatcher != null) dispatcher.InvokeShutdown();
-        }
-
-        static void RemoveCard(Card card)
-        {
-            Cards.Remove(card.OverlayId);
-            Order.Remove(card);
-            Window window = card.Window;
-            card.Window = null;
-            if (window != null) window.Close();
-            Reposition();
-            if (DockCardCount() == 0) ScheduleDockRelease();
-        }
-
-        static void Emit(Card card, string eventName)
-        {
-            if (!card.AllowedEvents.Contains(eventName) || !Cards.ContainsKey(card.OverlayId)) return;
-            Dictionary<string, object> e = new Dictionary<string, object>();
-            e["eventId"] = "event_" + Guid.NewGuid().ToString("N");
-            e["overlayId"] = card.OverlayId;
-            e["event"] = eventName;
-            e["createdAt"] = Now();
-            e["ownerSessionId"] = sessionId;
-            Events.Add(e);
-            if (Events.Count > 100) Events.RemoveAt(0);
-            if (eventName == "dismissed" || eventName == "hide") RemoveCard(card);
-        }
-
-        static List<object> DrainEvents()
-        {
-            List<object> copy = new List<object>(Events);
-            Events.Clear();
-            return copy;
-        }
-
-        static Dictionary<string, object> State()
-        {
-            List<object> overlays = new List<object>();
-            foreach (Card card in Order)
-            {
-                Dictionary<string, object> o = new Dictionary<string, object>();
-                o["overlayId"] = card.OverlayId;
-                o["ownerSessionId"] = sessionId;
-                o["type"] = "widget";
-                o["sensitivity"] = card.Sensitivity;
-                o["interactive"] = card.Interactive;
-                o["visible"] = card.Window != null && card.Window.IsVisible;
-                o["createdAt"] = card.CreatedAt;
-                o["updatedAt"] = card.UpdatedAt;
-                o["expiresAt"] = card.UpdatedAt;
-                overlays.Add(o);
-            }
-            Dictionary<string, object> d = new Dictionary<string, object>();
-            d["renderer"] = Capabilities();
-            d["overlays"] = overlays;
-            d["pendingEvents"] = new List<object>(Events);
-            d["emergencyHidden"] = emergencyHidden;
-            return d;
-        }
-
-        static Dictionary<string, object> Ack(string command, string acknowledgement, string overlayId, string reason, string requestId)
-        {
-            int visible = 0;
-            int interactive = 0;
-            int ready = 0;
-            foreach (Card card in Order)
-            {
-                if (card.Window == null || !card.Window.IsVisible) continue;
-                visible += 1;
-                if (card.Interactive) interactive += 1;
-                if (card.Window.ActualWidth > 0 && card.Window.ActualHeight > 0) ready += 1;
-            }
-            Dictionary<string, object> d = new Dictionary<string, object>();
-            d["command"] = command;
-            d["acknowledgement"] = acknowledgement;
-            d["rendererEpoch"] = rendererEpoch;
-            d["visibleWindowCount"] = visible;
-            d["interactiveWindowCount"] = interactive;
-            d["transparentWindowCount"] = visible;
-            d["drawReadyCount"] = ready;
-            d["visible"] = visible > 0 && ready > 0;
-            d["liveSurfaceRegistered"] = overlayId != null && Cards.ContainsKey(overlayId);
-            if (overlayId != null) d["overlayId"] = overlayId;
-            d["reason"] = reason;
-            d["requestId"] = requestId;
-            return d;
-        }
-
-        static void Reply(string id, bool ok, Dictionary<string, object> data, string error)
-        {
-            Dictionary<string, object> value = new Dictionary<string, object>();
-            value["version"] = Version;
-            value["id"] = id;
-            value["ok"] = ok;
-            if (data != null) value["data"] = data;
-            if (error != null) value["error"] = Clip(error, 200);
-            Console.Out.Write(Json.Serialize(value) + "\n");
-            Console.Out.Flush();
-        }
-
-        static string Now()
-        {
-            return DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
-        }
-
-        static string Str(Dictionary<string, object> d, string key)
-        {
-            object value;
-            if (d == null || !d.TryGetValue(key, out value)) return null;
-            return value as string;
-        }
-
-        static int Int(Dictionary<string, object> d, string key, int fallback)
-        {
-            object value;
-            if (d == null || !d.TryGetValue(key, out value) || value == null) return fallback;
-            try { return Convert.ToInt32(value, CultureInfo.InvariantCulture); }
-            catch (Exception) { return fallback; }
-        }
-
-        static double Dbl(Dictionary<string, object> d, string key)
-        {
-            object value;
-            if (d == null || !d.TryGetValue(key, out value) || value == null) return 0;
-            try { return Convert.ToDouble(value, CultureInfo.InvariantCulture); }
-            catch (Exception) { return 0; }
-        }
-
-        static bool Flag(Dictionary<string, object> d, string key)
-        {
-            object value;
-            return d != null && d.TryGetValue(key, out value) && value is bool && (bool)value;
-        }
-
-        static Dictionary<string, object> Dict(Dictionary<string, object> d, string key)
-        {
-            object value;
-            if (d == null || !d.TryGetValue(key, out value)) return null;
-            return value as Dictionary<string, object>;
-        }
-
-        static object[] Items(Dictionary<string, object> d, string key)
-        {
-            object value;
-            if (d == null || !d.TryGetValue(key, out value)) return new object[0];
-            // JavaScriptSerializer.Deserialize<Dictionary<string, object>> returns nested arrays as ArrayList, not
-            // object[] (only DeserializeObject gives object[]). Accept any IList, or every card would have no body.
-            System.Collections.IList list = value as System.Collections.IList;
-            if (list == null) return new object[0];
-            object[] items = new object[list.Count];
-            list.CopyTo(items, 0);
-            return items;
-        }
-
-        static List<string> StringList(object[] items)
-        {
-            List<string> result = new List<string>();
-            foreach (object item in items)
-            {
-                string text = item as string;
-                if (text != null) result.Add(text);
-            }
-            return result;
-        }
-
-        static string Clip(string text, int limit)
-        {
-            if (text == null) return "";
-            return text.Length > limit ? text.Substring(0, limit) : text;
-        }
-
-        static Brush Rgb(byte r, byte g, byte b)
-        {
-            SolidColorBrush brush = new SolidColorBrush(Color.FromRgb(r, g, b));
-            brush.Freeze();
-            return brush;
-        }
-
-        static Window NewWindow()
-        {
-            Window window = new Window();
-            window.Title = "AgentHost overlay";
-            window.WindowStyle = WindowStyle.None;
-            window.AllowsTransparency = true;
-            window.Background = Brushes.Transparent;
-            window.Topmost = true;
-            window.ShowInTaskbar = false;
-            window.ShowActivated = false;
-            window.Focusable = false;
-            window.ResizeMode = ResizeMode.NoResize;
-            window.SizeToContent = SizeToContent.Height;
-            window.Width = CardWidth;
-            window.Left = OffscreenPosition;
-            window.Top = OffscreenPosition;
-            return window;
-        }
-
-        static void ApplyWindowStyle(Card card)
-        {
-            ApplyFlags(card.Window, card.Interactive);
-        }
-
-        static void ApplyFlags(Window window, bool interactive)
-        {
-            IntPtr hwnd = new WindowInteropHelper(window).EnsureHandle();
-            int style = Native.GetWindowLong(hwnd, Native.GwlExStyle);
-            style |= Native.WsExToolWindow | Native.WsExNoActivate;
-            if (interactive) style &= ~Native.WsExTransparent;
-            else style |= Native.WsExTransparent;
-            Native.SetWindowLong(hwnd, Native.GwlExStyle, style);
-        }
-
-        static void Reposition()
-        {
-            Rect area = SystemParameters.WorkArea;
-            Dictionary<string, double> used = new Dictionary<string, double>();
-            foreach (Card card in Order)
-            {
-                if (card.Window == null || !card.Window.IsVisible || IsDockCard(card)) continue;
-                card.Window.UpdateLayout();
-                double width = card.Window.ActualWidth > 0 ? card.Window.ActualWidth : CardWidth;
-                double height = card.Window.ActualHeight;
-                double offset;
-                if (!used.TryGetValue(card.Placement, out offset)) offset = 0;
-                double left = area.Right - width - Margin;
-                if (card.Placement == "top_left" || card.Placement == "bottom_left") left = area.Left + Margin;
-                else if (card.Placement == "top_center" || card.Placement == "bottom_center") left = area.Left + (area.Width - width) / 2;
-                double top = area.Top + Margin + offset;
-                if (card.Placement.StartsWith("bottom_", StringComparison.Ordinal)) top = area.Bottom - height - Margin - offset;
-                card.Window.Left = left;
-                card.Window.Top = top;
-                used[card.Placement] = offset + height + Gap;
-            }
-            LayoutDock();
-        }
-
-        // ---- Dock ----------------------------------------------------------------------------------------------
-        // layout "dock" (the default): a strip on the chosen edge that reserves work area with the shell, like the
-        // taskbar, so maximized windows end at its edge. The timeline card sits at its top, bottom cards stack up
-        // from its floor, and the strip is released when its last card goes. Other cards float as before.
-
-        static bool DockActive()
-        {
-            return layoutMode == "dock";
-        }
-
-        static bool IsTimelineCard(Card card)
-        {
-            return card.OverlayId.StartsWith(TimelinePrefix, StringComparison.Ordinal);
-        }
-
-        static bool IsDockCard(Card card)
-        {
-            return DockActive() && (IsTimelineCard(card) || card.Placement.StartsWith("bottom_", StringComparison.Ordinal));
-        }
-
-        static int DockCardCount()
-        {
-            int count = 0;
-            foreach (Card card in Order)
-            {
-                if (card.Window != null && IsDockCard(card)) count += 1;
-            }
-            return count;
-        }
-
-        static void ReadVisual(Dictionary<string, object> payload)
-        {
-            Dictionary<string, object> visual = Dict(payload, "visual");
-            if (visual == null) return;
-            string layout = Str(visual, "layout");
-            if (layout == "dock" || layout == "ambient" || layout == "rail") layoutMode = layout;
-            string side = Str(visual, "dockSide");
-            if (side == "left" || side == "right") dockSide = side;
-            int percent = Int(visual, "dockWidthPercent", dockPercent);
-            if (percent >= 10 && percent <= 40) dockPercent = percent;
-            object reserve;
-            if (visual.TryGetValue("dockReserveSpace", out reserve) && reserve is bool) dockReserve = (bool)reserve;
-        }
-
-        static void EnsureDockOwner()
-        {
-            if (dockOwner != null) return;
-            dockOwner = new Window();
-            dockOwner.Title = "AgentHost dock owner";
-            dockOwner.WindowStyle = WindowStyle.None;
-            dockOwner.ShowInTaskbar = false;
-            dockOwner.ShowActivated = false;
-            dockOwner.Focusable = false;
-            dockOwner.ResizeMode = ResizeMode.NoResize;
-            dockOwner.Width = 1;
-            dockOwner.Height = 1;
-            dockOwner.Left = OffscreenPosition;
-            dockOwner.Top = OffscreenPosition;
-            dockOwner.Show();
-            ApplyFlags(dockOwner, false);
-            dockCallback = Native.RegisterWindowMessage("AgentHostDockCallback");
-        }
-
-        // Device pixels per WPF unit. A DPI-unaware process reports 1, and the shell virtualizes its coordinates
-        // too, so the strip and the work area stay in the same units either way.
-        static double DeviceScale(Visual visual)
-        {
-            PresentationSource source = PresentationSource.FromVisual(visual);
-            if (source == null || source.CompositionTarget == null) return 1.0;
-            return source.CompositionTarget.TransformToDevice.M11;
-        }
-
-        static void ReserveDock(double width)
-        {
-            EnsureDockOwner();
-            bool right = dockSide != "left";
-            double scale = DeviceScale(dockOwner);
-            double screenWidth = SystemParameters.PrimaryScreenWidth;
-            double screenHeight = SystemParameters.PrimaryScreenHeight;
-            int widthPixels = (int)Math.Round(width * scale);
-            AppBarData data = new AppBarData();
-            data.cbSize = Marshal.SizeOf(typeof(AppBarData));
-            data.hWnd = new WindowInteropHelper(dockOwner).Handle;
-            data.uCallbackMessage = dockCallback;
-            Native.SHAppBarMessage(Native.AbmNew, ref data);
-            data.uEdge = right ? Native.AbeRight : Native.AbeLeft;
-            // The full height of the primary display: the shell trims it to the work area in QUERYPOS (the taskbar).
-            data.rc.Left = right ? (int)Math.Round((screenWidth - width) * scale) : 0;
-            data.rc.Top = 0;
-            data.rc.Right = right ? (int)Math.Round(screenWidth * scale) : widthPixels;
-            data.rc.Bottom = (int)Math.Round(screenHeight * scale);
-            Native.SHAppBarMessage(Native.AbmQueryPos, ref data);
-            if (right) data.rc.Left = data.rc.Right - widthPixels;
-            else data.rc.Right = data.rc.Left + widthPixels;
-            Native.SHAppBarMessage(Native.AbmSetPos, ref data);
-            dockRect = new Rect(data.rc.Left / scale, data.rc.Top / scale, (data.rc.Right - data.rc.Left) / scale, (data.rc.Bottom - data.rc.Top) / scale);
-            dockRegistered = true;
-        }
-
-        // Shows the strip and its panel. Called before a dock card is shown, so the strip exists only while it has cards.
-        static void EnsureDock()
-        {
-            CancelDockRelease();
-            double screenWidth = SystemParameters.PrimaryScreenWidth;
-            double width = Math.Min(screenWidth, Math.Max(240, Math.Round(screenWidth * dockPercent / 100.0)));
-            if (dockReserve)
-            {
-                if (!dockRegistered) ReserveDock(width);
-            }
-            else
-            {
-                Rect area = SystemParameters.WorkArea;
-                dockRect = new Rect(dockSide == "left" ? area.Left : area.Right - width, area.Top, width, area.Height);
-            }
-            if (dockPanel == null)
-            {
-                dockPanel = new Window();
-                dockPanel.Title = "AgentHost dock";
-                dockPanel.WindowStyle = WindowStyle.None;
-                dockPanel.ShowInTaskbar = false;
-                dockPanel.ShowActivated = false;
-                dockPanel.Focusable = false;
-                dockPanel.ResizeMode = ResizeMode.NoResize;
-                dockPanel.Topmost = true;
-                Border panel = new Border();
-                panel.Background = StripFill;
-                dockPanel.Content = panel;
-            }
-            dockPanel.Left = dockRect.Left;
-            dockPanel.Top = dockRect.Top;
-            dockPanel.Width = dockRect.Width;
-            dockPanel.Height = dockRect.Height;
-            if (!dockPanel.IsVisible)
-            {
-                dockPanel.Show();
-                ApplyFlags(dockPanel, false);
-            }
-        }
-
-        // Hides the panel at once and releases the reservation after a short grace period. Screenshot suppression
-        // clears the cards and shows them again a moment later; without the grace period every capture would resize
-        // every maximized window twice.
-        static void ScheduleDockRelease()
-        {
-            if (dockPanel == null && !dockRegistered) return;
-            if (dockRelease == null)
-            {
-                dockRelease = new DispatcherTimer();
-                dockRelease.Interval = TimeSpan.FromMilliseconds(DockReleaseMs);
-                dockRelease.Tick += delegate(object sender, EventArgs e)
-                {
-                    dockRelease.Stop();
-                    if (DockCardCount() == 0) ReleaseDockNow();
-                };
-            }
-            dockRelease.Stop();
-            dockRelease.Start();
-            if (dockPanel != null && dockPanel.IsVisible) dockPanel.Hide();
-        }
-
-        static void CancelDockRelease()
-        {
-            if (dockRelease != null) dockRelease.Stop();
-        }
-
-        static void ReleaseDockNow()
-        {
-            CancelDockRelease();
-            if (dockRegistered && dockOwner != null)
-            {
-                AppBarData data = new AppBarData();
-                data.cbSize = Marshal.SizeOf(typeof(AppBarData));
-                data.hWnd = new WindowInteropHelper(dockOwner).Handle;
-                Native.SHAppBarMessage(Native.AbmRemove, ref data);
-            }
-            dockRegistered = false;
-            if (dockPanel != null)
-            {
-                dockPanel.Close();
-                dockPanel = null;
-            }
-            if (dockOwner != null)
-            {
-                dockOwner.Close();
-                dockOwner = null;
-            }
-        }
-
-        static UIElement DockScroll(UIElement content)
-        {
-            ScrollViewer scroll = new ScrollViewer();
-            scroll.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-            scroll.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-            scroll.Content = content;
-            return scroll;
-        }
-
-        static double Natural(Card card, double width)
-        {
-            if (card.Frame == null) return 0;
-            card.Frame.Measure(new Size(width, double.PositiveInfinity));
-            return card.Frame.DesiredSize.Height;
-        }
-
-        static void PlaceDockCard(Card card, double x, double y, double width, double height)
-        {
-            card.Window.SizeToContent = SizeToContent.Manual;
-            card.Window.Width = width;
-            card.Window.Height = height;
-            card.Window.Left = x;
-            card.Window.Top = y;
-        }
-
-        // Places the timeline at the top and the bottom cards from the floor, as the Linux dock_layout does.
-        static void LayoutDock()
-        {
-            Card timeline = null;
-            List<Card> bottom = new List<Card>();
-            foreach (Card card in Order)
-            {
-                if (card.Window == null || !card.Window.IsVisible || !IsDockCard(card)) continue;
-                if (timeline == null && IsTimelineCard(card)) timeline = card;
-                else bottom.Add(card);
-            }
-            if (timeline == null && bottom.Count == 0) return;
-            double width = Math.Max(DockMinWidth, dockRect.Width - 2 * DockMargin);
-            double timelineWanted = timeline == null ? 0 : Natural(timeline, width);
-            double[] wanted = new double[bottom.Count];
-            for (int i = 0; i < bottom.Count; i++) wanted[i] = Math.Min(Natural(bottom[i], width), DockMaxCard);
-            double timelineHeight;
-            double[] tops;
-            double[] heights;
-            DockLayout(dockRect.Height, timelineWanted, wanted, out timelineHeight, out tops, out heights);
-            double x = dockRect.Left + DockMargin;
-            for (int i = 0; i < bottom.Count; i++) PlaceDockCard(bottom[i], x, dockRect.Top + tops[i], width, heights[i]);
-            if (timeline != null) PlaceDockCard(timeline, x, dockRect.Top + DockMargin, width, timelineHeight);
-        }
-
-        // A port of overlay_geometry.dock_layout (packages/app-overlay/runtime/overlay_geometry.py). Keep the two equal.
-        static void DockLayout(double areaHeight, double timelineWanted, double[] wanted, out double timeline, out double[] tops, out double[] heights)
-        {
-            double usable = Math.Max(1, areaHeight - 2 * DockMargin);
-            bool hasTimeline = timelineWanted > 0;
-            double budget = usable;
-            if (hasTimeline)
-            {
-                double spare = usable - Math.Min(timelineWanted, usable) - DockMargin;
-                budget = Math.Min(Math.Max(areaHeight * DockBottomShare, spare), usable - DockMargin - DockMinTimeline);
-            }
-            int count = wanted.Length;
-            tops = new double[count];
-            heights = new double[count];
-            double floor = areaHeight - DockMargin;
-            double remaining = budget;
-            for (int i = 0; i < count; i++)
-            {
-                int later = count - i - 1;
-                double available = remaining - later * (DockMinBottom + DockMargin);
-                double height = Math.Max(DockMinBottom, Math.Min(wanted[i], available));
-                floor -= height;
-                heights[i] = height;
-                tops[i] = Math.Max(DockMargin, floor);
-                floor -= DockMargin;
-                remaining -= height + DockMargin;
-            }
-            timeline = 0;
-            if (hasTimeline)
-            {
-                double used = DockMargin * Math.Max(0, count - 1);
-                for (int i = 0; i < count; i++) used += heights[i];
-                double room = usable - used - (count > 0 ? DockMargin : 0);
-                timeline = Math.Max(DockMinTimeline, Math.Min(timelineWanted, room));
-            }
-        }
-
-        static UIElement BuildContent(Card card, Dictionary<string, object> body)
-        {
-            Dictionary<string, object> interaction = Dict(body, "interaction");
-            Dictionary<string, object> style = Dict(body, "style");
-            card.Sensitivity = Str(body, "sensitivity") ?? "public";
-            string placement = Str(body, "placement") ?? "top_right";
-            card.Placement = Array.IndexOf(Placements, placement) >= 0 ? placement : "top_right";
-            card.AllowedEvents = StringList(Items(interaction, "allowedEvents"));
-            bool wantInteractive = Flag(interaction, "interactive");
-
-            StackPanel stack = new StackPanel();
-            stack.Children.Add(Text(Clip(Str(body, "title"), 200), 15, true, Ink));
-            StackPanel footer = new StackPanel();
-            footer.Orientation = Orientation.Horizontal;
-            int buttons = 0;
-            foreach (object raw in Items(body, "components"))
-            {
-                Dictionary<string, object> component = raw as Dictionary<string, object>;
-                if (component == null) continue;
-                buttons += AddComponent(stack, footer, component, card, wantInteractive);
-            }
-            if (footer.Children.Count > 0) stack.Children.Add(footer);
-            card.Interactive = wantInteractive && buttons > 0;
-
-            Border frame = new Border();
-            frame.Background = CardFill;
-            frame.BorderBrush = BorderFor(Str(style, "semantic"));
-            frame.BorderThickness = new Thickness(1);
-            frame.CornerRadius = new CornerRadius(16);
-            frame.Padding = new Thickness(14);
-            frame.Child = stack;
-            card.Frame = frame;
-            return frame;
-        }
-
-        static int AddComponent(StackPanel stack, StackPanel footer, Dictionary<string, object> c, Card card, bool wantInteractive)
-        {
-            string type = Str(c, "type") ?? "";
-            if (type == "heading") stack.Children.Add(Text(Clip(Str(c, "text"), 1000), 15, true, Ink));
-            else if (type == "text") stack.Children.Add(Text(Clip(Str(c, "text"), 1000), 13, false, Ink));
-            else if (type == "warning") stack.Children.Add(Text(Clip(Str(c, "text"), 1000), 13, true, Amber));
-            else if (type == "divider") stack.Children.Add(RuleLine());
-            else if (type == "icon") stack.Children.Add(Text(IconGlyph(Str(c, "token")), 13, true, Ink));
-            else if (type == "status_badge") stack.Children.Add(StatusBadge(Str(c, "status"), Clip(Str(c, "text"), 300)));
-            else if (type == "progress") AddProgress(stack, c);
-            else if (type == "spinner") stack.Children.Add(Text("... " + Clip(Str(c, "label") ?? "working", 200), 13, false, Muted));
-            else if (type == "checklist") AddChecklist(stack, c);
-            else if (type == "timeline") AddTimeline(stack, c);
-            else if (type == "key_value") stack.Children.Add(KeyValue(Clip(Str(c, "key"), 200), Clip(Str(c, "value"), 500)));
-            else if (type == "comparison") stack.Children.Add(Text(Clip(Str(c, "before"), 500) + "  ->  " + Clip(Str(c, "after"), 500), 13, false, Ink));
-            else if (type == "image_reference") stack.Children.Add(Text("[image: " + Clip(Str(c, "alt"), 200) + "]", 12, false, Muted));
-            else if (type == "button" || type == "choice") return AddButton(footer, c, card, wantInteractive);
-            return 0;
-        }
-
-        static int AddButton(StackPanel footer, Dictionary<string, object> c, Card card, bool wantInteractive)
-        {
-            string label = Clip(Str(c, "label") ?? Str(c, "text"), 60);
-            if (label.Length == 0) label = "OK";
-            string eventName = Str(c, "event") ?? "";
-            bool enabled = wantInteractive && eventName.Length > 0 && card.AllowedEvents.Contains(eventName);
-            Button button = new Button();
-            button.Content = label;
-            button.MinWidth = 72;
-            button.Padding = new Thickness(10, 3, 10, 3);
-            button.Margin = new Thickness(0, 8, 8, 0);
-            button.Focusable = false;
-            button.IsTabStop = false;
-            button.IsEnabled = enabled;
-            RealPress press = new RealPress();
-            string name = eventName;
-            button.PreviewMouseLeftButtonDown += delegate(object sender, System.Windows.Input.MouseButtonEventArgs e) { press.Down = PressGuard.LastDownReal; };
-            button.PreviewMouseLeftButtonUp += delegate(object sender, System.Windows.Input.MouseButtonEventArgs e) { press.Up = PressGuard.LastUpReal; };
-            button.Click += delegate(object sender, RoutedEventArgs e)
-            {
-                bool real = press.Down && press.Up;
-                press.Down = false;
-                press.Up = false;
-                if (real) Emit(card, name);
-            };
-            footer.Children.Add(button);
-            return enabled ? 1 : 0;
-        }
-
-        static void AddProgress(StackPanel stack, Dictionary<string, object> c)
-        {
-            string label = Str(c, "label");
-            if (label != null) stack.Children.Add(Text(Clip(label, 200), 12, false, Muted));
-            ProgressBar bar = new ProgressBar();
-            bar.Minimum = 0;
-            bar.Maximum = 100;
-            bar.Value = Math.Max(0, Math.Min(100, Dbl(c, "value") * 100));
-            bar.Height = 6;
-            bar.Margin = new Thickness(0, 2, 0, 6);
-            stack.Children.Add(bar);
-        }
-
-        static void AddChecklist(StackPanel stack, Dictionary<string, object> c)
-        {
-            foreach (object raw in Items(c, "items"))
-            {
-                Dictionary<string, object> item = raw as Dictionary<string, object>;
-                if (item == null) continue;
-                string state = Str(item, "state") ?? "";
-                string marker = "\u25CB";
-                if (Flag(item, "checked") || state == "done") marker = "\u2713";
-                else if (state == "failed") marker = "\u2715";
-                else if (state == "active") marker = "\u2192";
-                stack.Children.Add(Text(marker + " " + Clip(Str(item, "label"), 300), 13, false, state == "failed" ? Red : Ink));
-            }
-        }
-
-        // A timeline row as on Linux: a state glyph, the label bold with the detail dim under it, and the time at the right.
-        static void AddTimeline(StackPanel stack, Dictionary<string, object> c)
-        {
-            foreach (object raw in Items(c, "entries"))
-            {
-                Dictionary<string, object> entry = raw as Dictionary<string, object>;
-                if (entry == null) continue;
-                string state = Clip(Str(entry, "state"), 20);
-                Grid row = new Grid();
-                ColumnDefinition markerColumn = new ColumnDefinition();
-                markerColumn.Width = new GridLength(18);
-                ColumnDefinition bodyColumn = new ColumnDefinition();
-                bodyColumn.Width = new GridLength(1, GridUnitType.Star);
-                ColumnDefinition timeColumn = new ColumnDefinition();
-                timeColumn.Width = GridLength.Auto;
-                row.ColumnDefinitions.Add(markerColumn);
-                row.ColumnDefinitions.Add(bodyColumn);
-                row.ColumnDefinitions.Add(timeColumn);
-                TextBlock marker = Text(TimelineGlyph(state), 12, true, TimelineBrush(state));
-                Grid.SetColumn(marker, 0);
-                StackPanel body = new StackPanel();
-                body.Children.Add(Text(Clip(Str(entry, "label"), 300), 12, true, Ink));
-                string detail = Str(entry, "detail");
-                if (detail != null) body.Children.Add(Text(Clip(detail, 300), 11, false, Muted));
-                Grid.SetColumn(body, 1);
-                row.Children.Add(marker);
-                row.Children.Add(body);
-                string time = Str(entry, "time");
-                if (time != null)
-                {
-                    TextBlock stamp = Text(Clip(time, 40), 11, false, Muted);
-                    Grid.SetColumn(stamp, 2);
-                    row.Children.Add(stamp);
-                }
-                stack.Children.Add(row);
-            }
-        }
-
-        static string TimelineGlyph(string state)
-        {
-            if (state == "done") return "\u2713";
-            if (state == "running") return "\u25CF";
-            if (state == "failed") return "\u2715";
-            return "\u25CB";
-        }
-
-        static Brush TimelineBrush(string state)
-        {
-            if (state == "done") return Green;
-            if (state == "running") return Blue;
-            if (state == "failed") return Red;
-            if (state == "waiting") return Amber;
-            return Muted;
-        }
-
-        static Brush Tint(byte r, byte g, byte b, byte a)
-        {
-            SolidColorBrush brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
-            brush.Freeze();
-            return brush;
-        }
-
-        static Brush CardGradient()
-        {
-            LinearGradientBrush brush = new LinearGradientBrush(Color.FromRgb(24, 28, 39), Color.FromRgb(13, 16, 24), new Point(0, 0), new Point(1, 1));
-            brush.Freeze();
-            return brush;
-        }
-
-        // A status badge as on Linux: a rounded pill tinted by its status. Unknown statuses are neutral.
-        static UIElement StatusBadge(string status, string text)
-        {
-            string key = status == "info" || status == "success" || status == "warning" || status == "danger" ? status : "neutral";
-            Border badge = new Border();
-            badge.CornerRadius = new CornerRadius(10);
-            badge.Padding = new Thickness(10, 2, 10, 2);
-            badge.Margin = new Thickness(0, 0, 0, 6);
-            badge.HorizontalAlignment = HorizontalAlignment.Left;
-            badge.Background = BadgeFill(key);
-            TextBlock block = Text(text ?? "", 12, true, BadgeInk(key));
-            block.Margin = new Thickness(0);
-            badge.Child = block;
-            return badge;
-        }
-
-        static Brush BadgeFill(string key)
-        {
-            if (key == "info") return Tint(59, 130, 246, 51);
-            if (key == "success") return Tint(52, 211, 153, 46);
-            if (key == "warning") return Tint(245, 184, 64, 46);
-            if (key == "danger") return Tint(248, 113, 113, 46);
-            return Tint(148, 163, 184, 41);
-        }
-
-        static Brush BadgeInk(string key)
-        {
-            if (key == "info") return Rgb(156, 194, 255);
-            if (key == "success") return Rgb(142, 240, 194);
-            if (key == "warning") return Rgb(255, 213, 138);
-            if (key == "danger") return Rgb(255, 173, 173);
-            return Rgb(203, 213, 225);
-        }
-
-        // A key/value row as on Linux: the key dim in a fixed column, the value bold.
-        static UIElement KeyValue(string key, string value)
-        {
-            Grid grid = new Grid();
-            ColumnDefinition keyColumn = new ColumnDefinition();
-            keyColumn.Width = new GridLength(96);
-            ColumnDefinition valueColumn = new ColumnDefinition();
-            valueColumn.Width = new GridLength(1, GridUnitType.Star);
-            grid.ColumnDefinitions.Add(keyColumn);
-            grid.ColumnDefinitions.Add(valueColumn);
-            TextBlock keyBlock = Text(key ?? "", 12, false, Muted);
-            TextBlock valueBlock = Text(value ?? "", 13, true, Ink);
-            Grid.SetColumn(keyBlock, 0);
-            Grid.SetColumn(valueBlock, 1);
-            grid.Children.Add(keyBlock);
-            grid.Children.Add(valueBlock);
-            return grid;
-        }
-
-        static TextBlock Text(string text, double size, bool bold, Brush brush)
-        {
-            TextBlock block = new TextBlock();
-            block.Text = text ?? "";
-            block.FontSize = size;
-            if (bold) block.FontWeight = FontWeights.Bold;
-            block.Foreground = brush;
-            block.TextWrapping = TextWrapping.Wrap;
-            block.Margin = new Thickness(0, 0, 0, 4);
-            return block;
-        }
-
-        static Border RuleLine()
-        {
-            Border line = new Border();
-            line.Height = 1;
-            line.Background = Rule;
-            line.Margin = new Thickness(0, 6, 0, 6);
-            return line;
-        }
-
-        static string IconGlyph(string token)
-        {
-            if (token == "success" || token == "check") return "\u2713";
-            if (token == "danger" || token == "close") return "\u2715";
-            if (token == "warning") return "!";
-            if (token == "pointer") return "\u25B8";
-            return "i";
-        }
-
-        static Brush BrushFor(string status)
-        {
-            if (status == "warning") return Amber;
-            if (status == "danger") return Red;
-            if (status == "success") return Green;
-            if (status == "info") return Blue;
-            return Muted;
-        }
-
-        static Brush BorderFor(string semantic)
-        {
-            if (semantic == "warning") return Amber;
-            if (semantic == "danger") return Red;
-            if (semantic == "success") return Green;
-            if (semantic == "info") return Blue;
-            return CardEdge;
-        }
-    }
-
-    public static class Program
-    {
-        public static void Run()
-        {
-            Renderer.Start();
-            Dispatcher.Run();
-        }
-    }
-}
-`;
+import { NATIVE_PS } from "@agenthost/os-windows";
 
 const POWERSHELL_HEAD = String.raw`
 $ErrorActionPreference = 'Stop'
 try { [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
 try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false) } catch { }
-$source = @'
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
+Add-Type -AssemblyName System.Xaml
+Add-Type -AssemblyName System.Web.Extensions
 `;
 
-const POWERSHELL_TAIL = String.raw`
-'@
-Add-Type -TypeDefinition $source -ReferencedAssemblies 'PresentationFramework','PresentationCore','WindowsBase','System.Xaml','System.Web.Extensions'
-[AgentHostOverlay.Program]::Run()
+const RENDERER_PS = String.raw`
+# ---- Renderer: JSON-line protocol, cards, dock, press guard -------------------------------------------------------
+# Same protocol and behaviour as the C# renderer it replaces. Protocol strings are compared case-sensitively (-ceq):
+# the rendererToken check is security-relevant.
+
+$script:Version = 1
+$script:MaxBytes = 262144
+$script:MaxCards = 12
+$script:CardWidth = 340.0
+$script:Margin = 16.0
+$script:Gap = 8.0
+$script:OffscreenPosition = -20000.0
+# The dock: the same numbers as the Linux renderer (CARD_MARGIN, dock_layout), in WPF units.
+$script:DockMargin = 24.0
+$script:DockMinWidth = 160.0
+$script:DockMaxCard = 420.0
+$script:DockMinTimeline = 96.0
+$script:DockMinBottom = 64.0
+$script:DockBottomShare = 0.45
+$script:DockReleaseMs = 2000
+$script:TimelinePrefix = 'agenthost-timeline-'
+$script:Commands = @('hello', 'capabilities', 'show', 'update', 'dismiss', 'clear', 'emergency_hide', 'state', 'events', 'close')
+$script:Placements = @('top_left', 'top_center', 'top_right', 'bottom_left', 'bottom_center', 'bottom_right')
+$script:Limitations = @(
+  'Primitives such as rings, pointers, highlights and pills are not drawn.',
+  'Cards are placed on the primary display only.',
+  'Buttons act only on a real mouse press. Keyboard, touch, UI Automation and injected input are refused.',
+  'Cards without buttons pass clicks through.',
+  'The rail layout is not drawn on Windows: its cards float over the work area.'
+)
+
+$script:Cards = New-Object 'System.Collections.Generic.Dictionary[string,object]'
+$script:Order = New-Object System.Collections.ArrayList
+$script:Events = New-Object System.Collections.ArrayList
+$script:Json = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+$script:Json.MaxJsonLength = $script:MaxBytes * 4
+$script:InputQueue = [System.Collections.Queue]::Synchronized((New-Object System.Collections.Queue))
+$script:Token = $null
+$script:SessionId = 'unknown'
+$script:RendererEpoch = 0
+$script:Sequence = 0
+$script:EmergencyHidden = $false
+$script:GuardReady = $false
+$script:LayoutMode = 'ambient'
+$script:DockSide = 'right'
+$script:DockPercent = 18
+$script:DockReserve = $true
+$script:DockOwner = $null
+$script:DockPanel = $null
+$script:DockRegistered = $false
+$script:DockCallback = [uint32]0
+$script:DockRect = @{ Left = 0.0; Top = 0.0; Width = 0.0; Height = 0.0 }
+$script:DockRelease = $null
+$script:Hook = [IntPtr]::Zero
+$script:HookProc = $null
+$script:LastDownReal = $false
+$script:LastUpReal = $false
+$script:Pump = $null
+$script:ReaderShell = $null
+$script:ReaderSpace = $null
+
+# APPBARDATA is built in unmanaged memory: the field offsets depend on the pointer size.
+if ([IntPtr]::Size -eq 8) {
+  $script:AbHwnd = 8
+  $script:AbCallback = 16
+  $script:AbEdge = 20
+  $script:AbRect = 24
+  $script:AbSize = 48
+} else {
+  $script:AbHwnd = 4
+  $script:AbCallback = 8
+  $script:AbEdge = 12
+  $script:AbRect = 16
+  $script:AbSize = 36
+}
+
+# ---- Small helpers --------------------------------------------------------------------------------------------------
+
+function New-OvRgb([int]$r, [int]$g, [int]$b) {
+  $brush = New-Object System.Windows.Media.SolidColorBrush -ArgumentList @([System.Windows.Media.Color]::FromRgb([byte]$r, [byte]$g, [byte]$b))
+  $brush.Freeze()
+  return $brush
+}
+
+function New-OvTint([int]$r, [int]$g, [int]$b, [int]$a) {
+  $brush = New-Object System.Windows.Media.SolidColorBrush -ArgumentList @([System.Windows.Media.Color]::FromArgb([byte]$a, [byte]$r, [byte]$g, [byte]$b))
+  $brush.Freeze()
+  return $brush
+}
+
+function New-OvCardGradient {
+  $from = [System.Windows.Media.Color]::FromRgb(24, 28, 39)
+  $to = [System.Windows.Media.Color]::FromRgb(13, 16, 24)
+  $start = New-Object System.Windows.Point -ArgumentList @([double]0, [double]0)
+  $end = New-Object System.Windows.Point -ArgumentList @([double]1, [double]1)
+  $brush = New-Object System.Windows.Media.LinearGradientBrush -ArgumentList @($from, $to, $start, $end)
+  $brush.Freeze()
+  return $brush
+}
+
+function New-OvThickness([double]$left, [double]$top, [double]$right, [double]$bottom) {
+  return New-Object System.Windows.Thickness -ArgumentList @($left, $top, $right, $bottom)
+}
+
+function Get-OvNow {
+  return [DateTime]::UtcNow.ToString('o', [System.Globalization.CultureInfo]::InvariantCulture)
+}
+
+function Get-OvClip($text, [int]$limit) {
+  if ($null -eq $text) { return '' }
+  $value = [string]$text
+  if ($value.Length -gt $limit) { return $value.Substring(0, $limit) }
+  return $value
+}
+
+function Get-OvStr($dict, [string]$key) {
+  if ($null -eq $dict -or -not $dict.ContainsKey($key)) { return $null }
+  $value = $dict[$key]
+  if ($value -is [string]) { return $value }
+  return $null
+}
+
+function Get-OvInt($dict, [string]$key, [int]$fallback) {
+  if ($null -eq $dict -or -not $dict.ContainsKey($key) -or $null -eq $dict[$key]) { return $fallback }
+  try { return [System.Convert]::ToInt32($dict[$key], [System.Globalization.CultureInfo]::InvariantCulture) } catch { return $fallback }
+}
+
+function Get-OvDbl($dict, [string]$key) {
+  if ($null -eq $dict -or -not $dict.ContainsKey($key) -or $null -eq $dict[$key]) { return 0.0 }
+  try { return [System.Convert]::ToDouble($dict[$key], [System.Globalization.CultureInfo]::InvariantCulture) } catch { return 0.0 }
+}
+
+function Get-OvFlag($dict, [string]$key) {
+  if ($null -eq $dict -or -not $dict.ContainsKey($key)) { return $false }
+  return (($dict[$key] -is [bool]) -and [bool]$dict[$key])
+}
+
+function Get-OvDict($dict, [string]$key) {
+  if ($null -eq $dict -or -not $dict.ContainsKey($key)) { return $null }
+  $value = $dict[$key]
+  if ($value -is [System.Collections.Generic.Dictionary[string,object]]) { return ,$value }
+  return $null
+}
+
+# JavaScriptSerializer returns nested arrays as ArrayList, so accept any IList.
+function Get-OvItems($dict, [string]$key) {
+  if ($null -eq $dict -or -not $dict.ContainsKey($key)) { return ,@() }
+  $value = $dict[$key]
+  if ($value -isnot [System.Collections.IList]) { return ,@() }
+  $items = New-Object System.Collections.ArrayList
+  foreach ($item in $value) { [void]$items.Add($item) }
+  return ,$items.ToArray()
+}
+
+function Get-OvStringList($items) {
+  $list = New-Object System.Collections.ArrayList
+  foreach ($item in $items) {
+    if ($item -is [string]) { [void]$list.Add($item) }
+  }
+  return ,$list
+}
+
+function Get-OvWindowHandle($window) {
+  return (New-Object System.Windows.Interop.WindowInteropHelper -ArgumentList @($window)).Handle
+}
+
+# ---- Protocol replies -----------------------------------------------------------------------------------------------
+
+function Send-OvReply([string]$id, [bool]$ok, $data, $errorCode) {
+  $value = @{}
+  $value['version'] = $script:Version
+  $value['id'] = $id
+  $value['ok'] = $ok
+  if ($null -ne $data) { $value['data'] = $data }
+  if ($null -ne $errorCode) { $value['error'] = (Get-OvClip $errorCode 200) }
+  $text = $script:Json.Serialize($value)
+  [Console]::Out.Write($text + [string][char]10)
+  [Console]::Out.Flush()
+}
+
+function Get-OvAck([string]$command, [string]$acknowledgement, $overlayId, [string]$reason, [string]$requestId) {
+  $visible = 0
+  $interactive = 0
+  $ready = 0
+  foreach ($card in @($script:Order.ToArray())) {
+    if ($null -eq $card.Window -or -not $card.Window.IsVisible) { continue }
+    $visible += 1
+    if ($card.Interactive) { $interactive += 1 }
+    if ($card.Window.ActualWidth -gt 0 -and $card.Window.ActualHeight -gt 0) { $ready += 1 }
+  }
+  $ack = @{}
+  $ack['command'] = $command
+  $ack['acknowledgement'] = $acknowledgement
+  $ack['rendererEpoch'] = $script:RendererEpoch
+  $ack['visibleWindowCount'] = $visible
+  $ack['interactiveWindowCount'] = $interactive
+  $ack['transparentWindowCount'] = $visible
+  $ack['drawReadyCount'] = $ready
+  $ack['visible'] = ($visible -gt 0 -and $ready -gt 0)
+  $ack['liveSurfaceRegistered'] = ($null -ne $overlayId -and $script:Cards.ContainsKey([string]$overlayId))
+  if ($null -ne $overlayId) { $ack['overlayId'] = [string]$overlayId }
+  $ack['reason'] = $reason
+  $ack['requestId'] = $requestId
+  return $ack
+}
+
+function Get-OvCapabilities {
+  $ready = [bool]$script:GuardReady
+  $c = @{}
+  $c['supported'] = $ready
+  $c['available'] = $true
+  $c['visible'] = $ready
+  $c['renderer'] = 'wpf-windows'
+  if ($ready) { $c['rendererStatus'] = 'available' } else { $c['rendererStatus'] = 'unavailable' }
+  $c['sessionType'] = 'unknown'
+  $c['displayAvailable'] = $true
+  $c['clickThrough'] = $ready
+  $c['interactiveWidgets'] = $ready
+  $c['multipleDisplays'] = $false
+  $c['globalOverlayAvailable'] = $ready
+  $c['clickThroughAvailable'] = $ready
+  $c['multiDisplayAvailable'] = $false
+  $c['animationAvailable'] = $false
+  $c['interactiveWidgetsAvailable'] = $ready
+  $c['compositorAvailable'] = $true
+  $c['transparentWindowsAvailable'] = $ready
+  if ($ready) { $c['reason'] = 'wpf_overlay_ready' } else { $c['reason'] = 'overlay_input_guard_unavailable' }
+  $c['limitations'] = $script:Limitations
+  return $c
+}
+
+function Get-OvState {
+  $overlays = New-Object System.Collections.ArrayList
+  foreach ($card in @($script:Order.ToArray())) {
+    $o = @{}
+    $o['overlayId'] = $card.OverlayId
+    $o['ownerSessionId'] = $script:SessionId
+    $o['type'] = 'widget'
+    $o['sensitivity'] = $card.Sensitivity
+    $o['interactive'] = $card.Interactive
+    $o['visible'] = ($null -ne $card.Window -and $card.Window.IsVisible)
+    $o['createdAt'] = $card.CreatedAt
+    $o['updatedAt'] = $card.UpdatedAt
+    $o['expiresAt'] = $card.UpdatedAt
+    [void]$overlays.Add($o)
+  }
+  $pending = New-Object System.Collections.ArrayList
+  [void]$pending.AddRange($script:Events)
+  $d = @{}
+  $d['renderer'] = Get-OvCapabilities
+  $d['overlays'] = $overlays.ToArray()
+  $d['pendingEvents'] = $pending.ToArray()
+  $d['emergencyHidden'] = $script:EmergencyHidden
+  return $d
+}
+
+function Get-OvDrainEvents {
+  $copy = New-Object System.Collections.ArrayList
+  [void]$copy.AddRange($script:Events)
+  $script:Events.Clear()
+  return ,$copy.ToArray()
+}
+
+# ---- Requests -------------------------------------------------------------------------------------------------------
+
+function Read-OvVisual($payload) {
+  $visual = Get-OvDict $payload 'visual'
+  if ($null -eq $visual) { return }
+  $layout = Get-OvStr $visual 'layout'
+  if ($layout -ceq 'dock' -or $layout -ceq 'ambient' -or $layout -ceq 'rail') { $script:LayoutMode = $layout }
+  $side = Get-OvStr $visual 'dockSide'
+  if ($side -ceq 'left' -or $side -ceq 'right') { $script:DockSide = $side }
+  $percent = Get-OvInt $visual 'dockWidthPercent' $script:DockPercent
+  if ($percent -ge 10 -and $percent -le 40) { $script:DockPercent = $percent }
+  if ($visual.ContainsKey('dockReserveSpace') -and ($visual['dockReserveSpace'] -is [bool])) { $script:DockReserve = [bool]$visual['dockReserveSpace'] }
+}
+
+function Invoke-OvHello([string]$id, $payload) {
+  $epoch = Get-OvInt $payload 'rendererEpoch' 0
+  if ($epoch -lt 1) {
+    Send-OvReply $id $false $null 'renderer_epoch_required'
+    return
+  }
+  $script:RendererEpoch = $epoch
+  Read-OvVisual $payload
+  if (-not $script:GuardReady) { $script:GuardReady = Install-OvPressGuard }
+  $data = @{}
+  $data['protocolVersion'] = $script:Version
+  $data['rendererEpoch'] = $script:RendererEpoch
+  $data['capabilities'] = Get-OvCapabilities
+  Send-OvReply $id $true $data $null
+}
+
+function Invoke-OvShowOrUpdate([string]$id, [string]$command, $payload) {
+  $overlayId = Get-OvStr $payload 'overlayId'
+  $body = Get-OvDict $payload 'payload'
+  if ($null -eq $overlayId -or $overlayId.Length -lt 1 -or $overlayId.Length -gt 200 -or $null -eq $body) {
+    Send-OvReply $id $false $null 'render_record_invalid'
+    return
+  }
+  if (-not $script:GuardReady) {
+    Send-OvReply $id $false $null 'overlay_input_guard_unavailable'
+    return
+  }
+  $type = Get-OvStr $payload 'type'
+  if ($null -eq $type) { $type = 'widget' }
+  if ($type -cne 'widget') {
+    Send-OvReply $id $false $null 'overlay_primitive_unsupported'
+    return
+  }
+  $exists = $script:Cards.ContainsKey($overlayId)
+  if ($command -ceq 'update' -and -not $exists) {
+    Send-OvReply $id $false $null 'overlay_not_found'
+    return
+  }
+  if (-not $exists -and $script:Cards.Count -ge $script:MaxCards) {
+    Send-OvReply $id $false $null 'overlay_limit_reached'
+    return
+  }
+  if ($exists) {
+    $card = $script:Cards[$overlayId]
+  } else {
+    $script:Sequence += 1
+    $card = @{
+      OverlayId = $overlayId
+      Sequence = $script:Sequence
+      CreatedAt = (Get-OvNow)
+      UpdatedAt = ''
+      Sensitivity = 'public'
+      Placement = 'top_right'
+      Interactive = $false
+      AllowedEvents = (New-Object System.Collections.ArrayList)
+      Window = $null
+      Frame = $null
+    }
+  }
+  $content = Build-OvContent $card $body
+  if (Test-OvDockCard $card) {
+    Start-OvDock
+    $content = New-OvDockScroll $content
+  }
+  $card.UpdatedAt = Get-OvNow
+  if ($null -eq $card.Window) { $card.Window = New-OvWindow }
+  $card.Window.Content = $content
+  if (-not $card.Window.IsVisible) { $card.Window.Show() }
+  if (-not $exists) {
+    $script:Cards[$overlayId] = $card
+    [void]$script:Order.Add($card)
+  }
+  Set-OvWindowFlags $card.Window $card.Interactive
+  $card.Window.UpdateLayout()
+  Invoke-OvReposition
+  if (-not $card.Window.IsVisible) {
+    Remove-OvCard $card
+    Send-OvReply $id $false $null 'overlay_live_registration_missing'
+    return
+  }
+  $script:EmergencyHidden = $false
+  if ($command -ceq 'show') {
+    $ack = Get-OvAck $command 'visible' $overlayId 'wpf_overlay_shown' $id
+  } else {
+    $ack = Get-OvAck $command 'updated' $overlayId 'wpf_overlay_updated' $id
+  }
+  Send-OvReply $id $true $ack $null
+}
+
+function Invoke-OvDismiss([string]$id, $overlayId) {
+  if ($null -ne $overlayId -and $script:Cards.ContainsKey([string]$overlayId)) { Remove-OvCard $script:Cards[[string]$overlayId] }
+  Send-OvReply $id $true (Get-OvAck 'dismiss' 'dismissed' $overlayId 'wpf_overlay_dismissed' $id) $null
+}
+
+function Invoke-OvClearAll([string]$id) {
+  foreach ($card in @($script:Order.ToArray())) { Remove-OvCard $card }
+  Send-OvReply $id $true (Get-OvAck 'clear' 'cleared' $null 'wpf_overlays_cleared' $id) $null
+}
+
+function Invoke-OvEmergencyHide([string]$id) {
+  foreach ($card in @($script:Order.ToArray())) { Remove-OvCard $card }
+  Release-OvDockNow
+  $script:EmergencyHidden = $true
+  Send-OvReply $id $true (Get-OvAck 'emergency_hide' 'emergency_hidden' $null 'wpf_emergency_hidden' $id) $null
+}
+
+function Invoke-OvRunCommand([string]$id, [string]$command, $payload) {
+  if ($command -ceq 'hello') { Invoke-OvHello $id $payload; return }
+  if ($command -ceq 'capabilities') { Send-OvReply $id $true (Get-OvCapabilities) $null; return }
+  if ($command -ceq 'show' -or $command -ceq 'update') { Invoke-OvShowOrUpdate $id $command $payload; return }
+  if ($command -ceq 'dismiss') { Invoke-OvDismiss $id (Get-OvStr $payload 'overlayId'); return }
+  if ($command -ceq 'clear') { Invoke-OvClearAll $id; return }
+  if ($command -ceq 'emergency_hide') { Invoke-OvEmergencyHide $id; return }
+  if ($command -ceq 'state') { Send-OvReply $id $true (Get-OvState) $null; return }
+  if ($command -ceq 'events') {
+    $drained = @{}
+    $drained['events'] = Get-OvDrainEvents
+    Send-OvReply $id $true $drained $null
+    return
+  }
+  if ($command -ceq 'close') {
+    $closing = @{}
+    $closing['reason'] = 'renderer_closing'
+    Send-OvReply $id $true $closing $null
+    Stop-Overlay
+  }
+}
+
+function Invoke-OvHandleLine([string]$line) {
+  if ([string]::IsNullOrEmpty($line)) { return }
+  if ([System.Text.Encoding]::UTF8.GetByteCount($line) -gt $script:MaxBytes) { return }
+  $request = $null
+  try {
+    $request = $script:Json.Deserialize($line, [System.Collections.Generic.Dictionary[string,object]])
+  } catch {
+    return
+  }
+  if ($null -eq $request) { return }
+  $id = Get-OvStr $request 'id'
+  if ($null -eq $id -or $id.Length -lt 1 -or $id.Length -gt 100) { return }
+  $command = Get-OvStr $request 'command'
+  $candidate = Get-OvStr $request 'token'
+  $valid = ((Get-OvInt $request 'version' 0) -eq $script:Version)
+  $valid = $valid -and ($null -ne $candidate) -and ($candidate.Length -ge 32) -and ($candidate.Length -le 200)
+  $valid = $valid -and ($null -ne $command) -and ($script:Commands -ccontains $command)
+  if (-not $valid) {
+    Send-OvReply $id $false $null 'renderer_request_invalid'
+    return
+  }
+  $payload = Get-OvDict $request 'payload'
+  if ($null -eq $payload) { $payload = @{} }
+  if ($null -eq $script:Token) {
+    if ($command -cne 'hello') {
+      Send-OvReply $id $false $null 'renderer_handshake_required'
+      return
+    }
+    $script:Token = $candidate
+    $session = Get-OvStr $payload 'sessionId'
+    if ($null -ne $session -and $session.Length -ge 1 -and $session.Length -le 200) { $script:SessionId = $session }
+  }
+  if (-not [string]::Equals($candidate, $script:Token, [System.StringComparison]::Ordinal)) {
+    Send-OvReply $id $false $null 'renderer_token_invalid'
+    return
+  }
+  try {
+    Invoke-OvRunCommand $id $command $payload
+  } catch {
+    [Console]::Error.WriteLine('renderer command failed: ' + $_.Exception.Message)
+    Send-OvReply $id $false $null 'renderer_command_failed'
+  }
+}
+
+# ---- Input: a reader runspace fills a queue, the UI thread drains it on a timer -------------------------------------
+
+function Start-OvReader {
+  $space = [runspacefactory]::CreateRunspace()
+  $space.ApartmentState = [System.Threading.ApartmentState]::MTA
+  $space.ThreadOptions = [System.Management.Automation.Runspaces.PSThreadOptions]::ReuseThread
+  $space.Open()
+  $space.SessionStateProxy.SetVariable('queue', $script:InputQueue)
+  $shell = [System.Management.Automation.PowerShell]::Create()
+  $shell.Runspace = $space
+  [void]$shell.AddScript('while ($true) { $line = [Console]::In.ReadLine(); if ($null -eq $line) { break }; $queue.Enqueue($line) }; $queue.Enqueue($null)')
+  $script:ReaderSpace = $space
+  $script:ReaderShell = $shell
+  [void]$shell.BeginInvoke()
+}
+
+function Invoke-OvPump {
+  try {
+    while ($script:InputQueue.Count -gt 0) {
+      $line = $script:InputQueue.Dequeue()
+      if ($null -eq $line) {
+        Stop-Overlay
+        return
+      }
+      Invoke-OvHandleLine ([string]$line)
+    }
+  } catch {
+    [Console]::Error.WriteLine('renderer pump failed: ' + $_.Exception.Message)
+  }
+}
+
+# ---- Press guard: a low-level mouse hook marks each left-button event real or injected -----------------------------
+
+function Install-OvPressGuard {
+  if ($script:Hook -ne [IntPtr]::Zero) { return $true }
+  $script:HookProc = [AhNative.LowLevelMouseProc]{
+    param([int]$nCode, [IntPtr]$wParam, [IntPtr]$lParam)
+    try {
+      if ($nCode -ge 0) {
+        $message = $wParam.ToInt32()
+        if ($message -eq 0x0201 -or $message -eq 0x0202) {
+          # MSLLHOOKSTRUCT: pt (8 bytes), mouseData (4), flags (4) at offset 12.
+          $flags = [System.Runtime.InteropServices.Marshal]::ReadInt32($lParam, 12)
+          $real = (([uint32]$flags -band [uint32]3) -eq 0)
+          if ($message -eq 0x0201) { $script:LastDownReal = $real } else { $script:LastUpReal = $real }
+        }
+      }
+    } catch { }
+    return [AhNative.Native]::CallNextHookEx($script:Hook, $nCode, $wParam, $lParam)
+  }
+  $module = [AhNative.Native]::GetModuleHandleW($null)
+  $script:Hook = [AhNative.Native]::SetWindowsHookExW(14, $script:HookProc, $module, [uint32]0)
+  return ($script:Hook -ne [IntPtr]::Zero)
+}
+
+function Remove-OvPressGuard {
+  if ($script:Hook -ne [IntPtr]::Zero) { [void][AhNative.Native]::UnhookWindowsHookEx($script:Hook) }
+  $script:Hook = [IntPtr]::Zero
+}
+
+# ---- Windows --------------------------------------------------------------------------------------------------------
+
+function New-OvWindow {
+  $window = New-Object System.Windows.Window
+  $window.Title = 'AgentHost overlay'
+  $window.WindowStyle = [System.Windows.WindowStyle]::None
+  $window.AllowsTransparency = $true
+  $window.Background = [System.Windows.Media.Brushes]::Transparent
+  $window.Topmost = $true
+  $window.ShowInTaskbar = $false
+  $window.ShowActivated = $false
+  $window.Focusable = $false
+  $window.ResizeMode = [System.Windows.ResizeMode]::NoResize
+  $window.SizeToContent = [System.Windows.SizeToContent]::Height
+  $window.Width = $script:CardWidth
+  $window.Left = $script:OffscreenPosition
+  $window.Top = $script:OffscreenPosition
+  return $window
+}
+
+function Set-OvWindowFlags($window, [bool]$interactive) {
+  $handle = Get-OvWindowHandle $window
+  $style = [AhNative.Native]::GetWindowLongW($handle, -20)
+  $style = $style -bor 0x00000080 -bor 0x08000000
+  if ($interactive) {
+    $style = $style -band (-bnot 0x00000020)
+  } else {
+    $style = $style -bor 0x00000020
+  }
+  [void][AhNative.Native]::SetWindowLongW($handle, -20, $style)
+}
+
+function Test-OvTimelineCard($card) {
+  return $card.OverlayId.StartsWith($script:TimelinePrefix, [System.StringComparison]::Ordinal)
+}
+
+function Test-OvDockCard($card) {
+  if ($script:LayoutMode -cne 'dock') { return $false }
+  return ((Test-OvTimelineCard $card) -or $card.Placement.StartsWith('bottom_', [System.StringComparison]::Ordinal))
+}
+
+function Get-OvDockCardCount {
+  $count = 0
+  foreach ($card in @($script:Order.ToArray())) {
+    if ($null -ne $card.Window -and (Test-OvDockCard $card)) { $count += 1 }
+  }
+  return $count
+}
+
+function Get-OvNatural($card, [double]$width) {
+  if ($null -eq $card.Frame) { return 0.0 }
+  $card.Frame.Measure((New-Object System.Windows.Size -ArgumentList @([double]$width, [double]::PositiveInfinity)))
+  return $card.Frame.DesiredSize.Height
+}
+
+function Invoke-OvReposition {
+  $area = [System.Windows.SystemParameters]::WorkArea
+  $used = @{}
+  foreach ($card in @($script:Order.ToArray())) {
+    if ($null -eq $card.Window -or -not $card.Window.IsVisible -or (Test-OvDockCard $card)) { continue }
+    $card.Window.UpdateLayout()
+    $width = $script:CardWidth
+    if ($card.Window.ActualWidth -gt 0) { $width = $card.Window.ActualWidth }
+    $height = $card.Window.ActualHeight
+    $offset = 0.0
+    if ($used.ContainsKey($card.Placement)) { $offset = [double]$used[$card.Placement] }
+    $left = $area.Right - $width - $script:Margin
+    if ($card.Placement -ceq 'top_left' -or $card.Placement -ceq 'bottom_left') {
+      $left = $area.Left + $script:Margin
+    } elseif ($card.Placement -ceq 'top_center' -or $card.Placement -ceq 'bottom_center') {
+      $left = $area.Left + (($area.Width - $width) / 2)
+    }
+    $top = $area.Top + $script:Margin + $offset
+    if ($card.Placement.StartsWith('bottom_', [System.StringComparison]::Ordinal)) {
+      $top = $area.Bottom - $height - $script:Margin - $offset
+    }
+    $card.Window.Left = $left
+    $card.Window.Top = $top
+    $used[$card.Placement] = $offset + $height + $script:Gap
+  }
+  Invoke-OvLayoutDock
+}
+
+function Remove-OvCard($card) {
+  [void]$script:Cards.Remove([string]$card.OverlayId)
+  [void]$script:Order.Remove($card)
+  $window = $card.Window
+  $card.Window = $null
+  if ($null -ne $window) { $window.Close() }
+  Invoke-OvReposition
+  if ((Get-OvDockCardCount) -eq 0) { Request-OvDockRelease }
+}
+
+function Publish-OvEvent($card, [string]$eventName) {
+  if (-not ($card.AllowedEvents -ccontains $eventName) -or -not $script:Cards.ContainsKey([string]$card.OverlayId)) { return }
+  $e = @{}
+  $e['eventId'] = 'event_' + [guid]::NewGuid().ToString('N')
+  $e['overlayId'] = $card.OverlayId
+  $e['event'] = $eventName
+  $e['createdAt'] = Get-OvNow
+  $e['ownerSessionId'] = $script:SessionId
+  [void]$script:Events.Add($e)
+  if ($script:Events.Count -gt 100) { $script:Events.RemoveAt(0) }
+  if ($eventName -ceq 'dismissed' -or $eventName -ceq 'hide') { Remove-OvCard $card }
+}
+
+function Stop-Overlay {
+  foreach ($card in @($script:Order.ToArray())) { Remove-OvCard $card }
+  Release-OvDockNow
+  Remove-OvPressGuard
+  if ($null -ne $script:Pump) { $script:Pump.Stop() }
+  [System.Windows.Threading.Dispatcher]::CurrentDispatcher.InvokeShutdown()
+}
+
+# ---- Dock: a strip that reserves work area with the shell (SHAppBarMessage), like the taskbar -----------------------
+
+function Initialize-OvDockOwner {
+  if ($null -ne $script:DockOwner) { return }
+  $owner = New-Object System.Windows.Window
+  $owner.Title = 'AgentHost dock owner'
+  $owner.WindowStyle = [System.Windows.WindowStyle]::None
+  $owner.ShowInTaskbar = $false
+  $owner.ShowActivated = $false
+  $owner.Focusable = $false
+  $owner.ResizeMode = [System.Windows.ResizeMode]::NoResize
+  $owner.Width = 1
+  $owner.Height = 1
+  $owner.Left = $script:OffscreenPosition
+  $owner.Top = $script:OffscreenPosition
+  $script:DockOwner = $owner
+  $owner.Show()
+  Set-OvWindowFlags $owner $false
+  $script:DockCallback = [AhNative.Native]::RegisterWindowMessageW('AgentHostDockCallback')
+}
+
+# Device pixels per WPF unit. A DPI-unaware process reports 1, and the shell virtualizes its coordinates too.
+function Get-OvDeviceScale($visual) {
+  $source = [System.Windows.PresentationSource]::FromVisual($visual)
+  if ($null -eq $source -or $null -eq $source.CompositionTarget) { return 1.0 }
+  return $source.CompositionTarget.TransformToDevice.M11
+}
+
+function New-OvAppBar([IntPtr]$handle, [uint32]$callback) {
+  $ptr = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($script:AbSize)
+  for ($offset = 0; $offset -lt $script:AbSize; $offset += 4) {
+    [System.Runtime.InteropServices.Marshal]::WriteInt32($ptr, $offset, 0)
+  }
+  [System.Runtime.InteropServices.Marshal]::WriteInt32($ptr, 0, $script:AbSize)
+  [System.Runtime.InteropServices.Marshal]::WriteIntPtr($ptr, $script:AbHwnd, $handle)
+  [System.Runtime.InteropServices.Marshal]::WriteInt32($ptr, $script:AbCallback, [int]$callback)
+  return $ptr
+}
+
+function Set-OvAppBarRect($ptr, [int]$left, [int]$top, [int]$right, [int]$bottom) {
+  [System.Runtime.InteropServices.Marshal]::WriteInt32($ptr, $script:AbRect, $left)
+  [System.Runtime.InteropServices.Marshal]::WriteInt32($ptr, $script:AbRect + 4, $top)
+  [System.Runtime.InteropServices.Marshal]::WriteInt32($ptr, $script:AbRect + 8, $right)
+  [System.Runtime.InteropServices.Marshal]::WriteInt32($ptr, $script:AbRect + 12, $bottom)
+}
+
+function Get-OvAppBarRect($ptr) {
+  return @{
+    Left = [System.Runtime.InteropServices.Marshal]::ReadInt32($ptr, $script:AbRect)
+    Top = [System.Runtime.InteropServices.Marshal]::ReadInt32($ptr, $script:AbRect + 4)
+    Right = [System.Runtime.InteropServices.Marshal]::ReadInt32($ptr, $script:AbRect + 8)
+    Bottom = [System.Runtime.InteropServices.Marshal]::ReadInt32($ptr, $script:AbRect + 12)
+  }
+}
+
+function Reserve-OvDock([double]$width) {
+  Initialize-OvDockOwner
+  $right = ($script:DockSide -cne 'left')
+  $scale = Get-OvDeviceScale $script:DockOwner
+  $screenWidth = [System.Windows.SystemParameters]::PrimaryScreenWidth
+  $screenHeight = [System.Windows.SystemParameters]::PrimaryScreenHeight
+  $widthPixels = [int][Math]::Round($width * $scale)
+  $buffer = New-OvAppBar (Get-OvWindowHandle $script:DockOwner) $script:DockCallback
+  [void][AhNative.Native]::SHAppBarMessage(0, $buffer)
+  if ($right) {
+    [System.Runtime.InteropServices.Marshal]::WriteInt32($buffer, $script:AbEdge, 2)
+  } else {
+    [System.Runtime.InteropServices.Marshal]::WriteInt32($buffer, $script:AbEdge, 0)
+  }
+  # The full height of the primary display: the shell trims it to the work area in QUERYPOS (the taskbar).
+  if ($right) {
+    $rectLeft = [int][Math]::Round(($screenWidth - $width) * $scale)
+    $rectRight = [int][Math]::Round($screenWidth * $scale)
+  } else {
+    $rectLeft = 0
+    $rectRight = $widthPixels
+  }
+  Set-OvAppBarRect $buffer $rectLeft 0 $rectRight ([int][Math]::Round($screenHeight * $scale))
+  [void][AhNative.Native]::SHAppBarMessage(2, $buffer)
+  $rect = Get-OvAppBarRect $buffer
+  if ($right) {
+    $rect.Left = $rect.Right - $widthPixels
+  } else {
+    $rect.Right = $rect.Left + $widthPixels
+  }
+  Set-OvAppBarRect $buffer $rect.Left $rect.Top $rect.Right $rect.Bottom
+  [void][AhNative.Native]::SHAppBarMessage(3, $buffer)
+  $script:DockRect = @{
+    Left = $rect.Left / $scale
+    Top = $rect.Top / $scale
+    Width = ($rect.Right - $rect.Left) / $scale
+    Height = ($rect.Bottom - $rect.Top) / $scale
+  }
+  $script:DockRegistered = $true
+  [System.Runtime.InteropServices.Marshal]::FreeHGlobal($buffer)
+}
+
+# Shows the strip and its panel. Called before a dock card is shown, so the strip exists only while it has cards.
+function Start-OvDock {
+  Stop-OvDockRelease
+  $screenWidth = [System.Windows.SystemParameters]::PrimaryScreenWidth
+  $width = [Math]::Min($screenWidth, [Math]::Max(240.0, [Math]::Round($screenWidth * $script:DockPercent / 100.0)))
+  if ($script:DockReserve) {
+    if (-not $script:DockRegistered) { Reserve-OvDock $width }
+  } else {
+    $area = [System.Windows.SystemParameters]::WorkArea
+    $left = $area.Right - $width
+    if ($script:DockSide -ceq 'left') { $left = $area.Left }
+    $script:DockRect = @{ Left = $left; Top = $area.Top; Width = $width; Height = $area.Height }
+  }
+  if ($null -eq $script:DockPanel) {
+    $panel = New-Object System.Windows.Window
+    $panel.Title = 'AgentHost dock'
+    $panel.WindowStyle = [System.Windows.WindowStyle]::None
+    $panel.ShowInTaskbar = $false
+    $panel.ShowActivated = $false
+    $panel.Focusable = $false
+    $panel.ResizeMode = [System.Windows.ResizeMode]::NoResize
+    $panel.Topmost = $true
+    $strip = New-Object System.Windows.Controls.Border
+    $strip.Background = $script:StripFill
+    $panel.Content = $strip
+    $script:DockPanel = $panel
+  }
+  $script:DockPanel.Left = $script:DockRect.Left
+  $script:DockPanel.Top = $script:DockRect.Top
+  $script:DockPanel.Width = $script:DockRect.Width
+  $script:DockPanel.Height = $script:DockRect.Height
+  if (-not $script:DockPanel.IsVisible) {
+    $script:DockPanel.Show()
+    Set-OvWindowFlags $script:DockPanel $false
+  }
+}
+
+# Hides the panel at once and releases the reservation after a short grace period. Screenshot suppression clears the
+# cards and shows them again a moment later; without the grace period every capture would resize every window twice.
+function Request-OvDockRelease {
+  if ($null -eq $script:DockPanel -and -not $script:DockRegistered) { return }
+  if ($null -eq $script:DockRelease) {
+    $timer = New-Object System.Windows.Threading.DispatcherTimer
+    $timer.Interval = [TimeSpan]::FromMilliseconds($script:DockReleaseMs)
+    $timer.Add_Tick({
+      $script:DockRelease.Stop()
+      if ((Get-OvDockCardCount) -eq 0) { Release-OvDockNow }
+    })
+    $script:DockRelease = $timer
+  }
+  $script:DockRelease.Stop()
+  $script:DockRelease.Start()
+  if ($null -ne $script:DockPanel -and $script:DockPanel.IsVisible) { $script:DockPanel.Hide() }
+}
+
+function Stop-OvDockRelease {
+  if ($null -ne $script:DockRelease) { $script:DockRelease.Stop() }
+}
+
+function Release-OvDockNow {
+  Stop-OvDockRelease
+  if ($script:DockRegistered -and $null -ne $script:DockOwner) {
+    $buffer = New-OvAppBar (Get-OvWindowHandle $script:DockOwner) 0
+    [void][AhNative.Native]::SHAppBarMessage(1, $buffer)
+    [System.Runtime.InteropServices.Marshal]::FreeHGlobal($buffer)
+  }
+  $script:DockRegistered = $false
+  if ($null -ne $script:DockPanel) {
+    $script:DockPanel.Close()
+    $script:DockPanel = $null
+  }
+  if ($null -ne $script:DockOwner) {
+    $script:DockOwner.Close()
+    $script:DockOwner = $null
+  }
+}
+
+function New-OvDockScroll($content) {
+  $scroll = New-Object System.Windows.Controls.ScrollViewer
+  $scroll.VerticalScrollBarVisibility = [System.Windows.Controls.ScrollBarVisibility]::Auto
+  $scroll.HorizontalScrollBarVisibility = [System.Windows.Controls.ScrollBarVisibility]::Disabled
+  $scroll.Content = $content
+  return $scroll
+}
+
+function Set-OvDockPlacement($card, [double]$x, [double]$y, [double]$width, [double]$height) {
+  $card.Window.SizeToContent = [System.Windows.SizeToContent]::Manual
+  $card.Window.Width = $width
+  $card.Window.Height = $height
+  $card.Window.Left = $x
+  $card.Window.Top = $y
+}
+
+# Places the timeline at the top and the bottom cards from the floor, as the Linux dock_layout does.
+function Invoke-OvLayoutDock {
+  $timeline = $null
+  $bottom = New-Object System.Collections.ArrayList
+  foreach ($card in @($script:Order.ToArray())) {
+    if ($null -eq $card.Window -or -not $card.Window.IsVisible -or -not (Test-OvDockCard $card)) { continue }
+    if ($null -eq $timeline -and (Test-OvTimelineCard $card)) {
+      $timeline = $card
+    } else {
+      [void]$bottom.Add($card)
+    }
+  }
+  if ($null -eq $timeline -and $bottom.Count -eq 0) { return }
+  $width = [Math]::Max($script:DockMinWidth, $script:DockRect.Width - 2 * $script:DockMargin)
+  $timelineWanted = 0.0
+  if ($null -ne $timeline) { $timelineWanted = Get-OvNatural $timeline $width }
+  $wanted = New-Object 'double[]' $bottom.Count
+  for ($i = 0; $i -lt $bottom.Count; $i++) {
+    $wanted[$i] = [Math]::Min((Get-OvNatural $bottom[$i] $width), $script:DockMaxCard)
+  }
+  $layout = Get-OvDockLayout $script:DockRect.Height $timelineWanted $wanted
+  $x = $script:DockRect.Left + $script:DockMargin
+  for ($i = 0; $i -lt $bottom.Count; $i++) {
+    Set-OvDockPlacement $bottom[$i] $x ($script:DockRect.Top + $layout.tops[$i]) $width $layout.heights[$i]
+  }
+  if ($null -ne $timeline) {
+    Set-OvDockPlacement $timeline $x ($script:DockRect.Top + $script:DockMargin) $width $layout.timeline
+  }
+}
+
+# A port of overlay_geometry.dock_layout (packages/app-overlay/runtime/overlay_geometry.py). Keep the two equal.
+function Get-OvDockLayout([double]$areaHeight, [double]$timelineWanted, [double[]]$wanted) {
+  $usable = [Math]::Max(1.0, $areaHeight - 2 * $script:DockMargin)
+  $hasTimeline = ($timelineWanted -gt 0)
+  $budget = $usable
+  if ($hasTimeline) {
+    $spare = $usable - [Math]::Min($timelineWanted, $usable) - $script:DockMargin
+    $budget = [Math]::Min([Math]::Max($areaHeight * $script:DockBottomShare, $spare), $usable - $script:DockMargin - $script:DockMinTimeline)
+  }
+  $count = $wanted.Length
+  $tops = New-Object 'double[]' $count
+  $heights = New-Object 'double[]' $count
+  $floor = $areaHeight - $script:DockMargin
+  $remaining = $budget
+  for ($i = 0; $i -lt $count; $i++) {
+    $later = $count - $i - 1
+    $available = $remaining - $later * ($script:DockMinBottom + $script:DockMargin)
+    $height = [Math]::Max($script:DockMinBottom, [Math]::Min($wanted[$i], $available))
+    $floor -= $height
+    $heights[$i] = $height
+    $tops[$i] = [Math]::Max($script:DockMargin, $floor)
+    $floor -= $script:DockMargin
+    $remaining -= $height + $script:DockMargin
+  }
+  $timeline = 0.0
+  if ($hasTimeline) {
+    $used = $script:DockMargin * [Math]::Max(0, $count - 1)
+    for ($i = 0; $i -lt $count; $i++) { $used += $heights[$i] }
+    $gap = 0.0
+    if ($count -gt 0) { $gap = $script:DockMargin }
+    $room = $usable - $used - $gap
+    $timeline = [Math]::Max($script:DockMinTimeline, [Math]::Min($timelineWanted, $room))
+  }
+  return @{ timeline = $timeline; tops = $tops; heights = $heights }
+}
+
+# ---- Card content ---------------------------------------------------------------------------------------------------
+
+function New-OvText([string]$text, [double]$size, [bool]$bold, $brush) {
+  $block = New-Object System.Windows.Controls.TextBlock
+  $block.Text = $text
+  $block.FontSize = $size
+  if ($bold) { $block.FontWeight = [System.Windows.FontWeights]::Bold }
+  $block.Foreground = $brush
+  $block.TextWrapping = [System.Windows.TextWrapping]::Wrap
+  $block.Margin = New-OvThickness 0 0 0 4
+  return $block
+}
+
+function New-OvRule {
+  $line = New-Object System.Windows.Controls.Border
+  $line.Height = 1
+  $line.Background = $script:Rule
+  $line.Margin = New-OvThickness 0 6 0 6
+  return $line
+}
+
+function New-OvStatusBadge([string]$status, [string]$text) {
+  $key = 'neutral'
+  if ($status -ceq 'info' -or $status -ceq 'success' -or $status -ceq 'warning' -or $status -ceq 'danger') { $key = $status }
+  $badge = New-Object System.Windows.Controls.Border
+  $badge.CornerRadius = New-Object System.Windows.CornerRadius -ArgumentList @([double]10)
+  $badge.Padding = New-OvThickness 10 2 10 2
+  $badge.Margin = New-OvThickness 0 0 0 6
+  $badge.HorizontalAlignment = [System.Windows.HorizontalAlignment]::Left
+  $badge.Background = Get-OvBadgeFill $key
+  $block = New-OvText (Get-OvClip $text 300) 12 $true (Get-OvBadgeInk $key)
+  $block.Margin = New-OvThickness 0 0 0 0
+  $badge.Child = $block
+  return $badge
+}
+
+function Get-OvBadgeFill([string]$key) {
+  if ($key -ceq 'info') { return New-OvTint 59 130 246 51 }
+  if ($key -ceq 'success') { return New-OvTint 52 211 153 46 }
+  if ($key -ceq 'warning') { return New-OvTint 245 184 64 46 }
+  if ($key -ceq 'danger') { return New-OvTint 248 113 113 46 }
+  return New-OvTint 148 163 184 41
+}
+
+function Get-OvBadgeInk([string]$key) {
+  if ($key -ceq 'info') { return New-OvRgb 156 194 255 }
+  if ($key -ceq 'success') { return New-OvRgb 142 240 194 }
+  if ($key -ceq 'warning') { return New-OvRgb 255 213 138 }
+  if ($key -ceq 'danger') { return New-OvRgb 255 173 173 }
+  return New-OvRgb 203 213 225
+}
+
+function New-OvKeyValue([string]$key, [string]$value) {
+  $grid = New-Object System.Windows.Controls.Grid
+  $keyColumn = New-Object System.Windows.Controls.ColumnDefinition
+  $keyColumn.Width = New-Object System.Windows.GridLength -ArgumentList @([double]96)
+  $valueColumn = New-Object System.Windows.Controls.ColumnDefinition
+  $valueColumn.Width = New-Object System.Windows.GridLength -ArgumentList @([double]1, [System.Windows.GridUnitType]::Star)
+  [void]$grid.ColumnDefinitions.Add($keyColumn)
+  [void]$grid.ColumnDefinitions.Add($valueColumn)
+  $keyBlock = New-OvText $key 12 $false $script:Muted
+  $valueBlock = New-OvText $value 13 $true $script:Ink
+  [System.Windows.Controls.Grid]::SetColumn($keyBlock, 0)
+  [System.Windows.Controls.Grid]::SetColumn($valueBlock, 1)
+  [void]$grid.Children.Add($keyBlock)
+  [void]$grid.Children.Add($valueBlock)
+  return $grid
+}
+
+function Get-OvIconGlyph([string]$token) {
+  if ($token -ceq 'success' -or $token -ceq 'check') { return [string][char]0x2713 }
+  if ($token -ceq 'danger' -or $token -ceq 'close') { return [string][char]0x2715 }
+  if ($token -ceq 'warning') { return '!' }
+  if ($token -ceq 'pointer') { return [string][char]0x25B8 }
+  return 'i'
+}
+
+function Get-OvTimelineGlyph([string]$state) {
+  if ($state -ceq 'done') { return [string][char]0x2713 }
+  if ($state -ceq 'running') { return [string][char]0x25CF }
+  if ($state -ceq 'failed') { return [string][char]0x2715 }
+  return [string][char]0x25CB
+}
+
+function Get-OvTimelineBrush([string]$state) {
+  if ($state -ceq 'done') { return $script:Green }
+  if ($state -ceq 'running') { return $script:Blue }
+  if ($state -ceq 'failed') { return $script:Red }
+  if ($state -ceq 'waiting') { return $script:Amber }
+  return $script:Muted
+}
+
+function Get-OvBorderFor([string]$semantic) {
+  if ($semantic -ceq 'warning') { return $script:Amber }
+  if ($semantic -ceq 'danger') { return $script:Red }
+  if ($semantic -ceq 'success') { return $script:Green }
+  if ($semantic -ceq 'info') { return $script:Blue }
+  return $script:CardEdge
+}
+
+function Add-OvProgress($stack, $c) {
+  $label = Get-OvStr $c 'label'
+  if ($null -ne $label) { [void]$stack.Children.Add((New-OvText (Get-OvClip $label 200) 12 $false $script:Muted)) }
+  $bar = New-Object System.Windows.Controls.ProgressBar
+  $bar.Minimum = 0
+  $bar.Maximum = 100
+  $bar.Value = [Math]::Max(0.0, [Math]::Min(100.0, (Get-OvDbl $c 'value') * 100))
+  $bar.Height = 6
+  $bar.Margin = New-OvThickness 0 2 0 6
+  [void]$stack.Children.Add($bar)
+}
+
+function Add-OvChecklist($stack, $c) {
+  foreach ($item in (Get-OvItems $c 'items')) {
+    if ($item -isnot [System.Collections.Generic.Dictionary[string,object]]) { continue }
+    $state = Get-OvStr $item 'state'
+    if ($null -eq $state) { $state = '' }
+    $marker = [string][char]0x25CB
+    if ((Get-OvFlag $item 'checked') -or $state -ceq 'done') {
+      $marker = [string][char]0x2713
+    } elseif ($state -ceq 'failed') {
+      $marker = [string][char]0x2715
+    } elseif ($state -ceq 'active') {
+      $marker = [string][char]0x2192
+    }
+    $brush = $script:Ink
+    if ($state -ceq 'failed') { $brush = $script:Red }
+    [void]$stack.Children.Add((New-OvText ($marker + ' ' + (Get-OvClip (Get-OvStr $item 'label') 300)) 13 $false $brush))
+  }
+}
+
+# A timeline row as on Linux: a state glyph, the label bold with the detail dim under it, and the time at the right.
+function Add-OvTimeline($stack, $c) {
+  foreach ($entry in (Get-OvItems $c 'entries')) {
+    if ($entry -isnot [System.Collections.Generic.Dictionary[string,object]]) { continue }
+    $state = Get-OvClip (Get-OvStr $entry 'state') 20
+    $row = New-Object System.Windows.Controls.Grid
+    $markerColumn = New-Object System.Windows.Controls.ColumnDefinition
+    $markerColumn.Width = New-Object System.Windows.GridLength -ArgumentList @([double]18)
+    $bodyColumn = New-Object System.Windows.Controls.ColumnDefinition
+    $bodyColumn.Width = New-Object System.Windows.GridLength -ArgumentList @([double]1, [System.Windows.GridUnitType]::Star)
+    $timeColumn = New-Object System.Windows.Controls.ColumnDefinition
+    $timeColumn.Width = [System.Windows.GridLength]::Auto
+    [void]$row.ColumnDefinitions.Add($markerColumn)
+    [void]$row.ColumnDefinitions.Add($bodyColumn)
+    [void]$row.ColumnDefinitions.Add($timeColumn)
+    $glyph = New-OvText (Get-OvTimelineGlyph $state) 12 $true (Get-OvTimelineBrush $state)
+    [System.Windows.Controls.Grid]::SetColumn($glyph, 0)
+    $text = New-Object System.Windows.Controls.StackPanel
+    [void]$text.Children.Add((New-OvText (Get-OvClip (Get-OvStr $entry 'label') 300) 12 $true $script:Ink))
+    $detail = Get-OvStr $entry 'detail'
+    if ($null -ne $detail) { [void]$text.Children.Add((New-OvText (Get-OvClip $detail 300) 11 $false $script:Muted)) }
+    [System.Windows.Controls.Grid]::SetColumn($text, 1)
+    [void]$row.Children.Add($glyph)
+    [void]$row.Children.Add($text)
+    $time = Get-OvStr $entry 'time'
+    if ($null -ne $time) {
+      $stamp = New-OvText (Get-OvClip $time 40) 11 $false $script:Muted
+      [System.Windows.Controls.Grid]::SetColumn($stamp, 2)
+      [void]$row.Children.Add($stamp)
+    }
+    [void]$stack.Children.Add($row)
+  }
+}
+
+function Add-OvButton($footer, $c, $card, [bool]$wantInteractive) {
+  $label = Get-OvStr $c 'label'
+  if ($null -eq $label) { $label = Get-OvStr $c 'text' }
+  $label = Get-OvClip $label 60
+  if ($label.Length -eq 0) { $label = 'OK' }
+  $eventName = Get-OvStr $c 'event'
+  if ($null -eq $eventName) { $eventName = '' }
+  $enabled = ($wantInteractive -and $eventName.Length -gt 0 -and ($card.AllowedEvents -ccontains $eventName))
+  $button = New-Object System.Windows.Controls.Button
+  $button.Content = $label
+  $button.MinWidth = 72
+  $button.Padding = New-OvThickness 10 3 10 3
+  $button.Margin = New-OvThickness 0 8 8 0
+  $button.Focusable = $false
+  $button.IsTabStop = $false
+  $button.IsEnabled = $enabled
+  # A press counts only when the hook saw the down and the up as real (not injected).
+  $press = @{ Down = $false; Up = $false }
+  $button.Add_PreviewMouseLeftButtonDown(({
+    param($sender, $eventArgs)
+    $press.Down = [bool]$script:LastDownReal
+  }).GetNewClosure())
+  $button.Add_PreviewMouseLeftButtonUp(({
+    param($sender, $eventArgs)
+    $press.Up = [bool]$script:LastUpReal
+  }).GetNewClosure())
+  $name = $eventName
+  $button.Add_Click(({
+    param($sender, $eventArgs)
+    $real = ($press.Down -and $press.Up)
+    $press.Down = $false
+    $press.Up = $false
+    if ($real) { Publish-OvEvent $card $name }
+  }).GetNewClosure())
+  [void]$footer.Children.Add($button)
+  if ($enabled) { return 1 }
+  return 0
+}
+
+function Add-OvComponent($stack, $footer, $c, $card, [bool]$wantInteractive) {
+  $type = Get-OvStr $c 'type'
+  if ($null -eq $type) { $type = '' }
+  if ($type -ceq 'heading') { [void]$stack.Children.Add((New-OvText (Get-OvClip (Get-OvStr $c 'text') 1000) 15 $true $script:Ink)); return 0 }
+  if ($type -ceq 'text') { [void]$stack.Children.Add((New-OvText (Get-OvClip (Get-OvStr $c 'text') 1000) 13 $false $script:Ink)); return 0 }
+  if ($type -ceq 'warning') { [void]$stack.Children.Add((New-OvText (Get-OvClip (Get-OvStr $c 'text') 1000) 13 $true $script:Amber)); return 0 }
+  if ($type -ceq 'divider') { [void]$stack.Children.Add((New-OvRule)); return 0 }
+  if ($type -ceq 'icon') { [void]$stack.Children.Add((New-OvText (Get-OvIconGlyph (Get-OvStr $c 'token')) 13 $true $script:Ink)); return 0 }
+  if ($type -ceq 'status_badge') { [void]$stack.Children.Add((New-OvStatusBadge (Get-OvStr $c 'status') (Get-OvClip (Get-OvStr $c 'text') 300))); return 0 }
+  if ($type -ceq 'progress') { Add-OvProgress $stack $c; return 0 }
+  if ($type -ceq 'spinner') {
+    $spinLabel = Get-OvStr $c 'label'
+    if ($null -eq $spinLabel) { $spinLabel = 'working' }
+    [void]$stack.Children.Add((New-OvText ('... ' + (Get-OvClip $spinLabel 200)) 13 $false $script:Muted))
+    return 0
+  }
+  if ($type -ceq 'checklist') { Add-OvChecklist $stack $c; return 0 }
+  if ($type -ceq 'timeline') { Add-OvTimeline $stack $c; return 0 }
+  if ($type -ceq 'key_value') { [void]$stack.Children.Add((New-OvKeyValue (Get-OvClip (Get-OvStr $c 'key') 200) (Get-OvClip (Get-OvStr $c 'value') 500))); return 0 }
+  if ($type -ceq 'comparison') {
+    $before = Get-OvClip (Get-OvStr $c 'before') 500
+    $after = Get-OvClip (Get-OvStr $c 'after') 500
+    [void]$stack.Children.Add((New-OvText ($before + '  ->  ' + $after) 13 $false $script:Ink))
+    return 0
+  }
+  if ($type -ceq 'image_reference') { [void]$stack.Children.Add((New-OvText ('[image: ' + (Get-OvClip (Get-OvStr $c 'alt') 200) + ']') 12 $false $script:Muted)); return 0 }
+  if ($type -ceq 'button' -or $type -ceq 'choice') { return (Add-OvButton $footer $c $card $wantInteractive) }
+  return 0
+}
+
+function Build-OvContent($card, $body) {
+  $interaction = Get-OvDict $body 'interaction'
+  $style = Get-OvDict $body 'style'
+  $sensitivity = Get-OvStr $body 'sensitivity'
+  if ($null -eq $sensitivity) { $sensitivity = 'public' }
+  $card.Sensitivity = $sensitivity
+  $placement = Get-OvStr $body 'placement'
+  if ($null -eq $placement) { $placement = 'top_right' }
+  if ($script:Placements -ccontains $placement) { $card.Placement = $placement } else { $card.Placement = 'top_right' }
+  $card.AllowedEvents = Get-OvStringList (Get-OvItems $interaction 'allowedEvents')
+  $wantInteractive = Get-OvFlag $interaction 'interactive'
+
+  $stack = New-Object System.Windows.Controls.StackPanel
+  [void]$stack.Children.Add((New-OvText (Get-OvClip (Get-OvStr $body 'title') 200) 15 $true $script:Ink))
+  $footer = New-Object System.Windows.Controls.StackPanel
+  $footer.Orientation = [System.Windows.Controls.Orientation]::Horizontal
+  $buttons = 0
+  foreach ($component in (Get-OvItems $body 'components')) {
+    if ($component -isnot [System.Collections.Generic.Dictionary[string,object]]) { continue }
+    $buttons += (Add-OvComponent $stack $footer $component $card $wantInteractive)
+  }
+  if ($footer.Children.Count -gt 0) { [void]$stack.Children.Add($footer) }
+  $card.Interactive = ($wantInteractive -and $buttons -gt 0)
+
+  $frame = New-Object System.Windows.Controls.Border
+  $frame.Background = $script:CardFill
+  $frame.BorderBrush = Get-OvBorderFor (Get-OvStr $style 'semantic')
+  $frame.BorderThickness = New-OvThickness 1 1 1 1
+  $frame.CornerRadius = New-Object System.Windows.CornerRadius -ArgumentList @([double]16)
+  $frame.Padding = New-OvThickness 14 14 14 14
+  $frame.Child = $stack
+  $card.Frame = $frame
+  return $frame
+}
+
+# ---- Startup --------------------------------------------------------------------------------------------------------
+
+$script:Ink = New-OvRgb 238 242 250
+$script:Muted = New-OvRgb 160 172 196
+$script:Amber = New-OvRgb 255 196 92
+$script:Red = New-OvRgb 255 140 140
+$script:Green = New-OvRgb 140 220 160
+$script:Blue = New-OvRgb 140 180 255
+$script:Rule = New-OvRgb 51 65 90
+$script:StripFill = New-OvRgb 14 17 26
+$script:CardFill = New-OvCardGradient
+$script:CardEdge = New-OvTint 126 156 210 89
+
+Start-OvReader
+$script:Pump = New-Object System.Windows.Threading.DispatcherTimer
+$script:Pump.Interval = [TimeSpan]::FromMilliseconds(15)
+$script:Pump.Add_Tick({ Invoke-OvPump })
+$script:Pump.Start()
+[System.Windows.Threading.Dispatcher]::Run()
 `;
 
 const trimLines = (text: string): string => text.replace(/^\r?\n/, "").replace(/\r?\n$/, "");
 
 /** The whole overlay script, written to a file and started with `powershell.exe -STA -File`. */
-export const WINDOWS_OVERLAY_SCRIPT = [trimLines(POWERSHELL_HEAD), trimLines(CSHARP), trimLines(POWERSHELL_TAIL)].join("\r\n").replace(/\r?\n/g, "\r\n") + "\r\n";
+export const WINDOWS_OVERLAY_SCRIPT = [trimLines(POWERSHELL_HEAD), trimLines(NATIVE_PS), trimLines(RENDERER_PS)].join("\r\n").replace(/\r?\n/g, "\r\n") + "\r\n";
