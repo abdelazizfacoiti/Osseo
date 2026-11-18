@@ -31,7 +31,7 @@ const navigateInput = z.object({ action: z.enum(["goto", "back", "forward", "rel
   .refine((value) => value.action !== "goto" || value.url !== undefined, { message: "goto requires a url" });
 const closeInput = z.object({}).strict();
 
-const CONSEQUENTIAL_LABEL = /\b(pay|buy|purchase|order|checkout|check out|send|post|publish|tweet|delete|remove|erase|confirm|submit|subscribe|unsubscribe|transfer|withdraw|donate|book|reserve|apply|sign out|log ?out|deactivate|cancel (?:my|the) )\b/i;
+import { CONSEQUENTIAL_LABEL } from "../consequential-control.js";
 
 function schema(properties: Record<string, unknown>, required: string[] = []) {
   return { type: "object", properties, ...(required.length > 0 ? { required } : {}), additionalProperties: false };

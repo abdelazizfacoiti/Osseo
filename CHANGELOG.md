@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Safety: a click on a control named like Send, Pay, Delete, Submit or Publish now asks first in any desktop app (Firefox, WhatsApp, Slack and so on), not only in the agent's own browser. The name comes from `see`, a label, or `targetName`; it adds a prompt and never changes where the click goes.
 - When AgentHost needs you (an approval or a hand-off such as a login), it raises the agent's terminal or IDE and plays a soft chime every 8 seconds until you answer (at most 5 minutes). Turn it off with `"attention": { "sound": false }`.
 - CI: the Windows integration tests no longer assume `agenthost` is installed on the runner.
 - `overlay.frame: "always"`: a quiet gray edge frame whenever the server runs, coloured by state (blue running, green done, amber waiting or paused, red error), back to gray between actions. The frame is now four thin strips per monitor instead of a full-monitor window, so it can stay up without covering the work area and without blinking. Window-only screenshots no longer clear the cards for it, and the strip pixels are cropped out of a window that touches a screen edge (the screenshot reports the shifted origin). A configured target ring only forces a clear while one may still be on screen. Measured on a real X11 session: 4 strips stay up through a window capture, and the captured terminal's bottom rows are its own colour. `frame: true` and `false` work as before (the frame now uses the same strips).

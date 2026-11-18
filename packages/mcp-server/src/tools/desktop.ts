@@ -22,6 +22,7 @@ import { z } from "zod";
 import { resolveLabelTarget, type LabelResolution, type LabelTarget } from "../label-target.js";
 import { windowCaptureClean } from "./guide.js";
 import { frameTrim, type FrameTrim } from "../frame-trim.js";
+import { looksConsequential } from "../consequential-control.js";
 import { imagePointToScreen, recallScreen, rememberScreen, sameBounds } from "../screenshot-registry.js";
 import { readFile as readEffectBytes, rm as removeEffectFile } from "node:fs/promises";
 import { createHash, randomUUID as effectId } from "node:crypto";
@@ -645,14 +646,18 @@ async function desktopPreview(
   }
   const named = await namedClickSafety(context, input, validation.activeWindow!);
   const safety = initialGuiSafety(tool, context, actionType, validation.activeWindow!, dataSensitivity, named);
+  // A click on a control named like Send, Pay or Delete asks first in any app, as browser.click does.
+  const controlName = (input as { targetName?: string; label?: string }).targetName ?? (input as { label?: string }).label;
+  const consequential = tool === "desktop.click" && !safety.blocked && looksConsequential(controlName);
   return {
     summary: summary(windowLabel, located?.point),
     targetFingerprint: target(windowLabel, located?.point),
-    riskLevel: safety.riskLevel,
+    riskLevel: consequential && safety.riskLevel !== "blocked" ? "high" : safety.riskLevel,
     approval: safety.approval,
     blocked: safety.blocked,
-    reasons: safety.reasons,
-    requiresConfirmation: safety.requiresConfirmationToken
+    reasons: consequential ? [...safety.reasons, `The control "${controlName}" looks consequential.`] : safety.reasons,
+    requiresConfirmation: consequential
+      || safety.requiresConfirmationToken
       || safety.riskLevel === "high"
       || safety.appSensitivity === "communication"
       || safety.appSensitivity === "financial",

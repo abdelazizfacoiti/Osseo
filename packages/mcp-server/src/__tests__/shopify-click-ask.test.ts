@@ -104,11 +104,20 @@ describe("numbered click on a screen target passes the name to the safety decisi
     expect(counts.desktopClicks).toBe(1);
   });
 
-  it("'Delete' on a page that is not a store admin follows the normal rules (runs)", async () => {
+  it("'Delete' on any page asks first and does not click (the consequential-name rule, same as browser.click)", async () => {
     const { context, counts } = await makeContext(OTHER, "x");
     const result = await numberedClick(context, viewOf("w1", screenTarget("Delete")).id);
-    expect(asked(result)).toBe(false);
-    expect(counts.desktopClicks).toBe(1);
+    expect(asked(result)).toBe(true);
+    expect(counts.desktopClicks).toBe(0);
+  });
+
+  it("'Send' in a desktop app asks first; 'Save' and 'Search' still run", async () => {
+    for (const [name, asks] of [["Send", true], ["Send itinerary", true], ["Pay now", true], ["Save", false], ["Search", false]] as const) {
+      const { context, counts } = await makeContext(OTHER, "x");
+      const result = await numberedClick(context, viewOf("w1", screenTarget(name)).id);
+      expect(asked(result), name).toBe(asks);
+      expect(counts.desktopClicks, name).toBe(asks ? 0 : 1);
+    }
   });
 });
 
