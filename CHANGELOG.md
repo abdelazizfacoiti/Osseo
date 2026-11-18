@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Speed (`docs/notes/speed-plan.md`): desktop actions 37 to 80 percent faster, same benchmark on old vs new build, no failed calls. One verified key 0.91 -> 0.40 s, typing 11 characters 2.0 -> 0.95 s, `see` 82 -> 51 ms, a 10-step plan 11.8 -> 2.4 s, the form task over the desktop path 10.3 -> 6.2 s. `npm run benchmark:desktop-actions` measures it.
+- A repeated call that changed the screen no longer counts toward the loop guard.
+- `type { n, text }` on a dropdown chooses the option by its text through `browser.select`.
+
 - `agenthost integrations claude add --allow-tools read|all --apply` writes Claude Code allow rules for AgentHost's tools, so auto mode stops blocking them (`remove` takes them out). The agent skill now says to stop and tell the person when the client blocks a call, never to route around it.
 - `key` takes `sequence`: several keys or chords pressed in order in one verified action (for example a whole numeric entry in a 3D or design app), instead of one call per key at about 1.3 s each.
 - `agenthost config path` prints the config file AgentHost reads (`~/.config/agenthost/config.json`) and warns when `~/.agenthost/config.json` exists with different settings, since that one is then ignored.
