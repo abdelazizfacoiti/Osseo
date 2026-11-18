@@ -37,6 +37,8 @@ export interface OverlayPublicConfig {
   timeline: boolean;
   /** `true`: a frame while an action runs. `"always"`: a quiet gray frame whenever AgentHost is on, coloured by state. */
   frame: boolean | "always";
+  /** With `"always"`: hide the gray frame after this many ms with no action (0 keeps it). Default 120000. */
+  frameIdleMs?: number;
   actionPill: boolean;
   targetRing: boolean;
   targetRingLeadMs: number;

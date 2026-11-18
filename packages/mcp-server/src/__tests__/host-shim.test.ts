@@ -146,6 +146,12 @@ describe("start lock and reconnect", () => {
     expect(await done).toBe(0);
   });
 
+  it("returns the unavailable code when no host starts, so the auto entry can fall back", async () => {
+    home = mkdtempSync(path.join(os.tmpdir(), "ah-shim-"));
+    const code = await runShim({ agentHome: home, input: new PassThrough(), output: new PassThrough(), error: new PassThrough(), startHost: () => undefined, startWaitMs: 200, unavailableCode: 125 });
+    expect(code).toBe(125);
+  });
+
   it("two shims starting together start one host", async () => {
     home = mkdtempSync(path.join(os.tmpdir(), "ah-shim-"));
     const paths = await ensureRunDir(home);

@@ -218,7 +218,9 @@ async function status(): Promise<Output> {
 async function start(flags: ReturnType<typeof parseFlags>): Promise<Output> {
   const entry = mcpEntry(); if (!existsSync(entry)) return fail("start", "mcp_runtime_missing");
   const current = await readLock(); if (typeof current?.pid === "number" && processAlive(current.pid)) return fail("start", "agenthost_already_running");
-  await safeMkdir(path.dirname(lockPath)); const childEnv = { ...process.env, AGENTHOST_CONFIG: existsSync(publicConfig) ? publicConfig : legacyConfigPath(home) };
+  await safeMkdir(path.dirname(lockPath)); const childEnv: NodeJS.ProcessEnv = { ...process.env, AGENTHOST_CONFIG: existsSync(publicConfig) ? publicConfig : legacyConfigPath(home) };
+  // Every session shares one host (one overlay, one dock) unless AGENTHOST_HOST is set (0 opts out). Windows keeps the in-process server.
+  if (process.platform !== "win32" && childEnv.AGENTHOST_HOST === undefined) { childEnv.AGENTHOST_HOST = "1"; childEnv.AGENTHOST_HOST_AUTO = "1"; }
   if (flags.flags.has("background")) return fail("start", "background_unsupported: run agenthost start in the foreground or let the MCP client spawn it");
   const child = spawn(process.execPath, [entry], { stdio: "inherit", env: childEnv });
   const exit = await new Promise<number>((resolve) => { child.once("error", () => resolve(1)); child.once("exit", (code) => resolve(code ?? 1)); });

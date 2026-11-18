@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Sessions share one host by default on Linux: `agenthost start` sets `AGENTHOST_HOST=1` (set it to `0` to opt out) and falls back to the in-process server if no host can be reached. One host means one overlay renderer and one dock, so a second session no longer fights the first.
+- `overlay.frameIdleMs` (default 120000, `0` keeps it): with `frame: "always"` the gray frame goes away after that long with no action and returns with the next one.
+
 - Speed (`docs/notes/speed-plan.md`): desktop actions 37 to 80 percent faster, same benchmark on old vs new build, no failed calls. One verified key 0.91 -> 0.40 s, typing 11 characters 2.0 -> 0.95 s, `see` 82 -> 51 ms, a 10-step plan 11.8 -> 2.4 s, the form task over the desktop path 10.3 -> 6.2 s. `npm run benchmark:desktop-actions` measures it.
 - A repeated call that changed the screen no longer counts toward the loop guard.
 - `type { n, text }` on a dropdown chooses the option by its text through `browser.select`.

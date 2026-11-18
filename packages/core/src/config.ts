@@ -31,6 +31,8 @@ const overlaySchema = z.object({
   allowSyntheticControl: z.boolean().optional(),
   timeline: z.boolean().optional(),
   frame: z.union([z.boolean(), z.literal("always")]).optional(),
+  /** With `frame: "always"`: hide the gray frame after this long with no action (default 120000; 0 keeps it). It returns on the next action. */
+  frameIdleMs: z.number().int().min(0).max(86_400_000).optional(),
   actionPill: z.boolean().optional(),
   targetRing: z.boolean().optional(),
   targetRingLeadMs: z.number().int().min(0).max(600).optional(),
@@ -163,6 +165,7 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     ...(fileConfig.overlay?.allowSyntheticControl === undefined ? {} : { allowSyntheticControl: fileConfig.overlay.allowSyntheticControl }),
     timeline: fileConfig.overlay?.timeline ?? true,
     frame: fileConfig.overlay?.frame ?? !dockLayout,
+    ...(fileConfig.overlay?.frameIdleMs === undefined ? {} : { frameIdleMs: fileConfig.overlay.frameIdleMs }),
     actionPill: fileConfig.overlay?.actionPill ?? !dockLayout,
     targetRing: fileConfig.overlay?.targetRing ?? !dockLayout,
     targetRingLeadMs: fileConfig.overlay?.targetRingLeadMs ?? 150,

@@ -26,6 +26,8 @@ export interface ShimOptions {
   startWaitMs?: number;
   /** After the host is gone, how long the shim keeps answering new requests with the error. */
   deadGraceMs?: number;
+  /** Exit code when no host could be reached or it refused the connection (default 1). The auto-host entry uses it to fall back to an in-process server. */
+  unavailableCode?: number;
 }
 
 export function defaultHostEntry(): string {
@@ -79,7 +81,7 @@ export async function runShim(options: ShimOptions): Promise<number> {
   let socket: net.Socket;
   try { socket = await connectWithStart(options); } catch (error) {
     errors.write(`${error instanceof Error ? error.message : "host_unavailable"}\n`);
-    return 1;
+    return options.unavailableCode ?? 1;
   }
   socket.setEncoding("utf8");
 
@@ -111,7 +113,7 @@ export async function runShim(options: ShimOptions): Promise<number> {
   if (!welcome.ok) {
     errors.write(`AgentHost host refused the connection: ${welcome.message}. Run agenthost doctor.\n`);
     socket.destroy();
-    return 1;
+    return options.unavailableCode ?? 1;
   }
 
   return await new Promise<number>((resolve) => {
@@ -170,6 +172,13 @@ export async function runShim(options: ShimOptions): Promise<number> {
 
 export async function runShimFromEnv(): Promise<void> {
   const agentHome = path.resolve(process.env.AGENTHOST_HOME ?? (await import("@agenthost/core")).defaultAgentHostHome(os.homedir()));
-  const code = await runShim({ agentHome });
+  // AGENTHOST_HOST_AUTO=1 (set by `agenthost start`): if the host cannot be reached, run the in-process server instead.
+  const auto = process.env.AGENTHOST_HOST_AUTO === "1";
+  const code = await runShim({ agentHome, ...(auto ? { unavailableCode: 125 } : {}) });
+  if (auto && code === 125) {
+    const { startStdioServer } = await import("../server.js");
+    await startStdioServer();
+    return;
+  }
   process.exit(code);
 }

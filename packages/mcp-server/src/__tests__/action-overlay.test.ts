@@ -309,6 +309,36 @@ describe("automatic action overlay", () => {
     expect(frameDismissals()).toBeGreaterThan(0);
   });
 
+  it('frame "always": the gray frame goes away after the idle time and comes back with the next action', async () => {
+    const fake = fakeManager();
+    const overlay = new ToolActionOverlay(fake.manager, { widgetId: "action-card", frame: "always", frameIdleMs: 30, targetRing: false, minDisplayMs: 0 });
+    const frames = () => fake.primitives.filter((entry) => entry.type === "frame").map((entry) => entry.style?.semantic);
+    const frameDismissals = () => fake.dismiss.mock.calls.filter((call) => String(call[0]).endsWith("-frame")).length;
+    await overlay.startFrame();
+    expect(frameDismissals()).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(frameDismissals()).toBe(1);
+
+    const handle = await overlay.begin({ tool: "windows", summary: "List windows", riskLevel: "low" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(frames().at(-1)).toBe("info");
+    await handle.finish(toolSuccess({ tool: "windows", riskLevel: "low", data: {} }));
+    await overlay.dismiss();
+    expect(frames().at(-1)).toBe("neutral");
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(frameDismissals()).toBe(2);
+    await overlay.close();
+  });
+
+  it('frame "always" with frameIdleMs 0 never hides the quiet frame', async () => {
+    const fake = fakeManager();
+    const overlay = new ToolActionOverlay(fake.manager, { widgetId: "action-card", frame: "always", frameIdleMs: 0, targetRing: false, minDisplayMs: 0 });
+    await overlay.startFrame();
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(fake.dismiss.mock.calls.filter((call) => String(call[0]).endsWith("-frame")).length).toBe(0);
+    await overlay.close();
+  });
+
   it('frame "always" retries the first frame while the renderer is still starting', async () => {
     const fake = fakeManager();
     let refusals = 2;

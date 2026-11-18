@@ -45,6 +45,8 @@ export interface ToolActionOverlayOptions {
   frame?: boolean | "always";
   /** Wait between attempts when the first always-on frame could not be shown (default 2 s). */
   frameRetryMs?: number;
+  /** With `frame: "always"`: the gray frame goes away after this long with no action (default 120 s, 0 keeps it up). */
+  frameIdleMs?: number;
   targetRing?: boolean;
   targetRingLeadMs?: number;
   targetRingDurationMs?: number;
@@ -175,6 +177,9 @@ export class ToolActionOverlay {
   #ringUntil = 0;
   #frameKeepAlive: ReturnType<typeof setInterval> | undefined;
   readonly #frameRetryMs: number;
+  readonly #frameIdleMs: number;
+  #frameIdleTimer: ReturnType<typeof setTimeout> | undefined;
+  #frameIdleHidden = false;
   #ringGeneration = 0;
 
   constructor(manager: OverlayManager, options: ToolActionOverlayOptions = {}) {
@@ -193,6 +198,7 @@ export class ToolActionOverlay {
     this.#frame = frameOption !== false;
     this.#frameAlways = frameOption === "always";
     this.#frameRetryMs = Math.max(1, options.frameRetryMs ?? 2_000);
+    this.#frameIdleMs = Math.max(0, options.frameIdleMs ?? 120_000);
     this.#targetRing = options.targetRing ?? true;
     this.#targetRingLeadMs = Math.max(0, Math.min(600, options.targetRingLeadMs ?? 150));
     this.#targetRingDurationMs = Math.max(200, Math.min(2_000, options.targetRingDurationMs ?? 600));
@@ -226,6 +232,7 @@ export class ToolActionOverlay {
     this.#startHeartbeat();
     this.#startEventPoll();
     this.#framePhase = undefined;
+    this.#cancelFrameIdle();
     // Paint the card first. Frame/ring are visual hints and must not consume
     // the bounded first-paint budget on a cold GTK renderer. The ring request
     // is still issued before begin() returns, so the governed handler cannot
@@ -345,9 +352,10 @@ export class ToolActionOverlay {
       await new Promise((resolve) => setTimeout(resolve, this.#frameRetryMs));
       if (!this.#frameStarted && this.#active.size === 0 && !this.#disposed) await this.#showFrame("neutral", false);
     }
+    if (this.#active.size === 0) this.#armFrameIdle();
     if (this.#frameKeepAlive === undefined) {
       this.#frameKeepAlive = setInterval(() => {
-        if (this.#disposed) return;
+        if (this.#disposed || (this.#frameIdleHidden && this.#active.size === 0)) return;
         const phase = this.#active.size > 0 ? this.#framePhase : undefined;
         void this.#showFrame(phase === undefined ? "neutral" : this.#semanticFor(phase), false).catch(() => undefined);
       }, 120_000);
@@ -393,6 +401,7 @@ export class ToolActionOverlay {
   async close(): Promise<void> {
     if (this.#disposed) return;
     this.#disposed = true;
+    this.#cancelFrameIdle();
     await this.dismiss();
   }
 
@@ -496,6 +505,28 @@ export class ToolActionOverlay {
     return `${this.#widgetId}-ring`;
   }
 
+  #cancelFrameIdle(): void {
+    if (this.#frameIdleTimer !== undefined) { clearTimeout(this.#frameIdleTimer); this.#frameIdleTimer = undefined; }
+    this.#frameIdleHidden = false;
+  }
+
+  /** After the last action, the quiet gray frame is removed once nothing has happened for `frameIdleMs`. */
+  #armFrameIdle(): void {
+    if (this.#frameIdleMs <= 0 || this.#disposed) return;
+    if (this.#frameIdleTimer !== undefined) clearTimeout(this.#frameIdleTimer);
+    this.#frameIdleTimer = setTimeout(() => {
+      this.#frameIdleTimer = undefined;
+      if (this.#disposed || this.#active.size > 0) return;
+      this.#frameIdleHidden = true;
+      this.#frameGeneration++;
+      this.#framePromise = undefined;
+      this.#framePhase = undefined;
+      this.#frameStarted = false;
+      void this.#manager.dismiss(this.#frameOverlayId()).catch(() => undefined);
+    }, this.#frameIdleMs);
+    this.#frameIdleTimer.unref?.();
+  }
+
   async #showFrame(semantic: "neutral" | "info" | "success" | "warning" | "danger", animated: boolean): Promise<void> {
     const generation = ++this.#frameGeneration;
     const promise = (async () => {
@@ -538,7 +569,9 @@ export class ToolActionOverlay {
     if (this.#frameAlways && !this.#disposed) {
       // "always": between actions the frame goes back to quiet gray instead of disappearing.
       this.#framePhase = undefined;
+      this.#frameIdleHidden = false;
       await this.#showFrame("neutral", false);
+      this.#armFrameIdle();
       return;
     }
     if (this.#frameKeepAlive !== undefined) { clearInterval(this.#frameKeepAlive); this.#frameKeepAlive = undefined; }

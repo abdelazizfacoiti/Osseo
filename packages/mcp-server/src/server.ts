@@ -361,6 +361,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     autoHideMs: actionPill || dockLayout ? pillAutoHideMs : config.overlay?.autoHideMs ?? 15_000,
     compact: actionPill,
     frame: config.overlay?.frame ?? true,
+    ...(config.overlay?.frameIdleMs === undefined ? {} : { frameIdleMs: config.overlay.frameIdleMs }),
     // Nested-display coordinates mean nothing on the real screen.
     targetRing: backgroundDisplay === undefined && (config.overlay?.targetRing ?? true),
     targetRingLeadMs: config.overlay?.targetRingLeadMs ?? 150,
