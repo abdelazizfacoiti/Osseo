@@ -309,6 +309,21 @@ describe("automatic action overlay", () => {
     expect(frameDismissals()).toBeGreaterThan(0);
   });
 
+  it('frame "always" retries the first frame while the renderer is still starting', async () => {
+    const fake = fakeManager();
+    let refusals = 2;
+    const original = fake.manager.showPrimitive;
+    (fake.manager as unknown as { showPrimitive: unknown }).showPrimitive = async (primitive: Parameters<typeof original>[0]) => {
+      if (primitive.type === "frame" && refusals > 0) { refusals -= 1; return { ok: false, errors: ["overlay_starting"] }; }
+      return original(primitive);
+    };
+    const overlay = new ToolActionOverlay(fake.manager, { widgetId: "action-card", frame: "always", frameRetryMs: 5, minDisplayMs: 0 });
+    await overlay.startFrame();
+    expect(refusals).toBe(0);
+    expect(fake.primitives.filter((entry) => entry.type === "frame").map((entry) => entry.style?.semantic)).toEqual(["neutral"]);
+    await overlay.close();
+  });
+
   it("without \"always\", startFrame does nothing and the frame is removed with the card", async () => {
     const fake = fakeManager();
     const overlay = new ToolActionOverlay(fake.manager, { widgetId: "action-card", frame: true, minDisplayMs: 0 });

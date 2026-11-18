@@ -43,6 +43,8 @@ export interface ToolActionOverlayOptions {
   compact?: boolean;
   /** `"always"` keeps a gray edge frame up between actions (it is made of thin strips, not a full-screen window). */
   frame?: boolean | "always";
+  /** Wait between attempts when the first always-on frame could not be shown (default 2 s). */
+  frameRetryMs?: number;
   targetRing?: boolean;
   targetRingLeadMs?: number;
   targetRingDurationMs?: number;
@@ -172,6 +174,7 @@ export class ToolActionOverlay {
   /** Until when a ring may be on screen; a window capture clears surfaces only while this is in the future. */
   #ringUntil = 0;
   #frameKeepAlive: ReturnType<typeof setInterval> | undefined;
+  readonly #frameRetryMs: number;
   #ringGeneration = 0;
 
   constructor(manager: OverlayManager, options: ToolActionOverlayOptions = {}) {
@@ -189,6 +192,7 @@ export class ToolActionOverlay {
     const frameOption = options.frame ?? true;
     this.#frame = frameOption !== false;
     this.#frameAlways = frameOption === "always";
+    this.#frameRetryMs = Math.max(1, options.frameRetryMs ?? 2_000);
     this.#targetRing = options.targetRing ?? true;
     this.#targetRingLeadMs = Math.max(0, Math.min(600, options.targetRingLeadMs ?? 150));
     this.#targetRingDurationMs = Math.max(200, Math.min(2_000, options.targetRingDurationMs ?? 600));
@@ -336,6 +340,11 @@ export class ToolActionOverlay {
   async startFrame(): Promise<void> {
     if (!this.#frameAlways || this.#disposed || this.#hiddenByOperator) return;
     await this.#showFrame("neutral", false);
+    // A cold renderer can refuse the first show. Try again every 2 s for up to 30 s instead of waiting for the refresh.
+    for (let attempt = 0; attempt < 15 && !this.#frameStarted && !this.#disposed && this.#active.size === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, this.#frameRetryMs));
+      if (!this.#frameStarted && this.#active.size === 0 && !this.#disposed) await this.#showFrame("neutral", false);
+    }
     if (this.#frameKeepAlive === undefined) {
       this.#frameKeepAlive = setInterval(() => {
         if (this.#disposed) return;
