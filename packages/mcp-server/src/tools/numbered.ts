@@ -58,7 +58,7 @@ async function settle(tool: string, result: ToolResult, context: AgentHostMcpCon
   const done = finish(tool, result, note);
   if (!result.ok || result.preview === true) return done;
   // Inside a plan the control list is compared once, after the last step, not after every step.
-  if (context.planStep !== undefined && context.planStep.index < context.planStep.total - 1) {
+  if (context.planStep !== undefined && context.planStep.index < context.planStep.total - 1 && context.planStep.checked !== true) {
     const early = result.data !== null && typeof result.data === "object" && !Array.isArray(result.data) ? result.data as Record<string, unknown> : {};
     done.data = { ...early, structure: "skipped" };
     return done;

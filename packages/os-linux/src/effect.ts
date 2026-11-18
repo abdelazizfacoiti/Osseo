@@ -47,7 +47,18 @@ export async function measureEffect<T>(options: MeasureEffectOptions, act: () =>
   };
   if (options.prepare !== undefined) {
     await options.prepare();
-    await sleep(Math.max(0, options.prepareSettleMs ?? 120));
+    // Hover styling can fade in. Wait only until two captures in a row match (a still window settles in about
+    // 100 ms), never longer than the cap: a fixed short wait produced false "changed" results, a fixed long one was slow.
+    const cap = Math.max(0, options.prepareSettleMs ?? 250);
+    const until = now() + cap;
+    await sleep(Math.min(60, cap));
+    let last = await digest();
+    while (last !== undefined && now() < until) {
+      await sleep(poll);
+      const next = await digest();
+      if (next === undefined || next === last) break;
+      last = next;
+    }
   }
   const before = await digest();
   const value = await act();

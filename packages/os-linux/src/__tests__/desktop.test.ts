@@ -333,14 +333,20 @@ describe("Linux desktop helpers", () => {
     );
     await chmod(bin + "/python3", 0o700);
     const env = { PATH: bin, DISPLAY: ":0", XDG_SESSION_TYPE: "x11" };
+    // This counts python3 starts, so the long-lived accessibility worker (one extra start) is off for it.
+    const savedWorker = process.env.AGENTHOST_NO_PY_WORKER;
+    process.env.AGENTHOST_NO_PY_WORKER = "1";
+    try {
+      await getLinuxDesktopCapabilities({ env });
+      await getLinuxDesktopCapabilities({ env });
+      await expect(readFile(counter, "utf8")).resolves.toBe("x\n");
 
-    await getLinuxDesktopCapabilities({ env });
-    await getLinuxDesktopCapabilities({ env });
-    await expect(readFile(counter, "utf8")).resolves.toBe("x\n");
-
-    clearDesktopCapabilitiesCache();
-    await getLinuxDesktopCapabilities({ env });
-    await expect(readFile(counter, "utf8")).resolves.toBe("x\nx\n");
+      clearDesktopCapabilitiesCache();
+      await getLinuxDesktopCapabilities({ env });
+      await expect(readFile(counter, "utf8")).resolves.toBe("x\nx\n");
+    } finally {
+      if (savedWorker === undefined) delete process.env.AGENTHOST_NO_PY_WORKER; else process.env.AGENTHOST_NO_PY_WORKER = savedWorker;
+    }
   });
   it("captures a scrot region natively and post-processes JPEG scale with ffmpeg", async () => {
     const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-shot-options-"));

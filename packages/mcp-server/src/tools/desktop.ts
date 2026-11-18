@@ -692,9 +692,9 @@ async function captureActiveWindow(context: AgentHostMcpContext): Promise<Buffer
 
 /** Runs an action and reports whether the window changed. Disabled callers get the action alone. */
 /** Inside a plan, only the last step is checked by pixels: earlier steps skip the before and after captures. */
-export function batchedStep(context: { planStep?: { index: number; total: number } | undefined }): boolean {
+export function batchedStep(context: { planStep?: { index: number; total: number; checked?: boolean } | undefined }): boolean {
   const step = context.planStep;
-  return step !== undefined && step.index < step.total - 1;
+  return step !== undefined && step.index < step.total - 1 && step.checked !== true;
 }
 
 async function verifiedAction<T>(context: AgentHostMcpContext, enabled: boolean, act: () => Promise<T>, options: { prepare?: () => Promise<unknown> } = {}): Promise<{ value: T; effect?: EffectResult }> {

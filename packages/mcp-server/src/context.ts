@@ -189,7 +189,7 @@ export interface AgentHostMcpContext {
   /** Internal to a confirmed computer.run_steps execution; never set by MCP input. */
   planApproval?: { planFingerprint: string; maxRisk: "low" | "medium" };
   /** One-based step position within the current computer.run_steps plan. */
-  planStep?: { index: number; total: number };
+  planStep?: { index: number; total: number; /** The step states an expectation, so it keeps its own pixel check. */ checked?: boolean };
   /** Set while a plan is being previewed: nested calls resolve effects but never mint tokens. */
   previewOnly?: boolean;
   overlay?: OverlayManager;

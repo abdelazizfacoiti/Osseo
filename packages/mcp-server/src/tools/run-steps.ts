@@ -271,7 +271,7 @@ export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpCon
         }
         const result = await runTool(target as AnyAgentHostToolDefinition<AgentHostMcpContext>, step.input ?? {}, {
           ...childContext,
-          planStep: { index, total: input.steps.length }
+          planStep: { index, total: input.steps.length, ...(step.expect === undefined ? {} : { checked: true }) }
         });
         let stepFailure: ToolResult | undefined = result.ok ? undefined : result;
         let expectationMissed = false;
