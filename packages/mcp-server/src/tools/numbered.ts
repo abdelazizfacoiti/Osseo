@@ -157,10 +157,13 @@ const typeInput = z.object({
 });
 
 const keyInput = z.object({
-  keys: z.union([z.string().trim().min(1).max(100), z.array(z.string().trim().min(1).max(100)).min(1).max(10)]),
+  keys: z.union([z.string().trim().min(1).max(100), z.array(z.string().trim().min(1).max(100)).min(1).max(10)]).optional(),
+  sequence: z.array(z.string().trim().min(1).max(100)).min(1).max(80).optional(),
   repeat: z.number().int().min(1).max(50).optional(),
   ...exec
-}).strict();
+}).strict().superRefine((input, ctx) => {
+  if ((input.keys === undefined) === (input.sequence === undefined)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Pass keys (one key or chord) or sequence (several in order)." });
+});
 
 const scrollInput = z.object({
   n: z.number().int().min(1).optional(),
@@ -317,16 +320,16 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
 
   const key = define({
     name: "key",
-    description: "Presses a key or chord in the active window, for example [\"ctrl\",\"l\"] or \"Return\". repeat presses it several times.",
+    description: "Presses a key or chord in the active window, for example [\"ctrl\",\"l\"] or \"Return\". repeat presses it several times. sequence presses several keys or chords in order in one action, much faster than one call each: [\"s\",\"x\",\"KP_5\",\"Return\"] or [\"ctrl+a\",\"Delete\"].",
     riskLevel: "medium",
     schema: keyInput,
-    properties: { keys: { anyOf: [{ type: "string" }, { type: "array", items: { type: "string" }, minItems: 1, maxItems: 10 }] }, repeat: { type: "integer", minimum: 1, maximum: 50 } },
-    required: ["keys"],
+    properties: { keys: { anyOf: [{ type: "string" }, { type: "array", items: { type: "string" }, minItems: 1, maxItems: 10 }] }, sequence: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 80 }, repeat: { type: "integer", minimum: 1, maximum: 50 } },
+    required: [],
     summary: "Press keys",
     async handler(input, context) {
       const window = await activeWindowFor(context);
       if (window === undefined) return fail("key", "active_window_unavailable", "No active window to send keys to.");
-      return settle("key", await callGoverned(context, "desktop.hotkey", { keys: typeof input.keys === "string" ? [input.keys] : input.keys, ...(input.repeat === undefined ? {} : { repeat: input.repeat }), activeWindow: window, ...passArgs(input) }), context, { windowId: window.windowId });
+      return settle("key", await callGoverned(context, "desktop.hotkey", { ...(input.sequence !== undefined ? { sequence: input.sequence } : { keys: typeof input.keys === "string" ? [input.keys] : input.keys! }), ...(input.repeat === undefined ? {} : { repeat: input.repeat }), activeWindow: window, ...passArgs(input) }), context, { windowId: window.windowId });
     }
   });
 

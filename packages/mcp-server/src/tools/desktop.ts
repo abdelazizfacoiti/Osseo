@@ -103,7 +103,9 @@ const screenshotInputSchema = z
 
 const hotkeyInputSchema = guiContextRefine(z
   .object({
-    keys: z.array(z.string().trim().min(1).max(100)).min(1).max(10),
+    keys: z.array(z.string().trim().min(1).max(100)).min(1).max(10).optional(),
+    /** Keys or chords pressed one after another in one action, for example ["s", "x", "0", ".", "5", "Return"] or ["ctrl+a", "Delete"]. */
+    sequence: z.array(z.string().trim().min(1).max(100)).min(1).max(80).optional(),
     repeat: z.number().int().min(1).max(50).optional(),
     verify: z.boolean().optional(),
     returnScreenshot: z.enum(["none", "region", "window"]).optional(),
@@ -111,7 +113,12 @@ const hotkeyInputSchema = guiContextRefine(z
     target: targetWindowSchema.optional(),
     dryRun: z.boolean().optional(),
     confirmationToken: confirmationTokenSchema
-  }).strict());
+  }).strict()).refine((value) => (value.keys === undefined) !== (value.sequence === undefined), { message: "Pass keys (one chord) or sequence (several keys in order), not both." });
+
+/** Readable label of a hotkey call: "ctrl+l" or "s x 0.5 Return". */
+function hotkeyLabel(input: { keys?: string[] | undefined; sequence?: string[] | undefined }): string {
+  return input.sequence !== undefined ? input.sequence.join(" ") : (input.keys ?? []).join("+");
+}
 
 const typeTextInputSchema = guiContextRefine(z
   .object({
@@ -993,20 +1000,27 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           type: "array",
           items: { type: "string", minLength: 1, maxLength: 100 },
           minItems: 1,
-          maxItems: 10
+          maxItems: 10,
+          description: "One chord, for example [\"ctrl\",\"l\"]."
+        },
+        sequence: {
+          type: "array",
+          items: { type: "string", minLength: 1, maxLength: 100 },
+          minItems: 1,
+          maxItems: 80,
+          description: "Several keys or chords pressed in order in one action (faster than one call per key), for example [\"s\",\"x\",\"0\",\"period\",\"5\",\"Return\"] or [\"ctrl+a\",\"Delete\"]. Use instead of keys."
         },
         activeWindow: activeWindowMcpSchema,
         target: activeWindowMcpSchema,
         ...executionMcpProperties
       },
-        required: ["keys"],
       additionalProperties: false
     },
     inputSummary: "Send hotkey",
-    auditInputSummary: (i) => `Send hotkey ${i.keys.join("+")} to ${activeWindowAppName(toActiveWindowContext(inputWindow(i))) ?? "active window"}.`,
+    auditInputSummary: (i) => `Send hotkey ${hotkeyLabel(i)} to ${activeWindowAppName(toActiveWindowContext(inputWindow(i))) ?? "active window"}.`,
     preview: {
       isDryRun: (i) => i.dryRun === true,
-      resolveEffect: (i, context) => desktopPreview("desktop.hotkey", "gui_click", i, context, (window) => `Send hotkey ${i.keys.join("+")} to ${window}.`, (window) => `hotkey:${window}:${i.keys.join("+")}`, { keys: i.keys })
+      resolveEffect: (i, context) => desktopPreview("desktop.hotkey", "gui_click", i, context, (window) => `Send hotkey ${hotkeyLabel(i)} to ${window}.`, (window) => `hotkey:${window}:${hotkeyLabel(i)}`, i.sequence !== undefined ? { sequence: i.sequence } : { keys: i.keys ?? [] })
     },
     safety: {
       actionType: "inspect",
@@ -1046,11 +1060,23 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         return safetyFailure("desktop.hotkey", postResolutionSafety);
       }
 
-      const { value: data, effect } = await verifiedAction(context, input.verify !== false, () => context.linux.hotkey({
-        keys: input.keys,
-        ...(input.repeat === undefined ? {} : { repeat: input.repeat }),
-        activeWindow: validation.activeWindow!
-      }));
+      const { value: data, effect } = await verifiedAction(context, input.verify !== false, async () => {
+        if (input.sequence === undefined) {
+          return context.linux.hotkey({
+            keys: input.keys ?? [],
+            ...(input.repeat === undefined ? {} : { repeat: input.repeat }),
+            activeWindow: validation.activeWindow!
+          });
+        }
+        // One verified action for the whole sequence: the per-call overhead (card, window check, effect) is paid once.
+        let last: DesktopHotkeyResult | undefined;
+        for (const [index, chord] of input.sequence.entries()) {
+          last = await context.linux.hotkey({ keys: chord.split("+").filter((part: string) => part.length > 0), activeWindow: validation.activeWindow! });
+          if (last.supported !== true || last.sent !== true) return { ...last, reason: `${last.reason ?? "not sent"} (at step ${index + 1} of ${input.sequence.length}: ${chord})` };
+          await new Promise((resolve) => setTimeout(resolve, 15));
+        }
+        return { ...last!, keys: input.sequence, reason: `Sent ${input.sequence.length} keys in order.` };
+      });
 
       if (data.supported !== true || data.sent !== true) {
         return failedDesktopAction("desktop.hotkey", "hotkey_failed", data);

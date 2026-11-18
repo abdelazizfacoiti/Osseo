@@ -292,3 +292,19 @@ describe("open, windows, wait, ask, steps, status", () => {
     ]);
   });
 });
+
+describe("key sequence", () => {
+  it("passes a sequence to desktop.hotkey as one call, and still takes a single chord", async () => {
+    await call("key", { sequence: ["s", "x", "KP_5", "Return"] });
+    expect(calls.at(-1)).toMatchObject({ name: "desktop.hotkey", input: { sequence: ["s", "x", "KP_5", "Return"] } });
+    expect(calls.at(-1)?.input.keys).toBeUndefined();
+    await call("key", { keys: ["ctrl", "l"] });
+    expect(calls.at(-1)).toMatchObject({ name: "desktop.hotkey", input: { keys: ["ctrl", "l"] } });
+  });
+
+  it("needs keys or sequence, not both and not neither", () => {
+    const tool = tools.get("key")!;
+    expect(tool.inputSchema.safeParse({}).success).toBe(false);
+    expect(tool.inputSchema.safeParse({ keys: "a", sequence: ["b"] }).success).toBe(false);
+  });
+});

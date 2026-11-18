@@ -83,7 +83,7 @@ export function describeAction(tool: string, rawInput: unknown): string {
   switch (tool) {
     case "desktop.click": return `Click${point(input)}${where}`;
     case "desktop.type_text": return `Type ${typeof input.text === "string" ? input.text.length : 0} chars${where}`;
-    case "desktop.hotkey": return `Keys ${Array.isArray(input.keys) ? input.keys.map((key) => String(key).slice(0, 20)).join("+").slice(0, 40) : ""}${where}`;
+    case "desktop.hotkey": return Array.isArray(input.sequence) ? `Keys ${input.sequence.length} in order${where}` : `Keys ${Array.isArray(input.keys) ? input.keys.map((key) => String(key).slice(0, 20)).join("+").slice(0, 40) : ""}${where}`;
     case "desktop.screenshot": return input.includeActiveWindowOnly === true ? "Screenshot (window)" : "Screenshot";
     case "desktop.pointer": {
       const action = text(input.action, 20) ?? (input.startX !== undefined ? "drag" : input.direction !== undefined ? "scroll" : "move_mouse");
