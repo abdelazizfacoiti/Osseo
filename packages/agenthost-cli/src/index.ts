@@ -106,6 +106,19 @@ async function configObject(): Promise<Json> {
 async function configValidate(): Promise<Output> {
   try { const config = await loadAgentHostConfig({ env: { ...process.env, AGENTHOST_CONFIG: existsSync(publicConfig) ? publicConfig : legacyConfigPath(home) } }); return { ok: true, command: "config validate", data: { valid: true, schemaVersion: config.schemaVersion ?? 1, configPath: "[config]" } }; } catch (error) { return fail("config validate", error instanceof Error ? error.message : "config_invalid"); }
 }
+/** Which config file AgentHost reads, and a warning when the other one exists with different settings. */
+async function configPath(): Promise<Output> {
+  const legacy = legacyConfigPath(home);
+  const active = existsSync(publicConfig) ? publicConfig : legacy;
+  const other = active === publicConfig ? legacy : publicConfig;
+  const lines = [`AgentHost reads: ${active}${existsSync(active) ? "" : " (not created yet; run agenthost setup)"}`];
+  const warnings: string[] = [];
+  if (existsSync(other) && other !== active) {
+    const [a, b] = [JSON.stringify(await readJson(active) ?? {}), JSON.stringify(await readJson(other) ?? {})];
+    if (a !== b) warnings.push(`${other} also exists with different settings and is ignored. Move your changes into ${active}.`);
+  }
+  return { ok: true, command: "config path", data: lines.join("\n"), warnings };
+}
 async function configShow(): Promise<Output> { return { ok: true, command: "config show", data: redact(await configObject()) }; }
 async function setup(flags: ReturnType<typeof parseFlags>): Promise<Output> {
   try {
@@ -787,7 +800,7 @@ async function main(): Promise<number> {
     else if (top === "permissions") result = await permissionsCommand();
     else if (top === "sessions") result = await sessionsCommand();
     else if (top === "integrations") result = await integrationsCommand(sub, args);
-    else if (top === "config") result = sub === "validate" ? await configValidate() : await configShow();
+    else if (top === "config") result = sub === "validate" ? await configValidate() : sub === "path" ? await configPath() : await configShow();
     else if (top === "update") result = await update(args);
     else if (top === "uninstall") result = await uninstall(args);
     else if (top === "overlay") result = await overlayCommand(sub, args);

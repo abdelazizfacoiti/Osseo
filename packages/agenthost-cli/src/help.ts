@@ -37,7 +37,7 @@ export const COMMAND_USAGE: Record<string, string> = {
   sessions: "agenthost sessions",
   overlay: "agenthost overlay status | hide [--orphans] | check-input",
   integrations: "agenthost integrations <client> add|status|remove [--apply]",
-  config: "agenthost config show | validate",
+  config: "agenthost config show | validate | path. path prints the file AgentHost reads (~/.config/agenthost/config.json, or ~/.agenthost/config.json when that does not exist) and warns when the other file differs.",
   update: "agenthost update --archive <file> [--sha256 <hex>] [--apply] | agenthost update --rollback [--apply]",
   uninstall: "agenthost uninstall [--yes] [--remove-data]",
   help: "agenthost help [command]"

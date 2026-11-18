@@ -117,7 +117,8 @@ All tool calls logged as JSONL to `~/.agenthost/logs/`. Never log passwords, API
 
 ## Key files & paths
 
-- `~/.agenthost/` — config (`config.json`), logs, screenshots, runtime data
+- `~/.config/agenthost/config.json` — the config file (`agenthost setup` creates it). `~/.agenthost/config.json` is read only when it does not exist; `agenthost config path` shows which one is active and warns when the other differs. `agenthost start` passes the active file as `AGENTHOST_CONFIG`.
+- `~/.agenthost/` — logs, screenshots, runtime data
 - `~/.agenthost/logs/` — JSONL audit logs
 - `~/.agenthost/screenshots/` — captured screenshots
 - `~/.agenthost/outputs/` — task reports and generated artifacts
