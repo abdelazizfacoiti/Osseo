@@ -105,7 +105,7 @@ export interface SettleResult {
  */
 export async function waitForSettled(options: SettleOptions): Promise<SettleResult> {
   const cap = Math.max(0, options.capCapMs ?? 1_500);
-  const poll = Math.max(10, options.pollMs ?? 80);
+  const poll = Math.max(10, options.pollMs ?? 40);
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? sleepFor;
   const started = now();

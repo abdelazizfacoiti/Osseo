@@ -1282,8 +1282,9 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         });
       }
       let before: Awaited<ReturnType<NonNullable<typeof context.linux.readTextAtPoint>>> | undefined;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        await pauseFor(attempt === 0 ? 150 : 250);
+      // The click focuses the field within a few tens of ms: look quickly, then keep looking for about as long as before.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await pauseFor(attempt === 0 ? 30 : 90);
         before = await context.linux.readTextAtPoint!(pointRead);
         if (before.supported !== true || before.found !== true || before.focused === true) break;
       }
@@ -1343,8 +1344,10 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       const expected = replace ? input.text : previous === undefined ? undefined : previous + input.text;
       const samples: Array<{ readable: boolean; text?: string | undefined }> = [];
       if (expected !== undefined) {
-        for (let attempt = 0; attempt < 4; attempt += 1) {
-          await pauseFor(attempt === 0 ? 200 : 250);
+        // Poll quickly instead of sleeping 200 ms first: a read takes about 50 ms, and a field that is slow to
+        // update still gets about the same total time (12 tries, up to ~1.2 s) before it counts as a mismatch.
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          await pauseFor(attempt === 0 ? 40 : 90);
           const after = await context.linux.readTextAtPoint!(pointRead);
           const sample = after.supported === true && after.found === true && after.sensitive !== true && typeof after.text === "string"
             ? { readable: true, text: after.text }
