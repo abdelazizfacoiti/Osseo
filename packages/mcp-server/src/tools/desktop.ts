@@ -677,6 +677,8 @@ async function captureActiveWindow(context: AgentHostMcpContext): Promise<Buffer
   const file = joinEffectPath(context.config.agentHostDir, "screenshots", `settle-${effectId()}.png`);
   const run = async (): Promise<Buffer | undefined> => {
     try {
+      // The cheap capture first; the full screenshot is the fallback (no scrot, rectangle off screen, other platforms).
+      if (context.linux.captureWindowFast !== undefined && await context.linux.captureWindowFast({ path: file }).catch(() => false)) return await readEffectBytes(file);
       const shot = await context.linux.screenshot({ path: file, includeActiveWindowOnly: true });
       return shot.supported === true ? await readEffectBytes(file) : undefined;
     } catch {

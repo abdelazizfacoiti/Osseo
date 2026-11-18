@@ -60,6 +60,7 @@ import {
 import {
   checkLinuxDependency,
   captureLinuxScreenshot,
+  captureLinuxWindowFast,
   clickLinuxDesktop,
   copyLinuxFile,
   deleteLinuxPath,
@@ -463,6 +464,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       getActiveWindowBounds: () => getLinuxActiveWindowBounds(desktopContext),
       waitForPointerPress: (input) => waitForPointerPress({ ...input, ...(desktopContext.env === undefined ? {} : { env: desktopContext.env }) }),
       screenshot: (input) => captureLinuxScreenshot(input, desktopContext),
+      captureWindowFast: (input) => captureLinuxWindowFast(input, desktopContext),
       listWindows: (input) => listLinuxWindows(input, desktopContext),
       invalidateWindowCache: () => clearWindowListCache(),
       setClipboard: (input) => setLinuxClipboard(input.text, desktopContext),

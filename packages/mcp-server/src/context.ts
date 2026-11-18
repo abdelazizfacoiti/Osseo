@@ -69,6 +69,8 @@ export interface LinuxAutomation {
   deletePath?(input: { path: string; recursive?: boolean }): Promise<{ path: string; deleted: boolean }>;
   getDesktopCapabilities(): Promise<DesktopCapabilitiesResult>;
   getActiveWindow(): Promise<DesktopGetActiveWindowResult>;
+  /** Fast active-window capture for effect checks. False: not possible here, use screenshot. */
+  captureWindowFast?(input: { path: string }): Promise<boolean>;
   screenshot(input: {
     path: string;
     includeActiveWindowOnly?: boolean;

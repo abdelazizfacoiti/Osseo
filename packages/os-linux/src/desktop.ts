@@ -553,6 +553,27 @@ export async function getLinuxScreenGeometry(context: LinuxDesktopContext = {}):
 function resultValues(value: string): number[] { return value.trim().split(/\s+/).map(Number); }
 export async function getLinuxActiveWindowBounds(context: LinuxDesktopContext = {}): Promise<{ supported: boolean; bounds?: DesktopWindowBounds; reason: string }> { const xdotool = await findCommandPath("xdotool", context); if (xdotool === undefined) return { supported: false, reason: "Window geometry requires xdotool on X11." }; const id = (await runDesktopCommand(xdotool, ["getactivewindow"], context)).stdout.trim() || (await focusedWindowId(xdotool, context)) || ""; if (!id) return { supported: false, reason: "No active window." }; const result = await runDesktopCommand(xdotool, ["getwindowgeometry", "--shell", id], context); const values = Object.fromEntries(result.stdout.trim().split(/\r?\n/).map((line) => line.split("=", 2)).filter(([key, value]) => key !== undefined && value !== undefined)); const x = Number(values.X), y = Number(values.Y), width = Number(values.WIDTH), height = Number(values.HEIGHT); return [x,y,width,height].every(Number.isInteger) && width > 0 && height > 0 ? { supported: true, bounds: { x, y, width, height }, reason: "Read active X11 window geometry." } : { supported: false, reason: "Unable to read active window geometry." }; }
 
+/**
+ * A cheap picture of the active window for effect checks (did the screen change?), not for showing to anyone.
+ * One chained xdotool call reads the window rectangle, and one scrot call grabs that rectangle: about 45 ms,
+ * against about 200 ms for the full active-window screenshot (scrot -u plus validation). Returns false when it
+ * cannot (no scrot, no active window, rectangle off screen) so the caller falls back to the full screenshot.
+ */
+export async function captureLinuxWindowFast(input: { path: string }, context: LinuxDesktopContext = {}): Promise<boolean> {
+  const [xdotool, scrot] = await Promise.all([findCommandPath("xdotool", context), findCommandPath("scrot", context)]);
+  if (xdotool === undefined || scrot === undefined) return false;
+  let rect = await runDesktopCommand(xdotool, ["getactivewindow", "getwindowgeometry", "--shell"], context);
+  // No window manager (a bare nested display) has no active window; the focused one stands in, as everywhere else.
+  if (rect.exitCode !== 0) rect = await runDesktopCommand(xdotool, ["getwindowfocus", "getwindowgeometry", "--shell"], context);
+  if (rect.exitCode !== 0) return false;
+  const values = Object.fromEntries(rect.stdout.trim().split(/\r?\n/).map((line) => line.split("=", 2)).filter(([key, value]) => key !== undefined && value !== undefined));
+  const x = Number(values.X), y = Number(values.Y), width = Number(values.WIDTH), height = Number(values.HEIGHT);
+  if (![x, y, width, height].every(Number.isInteger) || width <= 0 || height <= 0 || x < 0 || y < 0) return false;
+  try { await rm(input.path, { force: true }); } catch { return false; }
+  const shot = await runDesktopCommand(scrot, ["-o", "-a", `${x},${y},${width},${height}`, input.path], context);
+  return shot.exitCode === 0 && (await statBytes(input.path)) !== undefined;
+}
+
 async function runAndValidateScreenshot(
   backend: string,
   command: string,

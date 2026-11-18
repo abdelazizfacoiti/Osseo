@@ -34,7 +34,8 @@
     "analyze:audit": "node scripts/analyze-audit.mjs",
     "release:install": "node scripts/install-release.mjs",
     "agenthost": "node packages/agenthost-cli/dist/index.js",
-    "skill:install": "node scripts/install-agenthost-skill.mjs"
+    "skill:install": "node scripts/install-agenthost-skill.mjs",
+    "benchmark:desktop-actions": "node scripts/benchmark-desktop-actions.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.0",
