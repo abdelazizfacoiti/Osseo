@@ -32,6 +32,8 @@ import {
   createBaseCapabilityRegistry,
   createSessionId,
   JsonlAuditLogger,
+  listConfirmations,
+  readHandoff,
   JsonlFailureLog,
   failureLogPath,
   JsonlTraceLogger,
@@ -134,6 +136,7 @@ import { inputGuardPath } from "./input-guard.js";
 import { bootstrapRequirements } from "./requirements-bootstrap.js";
 import { ActionTimeline } from "./action-timeline.js";
 import { HandoffOverlay } from "./handoff-overlay.js";
+import { AttentionChime, attentionSoundEnabled } from "./attention-chime.js";
 import { ApprovalOverlay } from "./approval-overlay.js";
 import { askInChatDetailed, type ElicitFn } from "./chat-approval.js";
 import { TaskActivityOverlay } from "./task-overlay.js";
@@ -342,6 +345,10 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   let taskActivity: TaskActivityOverlay | undefined;
   // Injected Linux automation means a test or embedded host; never drive the real desktop then.
   const hostAttention = options.linux === undefined ? new HostAttention(config.agentHostDir) : undefined;
+  // A soft chime repeats while an approval or a hand-off waits for the person, until it is answered (max 5 minutes).
+  const attentionChime = options.linux === undefined && process.env.NODE_ENV !== "test"
+    ? new AttentionChime({ agentHostDir: config.agentHostDir, enabled: attentionSoundEnabled(config), ...(config.attention?.soundIntervalMs === undefined ? {} : { intervalMs: config.attention.soundIntervalMs }) })
+    : undefined;
   if (options.linux === undefined && process.env.NODE_ENV !== "test") {
     void bootstrapRequirements(config.agentHostDir, config.autoInstallDependencies !== false).catch(() => undefined);
   }
@@ -396,6 +403,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       sessionId: sessionId.replace(/[^A-Za-z0-9._-]/g, "_"),
       notify: (summary, body) => {
         void pushNotify("handoff");
+        void hostAttention?.bringHostForward();
+        attentionChime?.start(async () => (await readHandoff(config.agentHostDir)).active);
         try {
           const child = spawn("notify-send", ["-a", "AgentHost", "-u", "normal", summary, body.slice(0, 200)], { stdio: "ignore", detached: true });
           child.on("error", () => undefined);
@@ -639,8 +648,9 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     const trackActivity = shouldShowActivityCard(tool.name, activityMode);
     if (showActionCard) recordActivity(config.agentHostDir, sessionId, activityMode, tool.name, "started", actionOverlay);
     if (trackActivity) void taskActivity?.noteActivity({ toolName: tool.name, summary: activitySummary(tool, rawInput) });
-    if (hostAttention !== undefined && typeof (rawInput as Record<string, unknown>).confirmationToken === "string") {
-      await hostAttention.resolveConfirmation();
+    if (typeof (rawInput as Record<string, unknown>).confirmationToken === "string") {
+      attentionChime?.stop();
+      if (hostAttention !== undefined) await hostAttention.resolveConfirmation();
     }
     const result = await runTool(tool, rawInput, context);
     // Hidden tools stay callable. Name the tool to use instead, once.
@@ -650,6 +660,9 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       void pushNotify("approval");
       void hostAttention?.requestConfirmation();
       const tokenId = result.confirmation?.tokenId;
+      if (tokenId !== undefined) {
+        attentionChime?.start(async () => (await listConfirmations(config.agentHostDir)).some((record) => record.tokenId === tokenId && record.status === "pending"));
+      }
       if (tokenId !== undefined && config.approvals?.chat !== false && server.getClientCapabilities()?.elicitation !== undefined) {
         const { outcome, policy } = await askInChatDetailed({
           agentHostDir: config.agentHostDir,
@@ -657,6 +670,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
           tokenId,
           elicit: (params) => server.elicitInput(params as Parameters<typeof server.elicitInput>[0], { timeout: 120_000 }) as ReturnType<ElicitFn>
         });
+        if (outcome !== undefined) attentionChime?.stop();
         if (outcome === "approved") {
           await hostAttention?.resolveConfirmation();
           result.observations.push(`The person approved this in chat. Repeat the same call with confirmationToken ${tokenId}.`);

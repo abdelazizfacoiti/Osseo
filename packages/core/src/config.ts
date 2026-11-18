@@ -63,6 +63,7 @@ const configFileSchema = z
     notifications: z.object({ pushUrl: z.string().url().max(500).optional() }).strict().optional(),
     output: z.object({ verbosity: z.enum(["lean", "full"]).optional() }).strict().optional(),
     approvals: z.object({ chat: z.boolean().optional() }).strict().optional(),
+    attention: z.object({ sound: z.boolean().optional(), soundIntervalMs: z.number().int().min(2_000).max(120_000).optional() }).strict().optional(),
     replay: z.object({ onTaskFinish: z.boolean().optional() }).strict().optional(),
     tools: z.object({ profile: z.enum(["desktop", "full"]).optional() }).strict().optional(),
     autoInstallDependencies: z.boolean().optional(),
@@ -199,6 +200,10 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     ...(fileConfig.notifications?.pushUrl === undefined ? {} : { notifications: { pushUrl: fileConfig.notifications.pushUrl } }),
     ...(fileConfig.output?.verbosity === undefined ? {} : { output: { verbosity: fileConfig.output.verbosity } }),
     ...(fileConfig.approvals?.chat === undefined ? {} : { approvals: { chat: fileConfig.approvals.chat } }),
+    ...(fileConfig.attention === undefined ? {} : { attention: {
+      ...(fileConfig.attention.sound === undefined ? {} : { sound: fileConfig.attention.sound }),
+      ...(fileConfig.attention.soundIntervalMs === undefined ? {} : { soundIntervalMs: fileConfig.attention.soundIntervalMs })
+    } }),
     replay: { onTaskFinish: fileConfig.replay?.onTaskFinish ?? false },
     tools: { profile: z.enum(["desktop", "full"]).parse(env.AGENTHOST_TOOLS_PROFILE ?? fileConfig.tools?.profile ?? "desktop") },
     autoInstallDependencies: fileConfig.autoInstallDependencies ?? true,

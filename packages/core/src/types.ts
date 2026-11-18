@@ -463,6 +463,8 @@ export interface AgentHostConfig {
   output?: { verbosity?: "lean" | "full" };
   /** chat: ask the person in their agent client (MCP elicitation) when a confirmation is pending. Default true. */
   approvals?: { chat?: boolean };
+  /** A soft repeating chime while AgentHost waits for the person (default on). */
+  attention?: { sound?: boolean; soundIntervalMs?: number };
   /** onTaskFinish: write a session replay in the background when an explicit task finishes. Default false. */
   replay?: { onTaskFinish: boolean };
   /** Which tools tools/list shows. Hidden tools stay callable. Default desktop. */
