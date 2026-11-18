@@ -97,7 +97,7 @@ export function guideActive(context: AgentHostMcpContext, now = Date.now()): boo
 
 /** Whether a window-only capture may skip card suppression: no AgentHost mark may sit over the work area. */
 export function windowCaptureClean(context: AgentHostMcpContext): boolean {
-  return context.workWindowCaptureClean === true && !guideActive(context);
+  return (context.workWindowCaptureClean === true || context.captureCleanNow?.() === true) && !guideActive(context);
 }
 
 async function clearGuide(context: AgentHostMcpContext, reason: "cleared" | "stopped" = "cleared"): Promise<number> {

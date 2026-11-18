@@ -104,6 +104,7 @@ import {
   createPortalDesktop,
   shouldUseWaylandPortal
 } from "@agenthost/os-linux";
+import { OVERLAY_FRAME_THICKNESS } from "./frame-trim.js";
 import { WindowsHelperProcess, createWindowsDesktop, openWindowsUrl } from "@agenthost/os-windows";
 import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator, WindowsOverlayRenderer, windowsOverlayEnabled, type OverlayRenderer } from "@agenthost/app-overlay";
 import type { AgentHostMcpContext, LinuxAutomation } from "./context.js";
@@ -423,9 +424,9 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     });
     if (process.env.NODE_ENV !== "test") await overlay.prewarm();
     await taskActivity.initialize();
-  }
     // `overlay.frame: "always"`: the quiet gray edge frame is up for as long as this server runs.
     if (config.overlay?.frame === "always" && process.env.NODE_ENV !== "test" && options.linux === undefined) void actionOverlay.startFrame().catch(() => undefined);
+  }
   const platformReport = describeDesktopPlatform();
   const baseLinux: LinuxAutomation =
     options.linux ?? {
@@ -495,6 +496,12 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     entryPath: path.join(path.dirname(serverModulePath), `index${path.extname(serverModulePath)}`),
     startedAt: new Date().toISOString()
   };
+  // Nothing fixed sits over the work area. `frame: "always"` is four thin edge strips, so it does not count; a
+  // `frame: true` frame is (today) shown around actions and does.
+  const workCleanBase = dockLayout
+    && (config.overlay?.dockReserveSpace ?? true)
+    && !actionPill
+    && (config.overlay?.frame ?? !dockLayout) !== true;
   const context: AgentHostMcpContext = {
     sessionId,
     config,
@@ -514,11 +521,11 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
         await actionOverlay.refresh();
       }
     },
-    workWindowCaptureClean: dockLayout
-      && (config.overlay?.dockReserveSpace ?? true)
-      && !actionPill
-      && !(config.overlay?.frame ?? !dockLayout)
+    workWindowCaptureClean: workCleanBase
       && !((config.overlay?.targetRing ?? !dockLayout) && backgroundDisplay === undefined),
+    // A configured ring is transient: a window capture needs the cards cleared only while one may be on screen.
+    captureCleanNow: () => workCleanBase && !actionOverlay.ringActive(),
+    captureFrameInset: config.overlay?.frame === "always" && windowsHelper === undefined ? OVERLAY_FRAME_THICKNESS : 0,
     linux,
     runtime
   };

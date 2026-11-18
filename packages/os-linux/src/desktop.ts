@@ -38,6 +38,8 @@ export interface LinuxDesktopScreenshotInput {
   quality?: number;
   scale?: number;
   region?: { x: number; y: number; width: number; height: number };
+  /** Pixels to cut from each side of the finished picture (for example the always-on edge frame). Needs ffmpeg. */
+  trim?: { left: number; top: number; right: number; bottom: number };
 }
 
 export interface LinuxDesktopHotkeyInput {
@@ -599,6 +601,9 @@ function validateScreenshotOptions(input: LinuxDesktopScreenshotInput, format: "
   if (input.region !== undefined && (![input.region.x, input.region.y, input.region.width, input.region.height].every(Number.isInteger) || input.region.width <= 0 || input.region.height <= 0)) {
     return "Region capture requires positive integer coordinates and dimensions.";
   }
+  if (input.trim !== undefined && !Object.values(input.trim).every((value) => Number.isInteger(value) && value >= 0)) {
+    return "Screenshot trim requires non-negative integers.";
+  }
   if (input.scale !== undefined && (!Number.isFinite(input.scale) || input.scale < 0.1 || input.scale > 1)) {
     return "Screenshot scale must be between 0.1 and 1.";
   }
@@ -643,7 +648,8 @@ export async function captureLinuxScreenshot(
 
   const backend = supportStatus.backend;
   const nativeRegion = backend === "scrot" && input.region !== undefined;
-  const transformNeeded = format === "jpeg" || input.scale !== undefined || (input.region !== undefined && !nativeRegion);
+  const trimNeeded = input.trim !== undefined && input.trim.left + input.trim.top + input.trim.right + input.trim.bottom > 0;
+  const transformNeeded = format === "jpeg" || input.scale !== undefined || trimNeeded || (input.region !== undefined && !nativeRegion);
   const tempPath = transformNeeded
     ? path.join(path.dirname(outputPath), `.agenthost-capture-${randomUUID()}.png`)
     : outputPath;
@@ -727,6 +733,9 @@ export async function captureLinuxScreenshot(
   }
 
   const filters: string[] = [];
+  if (trimNeeded && input.trim !== undefined) {
+    filters.push(`crop=iw-${input.trim.left + input.trim.right}:ih-${input.trim.top + input.trim.bottom}:${input.trim.left}:${input.trim.top}`);
+  }
   if (input.region !== undefined && !nativeRegion) {
     filters.push(`crop=${input.region.width}:${input.region.height}:${input.region.x}:${input.region.y}`);
   }

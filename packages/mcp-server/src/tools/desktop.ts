@@ -21,6 +21,7 @@ import {
 import { z } from "zod";
 import { resolveLabelTarget, type LabelResolution, type LabelTarget } from "../label-target.js";
 import { windowCaptureClean } from "./guide.js";
+import { frameTrim, type FrameTrim } from "../frame-trim.js";
 import { imagePointToScreen, recallScreen, rememberScreen, sameBounds } from "../screenshot-registry.js";
 import { readFile as readEffectBytes, rm as removeEffectFile } from "node:fs/promises";
 import { createHash, randomUUID as effectId } from "node:crypto";
@@ -876,15 +877,23 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       const windowOrigin = input.includeActiveWindowOnly === true
         ? (await context.linux.getActiveWindowBounds?.().catch(() => undefined))?.bounds
         : { x: 0, y: 0 };
+      const cleanWindow = input.includeActiveWindowOnly === true && windowCaptureClean(context);
+      // The always-on edge frame is not cleared for a clean window capture, so cut its strip pixels out of a window
+      // that touches a screen edge. The picture then holds only the window.
+      let trim: FrameTrim | undefined;
+      if (cleanWindow && (context.captureFrameInset ?? 0) > 0 && windowOrigin !== undefined && "width" in windowOrigin) {
+        const screen = (await context.linux.getScreenGeometry?.().catch(() => undefined))?.bounds;
+        if (screen !== undefined) trim = frameTrim(windowOrigin, screen, context.captureFrameInset);
+      }
       const capture = () => context.linux.screenshot({
         path: outputPath,
         ...(input.includeActiveWindowOnly === undefined ? {} : { includeActiveWindowOnly: input.includeActiveWindowOnly }),
         format: input.format ?? screenshotFormat(input),
         ...(input.quality === undefined ? {} : { quality: input.quality }),
         ...(input.scale === undefined ? {} : { scale: input.scale }),
-        ...(input.region === undefined ? {} : { region: input.region })
+        ...(input.region === undefined ? {} : { region: input.region }),
+        ...(trim === undefined ? {} : { trim })
       });
-      const cleanWindow = input.includeActiveWindowOnly === true && windowCaptureClean(context);
       const data = context.overlayScreenshotSuppression === undefined || cleanWindow
         ? await capture()
         : await context.overlayScreenshotSuppression(capture);
@@ -906,7 +915,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
           ...(input.scale === undefined ? {} : { scale: input.scale }),
           ...(input.region === undefined ? {} : { region: input.region }),
           ...(windowOrigin === undefined ? {} : {
-            screenOrigin: { x: windowOrigin.x + (input.region?.x ?? 0), y: windowOrigin.y + (input.region?.y ?? 0) }
+            screenOrigin: { x: windowOrigin.x + (trim?.left ?? 0) + (input.region?.x ?? 0), y: windowOrigin.y + (trim?.top ?? 0) + (input.region?.y ?? 0) }
           })
         };
       }

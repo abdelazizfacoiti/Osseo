@@ -76,6 +76,7 @@ export interface LinuxAutomation {
     quality?: number;
     scale?: number;
     region?: { x: number; y: number; width: number; height: number };
+    trim?: { left: number; top: number; right: number; bottom: number };
   }): Promise<DesktopScreenshotResult>;
   listWindows(input: { limit?: number; includeTitles?: boolean }): Promise<WindowListResult>;
   /** Drops the short-lived window-list cache so the next listing reflects a just-performed action. */
@@ -199,6 +200,13 @@ export interface AgentHostMcpContext {
    * pill, frame or ring). Window-only captures then need no hide-and-restore, so cards never blink.
    */
   workWindowCaptureClean?: boolean;
+  /**
+   * Like `workWindowCaptureClean`, asked at capture time: true while nothing transient (a target ring) is over the
+   * work area. The always-on edge frame is four thin strips and does not count.
+   */
+  captureCleanNow?: () => boolean;
+  /** Pixels of always-on edge frame strips along the screen edges (0 when there is none). */
+  captureFrameInset?: number;
   /** Live tool definitions for governed nested execution (plan executor). */
   tools?: Map<string, AnyAgentHostToolDefinition<any>>;
   linux: LinuxAutomation;
