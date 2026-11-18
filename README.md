@@ -8,6 +8,40 @@
 
 Connect AgentHost to any MCP client (Claude Code, Codex, Cursor, Copilot, OpenCode and others). The agent can open apps, click, type, read files, run commands and drive a browser. A panel on your screen shows each action as it happens, with Pause and Stop.
 
+## See it work
+
+Screenshots from a real run on Linux (X11) in Firefox: the agent reads a page, clicks a link, asks before deleting a file, and fails on a window that does not exist. The colour of the screen edge says what AgentHost is doing at a glance, and the dock on the right keeps a timeline of every action, with Pause and Stop.
+
+| Edge frame | Meaning |
+|---|---|
+| Gray | AgentHost is on and idle |
+| Blue | an action is running |
+| Green | it finished |
+| Amber | waiting for your approval, or paused |
+| Red | an action failed |
+
+**Idle.** Nothing is happening. Only a thin gray frame shows, and the browser uses the whole screen.
+
+![Idle: a thin gray frame at the screen edge and a full-width Firefox window](docs/images/frame-1-idle.jpg)
+
+**Running.** A blue frame, and a ring over the link the agent is about to click. The dock reserves its own strip, so the browser makes room, and it lists each action as it happens.
+
+![Running: blue frame, a ring over the Toubkal link, and the dock timeline](docs/images/frame-2-running.jpg)
+
+**Done.** A green frame, a Done card, and a green pulse where the click landed. The page changed, and the timeline shows what was done.
+
+![Done: green frame, a Done card and the dock timeline after the click](docs/images/frame-3-done.jpg)
+
+**Asks first.** Deleting a file stops and shows the exact action. One approval covers that action once and expires after 15 minutes.
+
+![Approval: amber frame and an Approve, Always allow here or Deny card for deleting a file](docs/images/frame-4-approval.jpg)
+
+**Failed.** A red frame and a plain reason.
+
+![Failed: red frame and a Failed card for a window that does not exist](docs/images/frame-5-error.jpg)
+
+The always-on gray frame is optional. Add `"overlay": { "frame": "always" }` to `~/.config/agenthost/config.json` and restart your agent client. The frame, ring and dock are drawn on Linux (X11). Windows draws cards only for now.
+
 ## What it does
 
 - **Sees and acts by number.** `see` lists a window's controls as `[1] button "Save"`; `click`, `type`, `key`, `scroll` and `drag` take the number. Typed values are read back, and every action reports whether the screen changed.
