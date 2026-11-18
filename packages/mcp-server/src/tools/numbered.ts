@@ -311,6 +311,11 @@ export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
       if (!found.ok) return refuse("type", found);
       const target = found.target;
       if (target.kind === "dom") {
+        // A dropdown: choose the option by its visible text (or value). Typing into it cannot work, and racing arrow
+        // keys against its popup is unreliable. browser.select fires the events the page expects and lists the options on a miss.
+        if (target.role === "combobox") {
+          return settle("type", await callGoverned(context, "browser.select", { ref: target.ref, label: input.text, ...pass }), context, { view: found.view });
+        }
         // browser.fill reads the value back; browser.type is needed to append or press Enter.
         if (input.submit === true || input.clear === false) {
           return settle("type", await callGoverned(context, "browser.type", { ref: target.ref, text: input.text, clear: input.clear !== false, ...(input.submit === true ? { submit: true } : {}), ...pass }), context, { view: found.view });

@@ -39,11 +39,13 @@ entry = Gtk.Entry(); entry.set_name("Field")
 entry.get_accessible().set_name("Field")
 label = Gtk.Label(label="0")
 tick = Gtk.Button(label="Tick")
+tock = Gtk.Button(label="Tock")
 count = [0]
 def on_tick(_b):
     count[0] += 1; label.set_text(str(count[0]))
 tick.connect("clicked", on_tick)
-box.pack_start(entry, False, False, 0); box.pack_start(tick, False, False, 0); box.pack_start(label, False, False, 0)
+tock.connect("clicked", on_tick)
+box.pack_start(entry, False, False, 0); box.pack_start(tick, False, False, 0); box.pack_start(tock, False, False, 0); box.pack_start(label, False, False, 0)
 w.add(box); w.show_all(); w.connect("destroy", Gtk.main_quit); Gtk.main()
 `;
 
@@ -157,12 +159,14 @@ async function main() {
     const list = String(seen.body?.data?.list ?? "");
     const field = numberOf(list, '"Field"') ?? numberOf(list, "entry");
     const tick = numberOf(list, '"Tick"');
-    if (field === undefined || tick === undefined) throw new Error(`the probe window was not listed: ${JSON.stringify(seen.body).slice(0, 400)}`);
+    const tock = numberOf(list, '"Tock"');
+    if (field === undefined || tick === undefined || tock === undefined) throw new Error(`the probe window was not listed: ${JSON.stringify(seen.body).slice(0, 400)}`);
 
     await time("see (accessibility tree)", Math.max(5, Math.floor(RUNS / 2)), () => mcp.call("see", { picture: "none" }));
     seen = await mcp.call("see", { picture: "none" });
     // Alternate two controls: the server's loop guard counts ten identical calls in a minute as a loop when the active window does not change.
-    await time("click by number, verified", RUNS, () => mcp.call("click", { n: tick }));
+    // Alternate two identical buttons: an older build pauses itself on ten identical calls in a minute.
+    await time("click by number, verified", RUNS, (i) => mcp.call("click", { n: i % 2 === 0 ? tick : tock }));
     await mcp.call("click", { n: field });
     // Vary the key: ten identical calls in a minute trip the server's own loop guard (a self-pause), by design.
     const pool = "bcdefghijklmnopqrstuvwxyz".split("");
@@ -178,7 +182,7 @@ async function main() {
     await time("20 keys as 1 sequence call", 3, () => mcp.call("key", { sequence: letters }));
 
     // A plan: ten routine steps in one call (verified once, at the end).
-    await time("plan: 5 clicks + 5 keys in 1 call", 3, (i) => mcp.call("steps", { steps: [0, 1, 2, 3, 4].flatMap((k) => [{ tool: "click", input: { n: (i + k) % 2 === 0 ? tick : field } }, { tool: "key", input: { keys: "klmnopqrstuvwxyz"[(i * 5 + k) % 16] } }]), stopOnError: true }));
+    await time("plan: 5 clicks + 5 keys in 1 call", 3, (i) => mcp.call("steps", { steps: [0, 1, 2, 3, 4].flatMap((k) => [{ tool: "click", input: { n: (i + k) % 2 === 0 ? tick : tock } }, { tool: "key", input: { keys: "klmnopqrstuvwxyz"[(i * 5 + k) % 16] } }]), stopOnError: true }));
 
     // A window that does not register with the accessibility bus: `see` must read its text from the screen.
     const textScript = path.join(root, "probe-text.py");

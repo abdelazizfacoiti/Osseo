@@ -560,6 +560,7 @@ export async function getLinuxActiveWindowBounds(context: LinuxDesktopContext = 
  * cannot (no scrot, no active window, rectangle off screen) so the caller falls back to the full screenshot.
  */
 export async function captureLinuxWindowFast(input: { path: string }, context: LinuxDesktopContext = {}): Promise<boolean> {
+  if (process.env.AGENTHOST_NO_FAST_CAPTURE === "1") return false;
   const [xdotool, scrot] = await Promise.all([findCommandPath("xdotool", context), findCommandPath("scrot", context)]);
   if (xdotool === undefined || scrot === undefined) return false;
   let rect = await runDesktopCommand(xdotool, ["getactivewindow", "getwindowgeometry", "--shell"], context);

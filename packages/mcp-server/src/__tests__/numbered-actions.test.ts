@@ -293,6 +293,20 @@ describe("open, windows, wait, ask, steps, status", () => {
   });
 });
 
+describe("type on a dropdown", () => {
+  it("chooses the option by its visible text through browser.select, not by typing", async () => {
+    const view = seen([[1, dom({ role: "combobox", name: "Country", ref: "s1-e4" })]], "browser");
+    await call("type", { n: 1, text: "Beta", view: view.id });
+    expect(calls.at(-1)).toMatchObject({ name: "browser.select", input: { ref: "s1-e4", label: "Beta" } });
+  });
+
+  it("still fills an ordinary text box through browser.fill", async () => {
+    const view = seen([[1, dom({ role: "textbox", name: "Name", ref: "s1-e2" })]], "browser");
+    await call("type", { n: 1, text: "Ada", view: view.id });
+    expect(calls.at(-1)?.name).toBe("browser.fill");
+  });
+});
+
 describe("key sequence", () => {
   it("passes a sequence to desktop.hotkey as one call, and still takes a single chord", async () => {
     await call("key", { sequence: ["s", "x", "KP_5", "Return"] });

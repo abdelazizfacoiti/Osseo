@@ -350,8 +350,8 @@ async function numberedRoute(mcp) {
   await mcp.call("type", { n: numberOf(String(first.body?.data?.list ?? ""), '"Name"'), text: "Ada Lovelace" });
   // Typing the name shows a notice that moves the form down, so the numbers are read again.
   const second = await mcp.call("see", { picture: "none" });
-  await mcp.call("click", { n: numberOf(String(second.body?.data?.list ?? ""), '"Country"') });
-  await mcp.call("key", { keys: "Down", repeat: 2 });
+  // A dropdown is chosen by its option text: pressing arrow keys against its popup depends on timing.
+  await mcp.call("type", { n: numberOf(String(second.body?.data?.list ?? ""), '"Country"'), text: "Beta" });
   // Save draft is disabled until the country is chosen, so its number comes from a look after the choice.
   const third = await mcp.call("see", { picture: "none" });
   await mcp.call("click", { n: numberOf(String(third.body?.data?.list ?? ""), '"Save draft"') });

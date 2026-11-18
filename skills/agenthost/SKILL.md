@@ -39,7 +39,7 @@ no structure; use the picture and `click { x, y }` as a last resort.
 |---|---|
 | Look at a window | `see` |
 | Click, double-click, right-click | `click { n }` or `click { x, y }` |
-| Type into a field (reads it back) | `type { n, text, clear?, submit? }` |
+| Type into a field (reads it back), or choose a dropdown option by its text | `type { n, text, clear?, submit? }` |
 | Press keys | `key { keys: ["ctrl","l"] }` |
 | Scroll, drag | `scroll`, `drag` |
 | Open an app or a page | `open { app }` or `open { url }` |

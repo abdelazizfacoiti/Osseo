@@ -28,6 +28,8 @@ export interface MeasureEffectOptions {
    */
   prepare?: () => Promise<unknown>;
   prepareSettleMs?: number;
+  /** Least time to wait after the action before the first capture (default 100 ms). */
+  minAfterMs?: number;
   settleCapMs?: number;
   pollMs?: number;
   now?: () => number;
@@ -66,6 +68,10 @@ export async function measureEffect<T>(options: MeasureEffectOptions, act: () =>
   const before = settledBaseline ?? await digest();
   const value = await act();
   const started = now();
+  // Apps react a little after the input: a dropdown or menu opens as its own window a few tens of ms later and does
+  // not change this window's pixels at once. Returning the instant two captures match let the next key press land
+  // before it existed (the form benchmark's dropdown), so give the app a short minimum before looking.
+  await sleep(Math.max(0, options.minAfterMs ?? 100));
   if (before === undefined) return { value, effect: { screenChanged: null, settledMs: 0, reason: "window_not_captured" } };
   let previous = await digest();
   let current = previous;
