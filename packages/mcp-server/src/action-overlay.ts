@@ -41,7 +41,8 @@ export interface ToolActionOverlayOptions {
   showTimeoutMs?: number;
   minDisplayMs?: number;
   compact?: boolean;
-  frame?: boolean;
+  /** `"always"` keeps a gray edge frame up between actions (it is made of thin strips, not a full-screen window). */
+  frame?: boolean | "always";
   targetRing?: boolean;
   targetRingLeadMs?: number;
   targetRingDurationMs?: number;
@@ -135,6 +136,7 @@ export class ToolActionOverlay {
   readonly #minDisplayMs: number;
   readonly #compact: boolean;
   readonly #frame: boolean;
+  readonly #frameAlways: boolean;
   readonly #targetRing: boolean;
   readonly #targetRingLeadMs: number;
   readonly #targetRingDurationMs: number;
@@ -167,6 +169,9 @@ export class ToolActionOverlay {
   #framePromise: Promise<void> | undefined;
   #frameGeneration = 0;
   #ringVisible = false;
+  /** Until when a ring may be on screen; a window capture clears surfaces only while this is in the future. */
+  #ringUntil = 0;
+  #frameKeepAlive: ReturnType<typeof setInterval> | undefined;
   #ringGeneration = 0;
 
   constructor(manager: OverlayManager, options: ToolActionOverlayOptions = {}) {
@@ -181,7 +186,9 @@ export class ToolActionOverlay {
     this.#approvalShowTimeoutMs = Math.max(this.#showTimeoutMs, 1_500);
     this.#minDisplayMs = Math.max(0, options.minDisplayMs ?? 400);
     this.#compact = options.compact ?? false;
-    this.#frame = options.frame ?? true;
+    const frameOption = options.frame ?? true;
+    this.#frame = frameOption !== false;
+    this.#frameAlways = frameOption === "always";
     this.#targetRing = options.targetRing ?? true;
     this.#targetRingLeadMs = Math.max(0, Math.min(600, options.targetRingLeadMs ?? 150));
     this.#targetRingDurationMs = Math.max(200, Math.min(2_000, options.targetRingDurationMs ?? 600));
@@ -322,6 +329,28 @@ export class ToolActionOverlay {
     await this.#render();
   }
 
+  /**
+   * `frame: "always"`: put up the quiet gray frame now and keep it up for as long as this overlay lives. The renderer
+   * expires a primitive after at most 5 minutes, so the frame is shown again before that.
+   */
+  async startFrame(): Promise<void> {
+    if (!this.#frameAlways || this.#disposed || this.#hiddenByOperator) return;
+    await this.#showFrame("neutral", false);
+    if (this.#frameKeepAlive === undefined) {
+      this.#frameKeepAlive = setInterval(() => {
+        if (this.#disposed) return;
+        const phase = this.#active.size > 0 ? this.#framePhase : undefined;
+        void this.#showFrame(phase === undefined ? "neutral" : this.#semanticFor(phase), false).catch(() => undefined);
+      }, 120_000);
+      this.#frameKeepAlive.unref?.();
+    }
+  }
+
+  /** True while a target ring may still be on screen. */
+  ringActive(): boolean {
+    return this.#ringUntil > this.#now();
+  }
+
   /** A pause was just set (for example by a guard): keep the card up with Resume until someone acts. */
   async notePaused(): Promise<void> {
     this.#paused = true;
@@ -458,7 +487,7 @@ export class ToolActionOverlay {
     return `${this.#widgetId}-ring`;
   }
 
-  async #showFrame(semantic: "info" | "success" | "warning" | "danger", animated: boolean): Promise<void> {
+  async #showFrame(semantic: "neutral" | "info" | "success" | "warning" | "danger", animated: boolean): Promise<void> {
     const generation = ++this.#frameGeneration;
     const promise = (async () => {
       try {
@@ -489,11 +518,21 @@ export class ToolActionOverlay {
     if (!this.#frameStarted) return;
     if (this.#framePhase === phase) return;
     this.#framePhase = phase;
-    const semantic = phase === "error" ? "danger" : phase === "waiting_approval" || phase === "paused" || phase === "halted" ? "warning" : phase === "done" ? "success" : "info";
-    await this.#showFrame(semantic, phase === "waiting_approval" || phase === "paused" || phase === "halted");
+    await this.#showFrame(this.#semanticFor(phase), phase === "waiting_approval" || phase === "paused" || phase === "halted");
+  }
+
+  #semanticFor(phase: ToolActionPhase): "info" | "success" | "warning" | "danger" {
+    return phase === "error" ? "danger" : phase === "waiting_approval" || phase === "paused" || phase === "halted" ? "warning" : phase === "done" ? "success" : "info";
   }
 
   async #hideFrame(): Promise<void> {
+    if (this.#frameAlways && !this.#disposed) {
+      // "always": between actions the frame goes back to quiet gray instead of disappearing.
+      this.#framePhase = undefined;
+      await this.#showFrame("neutral", false);
+      return;
+    }
+    if (this.#frameKeepAlive !== undefined) { clearInterval(this.#frameKeepAlive); this.#frameKeepAlive = undefined; }
     this.#frameGeneration++;
     this.#framePromise = undefined;
     this.#framePhase = undefined;
@@ -509,6 +548,7 @@ export class ToolActionOverlay {
     const generation = ++this.#ringGeneration;
     const ttl = this.#targetRingDurationMs + this.#targetRingLeadMs + 500;
     const expiresAt = new Date(Date.now() + ttl).toISOString();
+    this.#ringUntil = this.#now() + ttl;
     const binding: OverlayTargetBinding = target.width !== undefined && target.height !== undefined && target.windowId !== undefined
       ? { kind: "window_region", windowId: target.windowId, bounds: { x: Math.round(target.x), y: Math.round(target.y), width: Math.max(1, Math.round(target.width)), height: Math.max(1, Math.round(target.height)) }, expiresAt }
       : { kind: "screen_point", point: { x: Math.round(target.x), y: Math.round(target.y) }, trusted: true, expiresAt };
@@ -533,6 +573,7 @@ export class ToolActionOverlay {
   }
 
   async #hideRing(): Promise<void> {
+    this.#ringUntil = 0;
     this.#ringGeneration++;
     this.#ringVisible = false;
     try {

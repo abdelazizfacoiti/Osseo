@@ -30,7 +30,7 @@ const overlaySchema = z.object({
   windows: z.boolean().optional(),
   allowSyntheticControl: z.boolean().optional(),
   timeline: z.boolean().optional(),
-  frame: z.boolean().optional(),
+  frame: z.union([z.boolean(), z.literal("always")]).optional(),
   actionPill: z.boolean().optional(),
   targetRing: z.boolean().optional(),
   targetRingLeadMs: z.number().int().min(0).max(600).optional(),

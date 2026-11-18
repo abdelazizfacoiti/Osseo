@@ -43,6 +43,12 @@ MAX_BYTES = 256 * 1024
 COMMANDS = {"hello", "capabilities", "show", "update", "dismiss", "clear", "emergency_hide", "state", "events", "close"}
 EVENTS = {"accepted", "always", "rejected", "dismissed", "cancelled", "next", "back", "acknowledgement_checked", "emergency_stop_requested", "continue", "pause", "resume", "cancel", "acknowledge", "show_details", "hide", "retry_visual_render", "inspect_diagnostics", "open_control_room", "review_prepared_action", "emergency_hide", "close_control_surface"}
 SURFACE_TYPES = {"frame", "pointer", "arrow", "highlight", "spotlight"}
+# The edge frame is four thin strips per monitor, not one full-monitor window: it overlaps only the edge pixels
+# of a window that touches the screen edge, and it can stay up between actions without covering the work area.
+FRAME_THICKNESS = 6
+FRAME_IDLE_RGB = (0.62, 0.66, 0.72)
+FRAME_IDLE_ALPHA = 0.55
+FRAME_URGENCY = {"neutral": 0, "success": 1, "info": 2, "warning": 3, "danger": 4}
 RING_TYPES = {"target_ring"}
 CARD_TYPES = {"widget", "tooltip", "instruction_card", "approval_card", "warning", "progress", "checkpoint_result", "status_toast", "comparison", "cancel_control", "emergency_stop_control"}
 CARD_WIDTH = 380
@@ -260,6 +266,8 @@ class Renderer:
         self.session_id = "renderer"
         self.cards = {}
         self.surface_windows = []
+        self.frame_windows = []
+        self.frame_signature = None
         self.surface_fixed = []
         self.surface_providers = {}
         self.surface_records = {}
@@ -710,6 +718,7 @@ class Renderer:
     def destroy_windows(self):
         self.destroy_cards()
         self.destroy_surfaces()
+        self.destroy_frame_strips()
         self.destroy_rings()
         self.destroy_dock()
         self.draw_ready = set()
@@ -1509,7 +1518,7 @@ class Renderer:
     def is_surface_record(self, record):
         payload = record.get("payload") if isinstance(record, dict) else {}
         kind = payload.get("type", record.get("type", "widget")) if isinstance(payload, dict) else record.get("type", "widget")
-        return kind in SURFACE_TYPES
+        return kind in SURFACE_TYPES and kind != "frame"
 
     def ensure_surfaces(self):
         if not self.needs_surfaces():
@@ -1574,6 +1583,73 @@ class Renderer:
                 widget.set_size_request(int(bounds[2]), int(bounds[3]))
                 widget.show_all()
             root.show_all()
+
+    def frame_records(self):
+        return [record for record in self.records.values() if self.is_frame_record(record)]
+
+    def frame_rgba(self):
+        """Colour of the frame. With several sessions on one renderer the most urgent state wins."""
+        records = self.frame_records()
+        if not records:
+            return None
+
+        def semantic(record):
+            style = (record.get("payload") or {}).get("style")
+            return style.get("semantic", "neutral") if isinstance(style, dict) else "neutral"
+
+        best = max(records, key=lambda record: FRAME_URGENCY.get(semantic(record), 0))
+        if semantic(best) == "neutral":
+            return FRAME_IDLE_RGB[0], FRAME_IDLE_RGB[1], FRAME_IDLE_RGB[2], FRAME_IDLE_ALPHA
+        payload = best.get("payload") or {}
+        r, g, b, _alpha = color_for(payload.get("style"), 1.0)
+        return r, g, b, self.frame_alpha(payload)
+
+    def apply_frame_strip_style(self):
+        rgba = self.frame_rgba()
+        if rgba is None:
+            return
+        css = ".ah-frame-strip { background-color: rgba(%d,%d,%d,%.3f); }" % (int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255), rgba[3])
+        for _window, provider in self.frame_windows:
+            provider.load_from_data(css.encode("utf-8"), -1)
+
+    def destroy_frame_strips(self):
+        for window, _provider in self.frame_windows:
+            window.destroy()
+        self.frame_windows = []
+        self.frame_signature = None
+
+    def ensure_frame_strips(self):
+        if not self.frame_records() or self.emergency_hidden:
+            self.destroy_frame_strips()
+            return True
+        geometries = self.monitor_geometries()
+        signature = tuple(geometries)
+        if signature == self.frame_signature and self.frame_windows:
+            self.apply_frame_strip_style()
+            return True
+        self.destroy_frame_strips()
+        self.frame_signature = signature
+        thickness = FRAME_THICKNESS
+        for geometry in geometries:
+            x, y, width, height = geometry[0], geometry[1], geometry[2], geometry[3]
+            # Top and bottom span the full width; the sides sit between them, so the corners are not drawn twice.
+            for sx, sy, sw, sh in ((x, y, width, thickness), (x, y + height - thickness, width, thickness), (x, y + thickness, thickness, max(1, height - 2 * thickness)), (x + width - thickness, y + thickness, thickness, max(1, height - 2 * thickness))):
+                window = self.new_popup(False, click_through=True)
+                # new_popup marks windows app-paintable (the caller draws); a strip is painted by its CSS background.
+                window.set_app_paintable(False)
+                context = window.get_style_context()
+                context.add_class("ah-frame-strip")
+                provider = Gtk.CssProvider()
+                context.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+                window.move(sx, sy)
+                window.set_default_size(sw, sh)
+                window.show_all()
+                gdk_window = window.get_window()
+                if gdk_window is not None:
+                    self.make_click_through(gdk_window)
+                self.frame_windows.append((window, provider))
+        self.apply_frame_strip_style()
+        return True
 
     def surface_widget(self, record):
         payload = record.get("payload") or {}
@@ -1657,12 +1733,7 @@ class Renderer:
         if not any(self.is_frame_record(record) and self.frame_animated(record) for record in self.records.values()):
             self.frame_tick_source = None
             return False
-        if CAIRO_FOREIGN_AVAILABLE:
-            self.redraw_surfaces()
-        else:
-            for widget, record in list(self.surface_records.items()):
-                if self.is_frame_record(record):
-                    self.apply_frame_style(widget, record)
+        self.apply_frame_strip_style()
         return True
 
     def ensure_frame_ticker(self):
@@ -1840,7 +1911,7 @@ class Renderer:
             gdk_window = window.get_window() if window is not None else None
             if gdk_window is not None and (not hasattr(gdk_window, "get_mapped") or gdk_window.get_mapped()):
                 visible += 1
-        for window in self.surface_windows:
+        for window in self.surface_windows + [entry[0] for entry in self.frame_windows]:
             gdk_window = window.get_window()
             if gdk_window is not None and (not hasattr(gdk_window, "get_mapped") or gdk_window.get_mapped()):
                 visible += 1
@@ -1909,6 +1980,12 @@ class Renderer:
             self.dismiss_card(record.get("overlayId"), animate=False)
             self.render_ring(record)
             return
+        if kind == "frame":
+            self.dismiss_card(record.get("overlayId"), animate=False)
+            self.ensure_frame_strips()
+            self.ensure_frame_ticker()
+            self.draw_ready.add(record.get("overlayId"))
+            return
         if kind in SURFACE_TYPES:
             self.dismiss_card(record.get("overlayId"), animate=False)
             self.ensure_surfaces()
@@ -1948,6 +2025,7 @@ class Renderer:
         self.records.pop(overlay_id, None)
         self.dismiss_card(overlay_id)
         self.dismiss_ring(overlay_id)
+        self.ensure_frame_strips()
         if not self.needs_surfaces():
             self.destroy_surfaces()
         else:
@@ -2004,6 +2082,7 @@ class Renderer:
         self.records.clear()
         self.destroy_cards()
         self.destroy_surfaces()
+        self.destroy_frame_strips()
         self.destroy_rings()
         self.conceal_dock()
         self.schedule_dock_release()
@@ -2015,6 +2094,7 @@ class Renderer:
         self.records.clear()
         self.destroy_cards()
         self.destroy_surfaces()
+        self.destroy_frame_strips()
         self.destroy_rings()
         self.destroy_dock()
         self.draw_ready = set()
@@ -2035,6 +2115,8 @@ class Renderer:
         signature = tuple(self.monitor_geometries())
         if signature != self.monitor_signature and self.needs_surfaces():
             self.ensure_surfaces()
+        if self.frame_records() and signature != self.frame_signature:
+            self.ensure_frame_strips()
         return True
 
     def close(self):

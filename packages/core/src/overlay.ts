@@ -35,7 +35,8 @@ export interface OverlayPublicConfig {
   allowSyntheticControl?: boolean;
   /** Newest-first list of agent actions inside the dock (dock layout only). */
   timeline: boolean;
-  frame: boolean;
+  /** `true`: a frame while an action runs. `"always"`: a quiet gray frame whenever AgentHost is on, coloured by state. */
+  frame: boolean | "always";
   actionPill: boolean;
   targetRing: boolean;
   targetRingLeadMs: number;

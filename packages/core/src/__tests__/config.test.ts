@@ -262,3 +262,22 @@ describe("a UTF-8 byte-order mark", () => {
     expect(config.overlay?.mode).toBe("always");
   });
 });
+
+describe('overlay.frame "always"', () => {
+  it("is accepted next to true and false, and anything else is rejected", async () => {
+    const { mkdtemp, writeFile } = await import("node:fs/promises");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const { loadAgentHostConfig } = await import("../index.js");
+    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-frame-"));
+    const file = path.join(dir, "config.json");
+    const load = async (frame: unknown) => {
+      await writeFile(file, JSON.stringify({ schemaVersion: 1, overlay: { frame } }), "utf8");
+      return loadAgentHostConfig({ env: { ...process.env, AGENTHOST_HOME: dir, AGENTHOST_CONFIG: file } });
+    };
+    expect((await load("always")).overlay?.frame).toBe("always");
+    expect((await load(true)).overlay?.frame).toBe(true);
+    expect((await load(false)).overlay?.frame).toBe(false);
+    await expect(load("sometimes")).rejects.toThrow();
+  });
+});

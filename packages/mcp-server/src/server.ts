@@ -424,6 +424,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     if (process.env.NODE_ENV !== "test") await overlay.prewarm();
     await taskActivity.initialize();
   }
+    // `overlay.frame: "always"`: the quiet gray edge frame is up for as long as this server runs.
+    if (config.overlay?.frame === "always" && process.env.NODE_ENV !== "test" && options.linux === undefined) void actionOverlay.startFrame().catch(() => undefined);
   const platformReport = describeDesktopPlatform();
   const baseLinux: LinuxAutomation =
     options.linux ?? {

@@ -24,7 +24,7 @@ function fakeManager(capabilitiesVisible = true) {
     updated.push(widget);
     return visible ? { ok: true, reason: "overlay_widget_updated", acknowledged: true } : { ok: false, reason: "overlay_not_found" };
   });
-  const dismiss = vi.fn(async () => {
+  const dismiss = vi.fn(async (_overlayId?: string) => {
     visible = false;
     return { ok: true, reason: "dismissed", acknowledged: true };
   });
@@ -281,6 +281,58 @@ describe("automatic action overlay", () => {
     await new Promise((resolve) => setTimeout(resolve, 10));
     expect(fake.primitives.filter((entry) => entry.type === "frame").at(-1)).toMatchObject({ style: { semantic: "success" } });
     await overlay.close();
+  });
+
+  it('frame "always": a gray frame at start, coloured by action, back to gray after, removed only on close', async () => {
+    const fake = fakeManager();
+    const overlay = new ToolActionOverlay(fake.manager, { widgetId: "action-card", frame: "always", targetRing: false, minDisplayMs: 0 });
+    const frames = () => fake.primitives.filter((entry) => entry.type === "frame").map((entry) => entry.style?.semantic);
+    const frameDismissals = () => fake.dismiss.mock.calls.filter((call) => String(call[0]).endsWith("-frame")).length;
+
+    await overlay.startFrame();
+    expect(frames()).toEqual(["neutral"]);
+
+    const handle = await overlay.begin({ tool: "windows", summary: "List windows", riskLevel: "low" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(frames().at(-1)).toBe("info");
+    await handle.finish(toolSuccess({ tool: "windows", riskLevel: "low", data: {} }));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(frames().at(-1)).toBe("success");
+
+    // The card goes away (auto-hide or dismiss): the frame returns to quiet gray and is NOT dismissed.
+    await overlay.dismiss();
+    expect(frames().at(-1)).toBe("neutral");
+    expect(frameDismissals()).toBe(0);
+
+    // Closing the overlay (the session ends) removes it.
+    await overlay.close();
+    expect(frameDismissals()).toBeGreaterThan(0);
+  });
+
+  it("without \"always\", startFrame does nothing and the frame is removed with the card", async () => {
+    const fake = fakeManager();
+    const overlay = new ToolActionOverlay(fake.manager, { widgetId: "action-card", frame: true, minDisplayMs: 0 });
+    await overlay.startFrame();
+    expect(fake.primitives.filter((entry) => entry.type === "frame")).toHaveLength(0);
+    const handle = await overlay.begin({ tool: "windows", summary: "List windows", riskLevel: "low" });
+    await handle.finish(toolSuccess({ tool: "windows", riskLevel: "low", data: {} }));
+    await overlay.dismiss();
+    expect(fake.dismiss.mock.calls.some((call) => String(call[0]).endsWith("-frame"))).toBe(true);
+    await overlay.close();
+  });
+
+  it("reports a ring as active only until its time is up, and not after it is hidden", async () => {
+    let clock = 10_000;
+    const fake = fakeManager();
+    const overlay = new ToolActionOverlay(fake.manager, { widgetId: "action-card", frame: false, targetRing: true, targetRingLeadMs: 0, targetRingDurationMs: 600, minDisplayMs: 0, now: () => clock });
+    expect(overlay.ringActive()).toBe(false);
+    const handle = await overlay.begin({ tool: "desktop.click", summary: "Click", riskLevel: "medium", target: { x: 5, y: 5 } });
+    expect(overlay.ringActive()).toBe(true);
+    clock += 5_000;
+    expect(overlay.ringActive()).toBe(false);
+    await handle.finish(toolSuccess({ tool: "desktop.click", riskLevel: "medium", data: {} }));
+    await overlay.close();
+    expect(overlay.ringActive()).toBe(false);
   });
 
   it("paints the card before auxiliary frame/ring work consumes the renderer queue", async () => {
