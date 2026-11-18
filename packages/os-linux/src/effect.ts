@@ -38,7 +38,7 @@ const sleepFor = (ms: number): Promise<void> => new Promise((resolve) => setTime
 
 export async function measureEffect<T>(options: MeasureEffectOptions, act: () => Promise<T>): Promise<{ value: T; effect: EffectResult }> {
   const capCap = Math.max(0, options.settleCapMs ?? 1_500);
-  const poll = Math.max(10, options.pollMs ?? 80);
+  const poll = Math.max(10, options.pollMs ?? 40);
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? sleepFor;
   const digest = async (): Promise<string | undefined> => {
@@ -47,7 +47,7 @@ export async function measureEffect<T>(options: MeasureEffectOptions, act: () =>
   };
   if (options.prepare !== undefined) {
     await options.prepare();
-    await sleep(Math.max(0, options.prepareSettleMs ?? 250));
+    await sleep(Math.max(0, options.prepareSettleMs ?? 120));
   }
   const before = await digest();
   const value = await act();

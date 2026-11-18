@@ -176,6 +176,9 @@ async function main() {
     });
     await time("20 keys as 1 sequence call", 3, () => mcp.call("key", { sequence: letters }));
 
+    // A plan: ten routine steps in one call (verified once, at the end).
+    await time("plan: 5 clicks + 5 keys in 1 call", 3, (i) => mcp.call("steps", { steps: [0, 1, 2, 3, 4].flatMap((k) => [{ tool: "click", input: { n: (i + k) % 2 === 0 ? tick : field } }, { tool: "key", input: { keys: "klmnopqrstuvwxyz"[(i * 5 + k) % 16] } }]), stopOnError: true }));
+
     console.log(`\nDesktop action latency on ${display} (overlay ${flag("overlay") ? "on" : "off"}), ${RUNS} runs per action\n`);
     console.log("| action | median ms | p90 ms | failed |");
     console.log("|---|---:|---:|---:|");

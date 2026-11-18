@@ -234,6 +234,9 @@ type CapturedToolState = Omit<ToolStateSnapshot, "newlyAppearedWindows"> & {
   windows?: NonNullable<ToolStateSnapshot["newlyAppearedWindows"]>;
 };
 
+/** The window list taken before a plan's first step, kept for its last step to compare against. */
+const PLAN_STATE = new Map<string, CapturedToolState>();
+
 function needsStateResult(tool: AnyAgentHostToolDefinition): boolean {
   return tool.execution?.executionClass === "state_changing" && STATE_RESULT_FAMILIES.has(tool.name.split(".", 1)[0] ?? "");
 }
@@ -869,7 +872,17 @@ export async function runTool<Input>(
   await traceEvent(context, tool.name, "overlay", startedAt, { riskLevel: tool.riskLevel, ok: true });
 
   let result: ToolResult;
-  const stateBefore = needsStateResult(tool) ? await captureToolState(context).catch(() => undefined) : undefined;
+  // In a plan the window list is read once before the first step and once after the last, not around every step.
+  const inPlan = context.planStep !== undefined;
+  const firstOfPlan = !inPlan || context.planStep!.index === 0;
+  const lastOfPlan = !inPlan || context.planStep!.index >= context.planStep!.total - 1;
+  let stateBefore: CapturedToolState | undefined;
+  if (needsStateResult(tool)) {
+    if (firstOfPlan) {
+      stateBefore = await captureToolState(context).catch(() => undefined);
+      if (inPlan) { if (stateBefore === undefined) PLAN_STATE.delete(context.sessionId); else PLAN_STATE.set(context.sessionId, stateBefore); }
+    } else stateBefore = PLAN_STATE.get(context.sessionId);
+  }
 
   const guardInput = injectsInput(tool.name) && options.previewOnly !== true;
   let userBusy: ToolResult | undefined;
@@ -913,9 +926,12 @@ export async function runTool<Input>(
 
   if (guardInput && userBusy === undefined) await markAgentInput(context.config.agentHostDir);
   if (needsStateResult(tool)) {
-    context.linux?.invalidateWindowCache?.();
-    const stateAfter = await captureToolState(context).catch(() => undefined);
-    if (stateAfter !== undefined) attachStateDelta(result, stateBefore, stateAfter);
+    if (lastOfPlan) {
+      context.linux?.invalidateWindowCache?.();
+      const stateAfter = await captureToolState(context).catch(() => undefined);
+      if (stateAfter !== undefined) attachStateDelta(result, stateBefore, stateAfter);
+      if (inPlan) PLAN_STATE.delete(context.sessionId);
+    }
   }
   const routineTask = input !== null && typeof input === "object" && !Array.isArray(input)
     ? parseRoutineTaskMetadata((input as Record<string, unknown>).task).metadata

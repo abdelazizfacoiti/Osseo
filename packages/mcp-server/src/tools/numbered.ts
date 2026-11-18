@@ -57,6 +57,12 @@ type Basis = { view?: SeenView | undefined; windowId?: string | undefined };
 async function settle(tool: string, result: ToolResult, context: AgentHostMcpContext, basis: Basis, note = true): Promise<ToolResult> {
   const done = finish(tool, result, note);
   if (!result.ok || result.preview === true) return done;
+  // Inside a plan the control list is compared once, after the last step, not after every step.
+  if (context.planStep !== undefined && context.planStep.index < context.planStep.total - 1) {
+    const early = result.data !== null && typeof result.data === "object" && !Array.isArray(result.data) ? result.data as Record<string, unknown> : {};
+    done.data = { ...early, structure: "skipped" };
+    return done;
+  }
   const view = basis.view ?? (basis.windowId === undefined ? undefined : viewForWindow(basis.windowId));
   const seen = await observeStructure(context, view, basis.windowId);
   const data = result.data !== null && typeof result.data === "object" && !Array.isArray(result.data) ? result.data as Record<string, unknown> : {};

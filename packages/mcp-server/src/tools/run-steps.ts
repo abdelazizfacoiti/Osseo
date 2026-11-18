@@ -203,19 +203,23 @@ export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpCon
         const blockedReasons: string[] = [];
         let planNeedsConfirmation = false;
         const tools = context.tools;
-        for (const [index, step] of input.steps.entries()) {
+        // Previews only read (no tokens, no audit, nothing executed), so they run side by side, not one after another.
+        const previews = await Promise.all(input.steps.map(async (step) => {
           const target = tools?.get(step.tool);
-          if (target === undefined) {
-            steps.push({ index, tool: step.tool, ok: false, riskLevel: "blocked", status: "blocked", error: "unknown_tool" });
-            blockedReasons.push(`Step ${index + 1}: unknown tool ${step.tool}.`);
-            continue;
-          }
-          const result = await runTool(
+          return target === undefined ? undefined : await runTool(
             target as AnyAgentHostToolDefinition<AgentHostMcpContext>,
             { ...(step.input ?? {}), dryRun: true },
             previewContext(context),
             { previewOnly: true }
           );
+        }));
+        for (const [index, step] of input.steps.entries()) {
+          const result = previews[index];
+          if (result === undefined) {
+            steps.push({ index, tool: step.tool, ok: false, riskLevel: "blocked", status: "blocked", error: "unknown_tool" });
+            blockedReasons.push(`Step ${index + 1}: unknown tool ${step.tool}.`);
+            continue;
+          }
           const blocked = blockedCode(result) || result.riskLevel === "blocked";
           if (blocked) blockedReasons.push(`Step ${index + 1} ${step.tool}: ${result.error?.message ?? "blocked"}`);
           if (nestedRequiresConfirmation(result) && (result.riskLevel === "low" || result.riskLevel === "medium")) planNeedsConfirmation = true;
