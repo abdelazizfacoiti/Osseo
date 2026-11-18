@@ -71,6 +71,11 @@ no structure; use the picture and `click { x, y }` as a last resort.
 7. **Do what was asked.** When the request and recipient are clear, do the send, then
    verify with `see`. Stop when the result is visible; do not repeat the same call.
 8. **Leave the machine as found.** Restore focus when done and say what changed.
+9. **Blocked by your client?** If the agent client refuses an AgentHost call (for example
+   Claude Code auto mode), stop and tell the person. Do not route around it with shell
+   commands, xdotool or scripts. The fix is theirs: `agenthost integrations claude add
+   --allow-tools read --apply` (or `all`).
+10. **Many keys in a row:** use `key { sequence: [...] }` instead of one `key` call per key.
 
 ## Other tools
 

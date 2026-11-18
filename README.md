@@ -48,10 +48,10 @@ Any MCP client can use:
 <details>
 <summary>Claude Code auto mode blocks AgentHost calls</summary>
 
-Allow the server once in `~/.claude/settings.json`. AgentHost still asks you before sends, uploads, deletes and payments.
+Let Claude Code run AgentHost's tools without asking again. AgentHost itself still asks you before sends, uploads, deletes and payments.
 
-```json
-{ "permissions": { "allow": ["mcp__agenthost"] } }
+```bash
+agenthost integrations claude add --allow-tools all --apply   # or: read (status, windows, see, wait)
 ```
 
 In prompts, say "use AgentHost" rather than "don't use MCP": AgentHost is itself an MCP server.

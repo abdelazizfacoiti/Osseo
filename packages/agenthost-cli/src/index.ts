@@ -24,7 +24,7 @@ import { selftestCommand } from "./selftest.js";
 import { pressCheck } from "./press-check.js";
 import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
 import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@agenthost/os-linux";
-import { claudeHooksAdd, claudeHooksRemove, claudeHooksStatus } from "./hooks.js";
+import { claudeAllowAdd, claudeAllowRemove, claudeHooksAdd, claudeHooksRemove, claudeHooksStatus, type AllowLevel } from "./hooks.js";
 import { installLayout } from "./install-layout.js";
 import { rollbackJunctionRelease } from "./junction-release.js";
 import { updateFromZip } from "./update-zip.js";
@@ -646,11 +646,21 @@ async function integrationsCommand(targetArg: string | undefined, args: ReturnTy
       : action === "remove"
         ? await claudeHooksRemove(home, apply, hookOptions)
         : await claudeHooksStatus(home, hookOptions);
+  // Opt-in: Claude Code allow rules for AgentHost's tools (--allow-tools read|all), so auto mode does not block them.
+  const allowLevel = args.values.get("allow-tools");
+  if (allowLevel !== undefined && allowLevel !== "read" && allowLevel !== "all") return fail(`integrations ${target} ${action}`, "allow_tools_must_be_read_or_all");
+  const allow = target !== "claude"
+    ? undefined
+    : action === "add" && allowLevel !== undefined
+      ? await claudeAllowAdd(home, allowLevel as AllowLevel, apply, hookOptions)
+      : action === "remove"
+        ? await claudeAllowRemove(home, apply, hookOptions)
+        : undefined;
   return {
     ok: true,
     command: `integrations ${target} ${action}`,
-    data: { ...publicIntegrationReport(value), ...(hooks === undefined ? {} : { attentionHooks: hooks }) },
-    ...(value.applied || hooks?.applied === true ? { warnings: ["reload_client_session"] } : {})
+    data: { ...publicIntegrationReport(value), ...(hooks === undefined ? {} : { attentionHooks: hooks }), ...(allow === undefined ? {} : { allowRules: allow }) },
+    ...(value.applied || hooks?.applied === true || allow?.applied === true ? { warnings: ["reload_client_session"] } : {})
   };
 }
 async function update(args: ReturnType<typeof parseFlags>): Promise<Output> {

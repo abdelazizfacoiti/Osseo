@@ -36,7 +36,7 @@ export const COMMAND_USAGE: Record<string, string> = {
   permissions: "agenthost permissions",
   sessions: "agenthost sessions",
   overlay: "agenthost overlay status | hide [--orphans] | check-input",
-  integrations: "agenthost integrations <client> add|status|remove [--apply]",
+  integrations: "agenthost integrations <client> add|status|remove [--apply] [--allow-tools read|all]. For claude, --allow-tools adds Claude Code allow rules for AgentHost tools (read: status, windows, see, wait; all: the whole server) so auto mode does not block them; AgentHost still asks before sends, uploads, deletes and payments. remove also removes those rules.",
   config: "agenthost config show | validate | path. path prints the file AgentHost reads (~/.config/agenthost/config.json, or ~/.agenthost/config.json when that does not exist) and warns when the other file differs.",
   update: "agenthost update --archive <file> [--sha256 <hex>] [--apply] | agenthost update --rollback [--apply]",
   uninstall: "agenthost uninstall [--yes] [--remove-data]",

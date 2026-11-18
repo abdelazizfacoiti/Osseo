@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `agenthost integrations claude add --allow-tools read|all --apply` writes Claude Code allow rules for AgentHost's tools, so auto mode stops blocking them (`remove` takes them out). The agent skill now says to stop and tell the person when the client blocks a call, never to route around it.
 - `key` takes `sequence`: several keys or chords pressed in order in one verified action (for example a whole numeric entry in a 3D or design app), instead of one call per key at about 1.3 s each.
 - `agenthost config path` prints the config file AgentHost reads (`~/.config/agenthost/config.json`) and warns when `~/.agenthost/config.json` exists with different settings, since that one is then ignored.
 - Safety: a click on a control named like Send, Pay, Delete, Submit or Publish now asks first in any desktop app (Firefox, WhatsApp, Slack and so on), not only in the agent's own browser. The name comes from `see`, a label, or `targetName`; it adds a prompt and never changes where the click goes.

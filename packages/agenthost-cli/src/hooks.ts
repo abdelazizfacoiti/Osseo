@@ -156,3 +156,49 @@ export async function claudeHooksRemove(home: string, apply: boolean, options: H
   const backup = await save(file, text, next);
   return { settingsLabel: "[claude-settings]", configured: false, changed: true, applied: true, backup };
 }
+
+/*
+ * Claude Code permission rules for AgentHost's own tools. Without them, auto mode can block AgentHost calls
+ * ("Undermining Oversight") and default mode asks for each call. AgentHost still asks the person before sends,
+ * uploads, deletes and payments; these rules only stop Claude Code asking a second time.
+ *   read: tools that look but change nothing (status, windows, see, wait)
+ *   all:  the whole AgentHost server
+ */
+export type AllowLevel = "read" | "all";
+export const AGENTHOST_ALLOW_RULES: Record<AllowLevel, string[]> = {
+  read: ["mcp__agenthost__status", "mcp__agenthost__windows", "mcp__agenthost__see", "mcp__agenthost__wait"],
+  all: ["mcp__agenthost"]
+};
+const ALL_OUR_RULES = new Set([...AGENTHOST_ALLOW_RULES.read, ...AGENTHOST_ALLOW_RULES.all]);
+
+export interface AllowReport { level: AllowLevel; rules: string[]; configured: boolean; changed: boolean; applied: boolean; backup: boolean; error?: string }
+
+export async function claudeAllowAdd(home: string, level: AllowLevel, apply: boolean, options: HookOptions = {}): Promise<AllowReport> {
+  const rules = AGENTHOST_ALLOW_RULES[level];
+  const file = claudeSettingsPath(home, options.configDir);
+  const { text, root } = await load(file);
+  const base = { level, rules, configured: false, changed: false, applied: false, backup: false };
+  if (root === undefined) return { ...base, error: "settings_invalid_json" };
+  if (root.permissions !== undefined && !isObject(root.permissions)) return { ...base, error: "settings_permissions_unsupported" };
+  const permissions: Json = isObject(root.permissions) ? { ...root.permissions } : {};
+  const allow = Array.isArray(permissions.allow) ? permissions.allow.filter((rule): rule is string => typeof rule === "string") : [];
+  if (rules.every((rule) => allow.includes(rule))) return { ...base, configured: true };
+  // Switching between read and all replaces our earlier rules; the person's other rules stay.
+  permissions.allow = [...allow.filter((rule) => !ALL_OUR_RULES.has(rule)), ...rules];
+  if (!apply) return { ...base, changed: true };
+  const backup = await save(file, text, { ...root, permissions });
+  return { ...base, configured: true, changed: true, applied: true, backup };
+}
+
+export async function claudeAllowRemove(home: string, apply: boolean, options: HookOptions = {}): Promise<{ changed: boolean; applied: boolean; error?: string }> {
+  const file = claudeSettingsPath(home, options.configDir);
+  const { text, root } = await load(file);
+  if (root === undefined) return { changed: false, applied: false, error: "settings_invalid_json" };
+  if (!isObject(root.permissions) || !Array.isArray(root.permissions.allow)) return { changed: false, applied: false };
+  const allow = root.permissions.allow as unknown[];
+  const kept = allow.filter((rule) => typeof rule !== "string" || !ALL_OUR_RULES.has(rule));
+  if (kept.length === allow.length) return { changed: false, applied: false };
+  if (!apply) return { changed: true, applied: false };
+  await save(file, text, { ...root, permissions: { ...root.permissions, allow: kept } });
+  return { changed: true, applied: true };
+}
