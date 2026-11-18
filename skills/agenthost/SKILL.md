@@ -75,7 +75,11 @@ no structure; use the picture and `click { x, y }` as a last resort.
    Claude Code auto mode), stop and tell the person. Do not route around it with shell
    commands, xdotool or scripts. The fix is theirs: `agenthost integrations claude add
    --allow-tools read --apply` (or `all`).
-10. **Many keys in a row:** use `key { sequence: [...] }` instead of one `key` call per key.
+10. **Batch routine steps.** Each call has a fixed cost (a check before and after, about 0.3 to
+    0.9 s), so many small calls are slow. Use `key { sequence: [...] }` for runs of keys, and
+    `steps { steps: [...] }` for a known series of clicks, keys and typing: the window is checked
+    once at the end of the plan, and approvals and Stop still apply to every step. Add
+    `expect` to a step that must be proven, and keep single calls for the moment you need to look.
 
 ## Other tools
 

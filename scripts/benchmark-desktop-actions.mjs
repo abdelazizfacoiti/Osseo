@@ -5,7 +5,7 @@
  *   npm run build && npm run benchmark:desktop-actions [-- --runs 15 --out file.json --overlay]
  *
  * It starts a nested X display (Xephyr) with a small GTK test window, starts the built server over stdio
- * (isolated home, overlay off unless --overlay), and times the calls an agent makes, as the agent makes them:
+ * (isolated home, overlay off unless --overlay; --server <index.js> measures another build, for before/after), and times the calls an agent makes, as the agent makes them:
  * see, click by number, key, type, a 20-key run as 20 calls and as one sequence. Per action it prints the median
  * and p90 wall time, and, from the server's own audit log, the median time of each phase (overlay wait,
  * safety, preview, handler, audit). No window opens on your screen except the small Xephyr window.
@@ -20,7 +20,8 @@ import { startPrivateBus } from "./private-bus.mjs";
 
 process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const SERVER = path.join(REPO, "packages/mcp-server/dist/index.js");
+const args0 = process.argv.slice(2);
+const SERVER = args0.includes("--server") ? path.resolve(args0[args0.indexOf("--server") + 1]) : path.join(REPO, "packages/mcp-server/dist/index.js");
 const HOST_DISPLAY = process.env.DISPLAY ?? ":0";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const args = process.argv.slice(2);
@@ -161,7 +162,7 @@ async function main() {
     await time("see (accessibility tree)", Math.max(5, Math.floor(RUNS / 2)), () => mcp.call("see", { picture: "none" }));
     seen = await mcp.call("see", { picture: "none" });
     // Alternate two controls: the server's loop guard counts ten identical calls in a minute as a loop when the active window does not change.
-    await time("click by number, verified", RUNS, (i) => mcp.call("click", { n: i % 2 === 0 ? tick : field }));
+    await time("click by number, verified", RUNS, () => mcp.call("click", { n: tick }));
     await mcp.call("click", { n: field });
     // Vary the key: ten identical calls in a minute trip the server's own loop guard (a self-pause), by design.
     const pool = "bcdefghijklmnopqrstuvwxyz".split("");

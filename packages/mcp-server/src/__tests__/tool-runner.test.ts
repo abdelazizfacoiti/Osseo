@@ -1166,3 +1166,25 @@ describe("governed tool runner", () => {
   });
 
 });
+
+describe("loop guard and progress", () => {
+  it("does not pause on ten identical calls that each changed the screen", async () => {
+    const home = await tempHome();
+    const context = makeContext(home, []);
+    const tool = writeTool(async () => undefined);
+    tool.execution = { ...stateChanging(), requiresConfirmationToken: false };
+    tool.handler = async () => toolSuccess({ tool: "test.write", riskLevel: "medium", data: { effect: { screenChanged: true } } });
+    for (let call = 0; call < 14; call += 1) await runTool(tool, { value: "next" }, context);
+    expect((await readRunState(home)).pause.requested).toBe(false);
+  });
+
+  it("still pauses on ten identical calls that changed nothing", async () => {
+    const home = await tempHome();
+    const context = makeContext(home, []);
+    const tool = writeTool(async () => undefined);
+    tool.execution = { ...stateChanging(), requiresConfirmationToken: false };
+    tool.handler = async () => toolSuccess({ tool: "test.write", riskLevel: "medium", data: { effect: { screenChanged: false } } });
+    for (let call = 0; call < 12; call += 1) await runTool(tool, { value: "same" }, context);
+    expect((await readRunState(home)).pause.requested).toBe(true);
+  });
+});
