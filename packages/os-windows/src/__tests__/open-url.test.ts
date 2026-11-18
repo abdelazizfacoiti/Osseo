@@ -14,9 +14,9 @@ const env = { ProgramFiles: "C:\\Program Files", "ProgramFiles(x86)": "C:\\Progr
 describe("openWindowsUrl", () => {
   it("opens the default browser through rundll32 with the URL as one argument, never xdg-open", async () => {
     const calls: Array<{ command: string; args: string[] }> = [];
-    const result = await openWindowsUrl({ url: "https://www.avito.ma/fr/maroc/voitures?price=10000-12000&fuel=1" }, { env, spawn: (command, args) => { calls.push({ command, args }); return fakeChild(); } });
+    const result = await openWindowsUrl({ url: "https://shop.example.com/cars?price=10000-12000&fuel=1" }, { env, spawn: (command, args) => { calls.push({ command, args }); return fakeChild(); } });
     expect(result).toMatchObject({ opened: true, launcher: "default browser", pid: 4242 });
-    expect(calls).toEqual([{ command: "rundll32.exe", args: ["url.dll,FileProtocolHandler", "https://www.avito.ma/fr/maroc/voitures?price=10000-12000&fuel=1"] }]);
+    expect(calls).toEqual([{ command: "rundll32.exe", args: ["url.dll,FileProtocolHandler", "https://shop.example.com/cars?price=10000-12000&fuel=1"] }]);
   });
 
   it("opens a named browser in a new tab from its install folder", async () => {

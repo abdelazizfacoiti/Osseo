@@ -34,9 +34,9 @@ describe("clipboard tools", () => {
   it("sets the clipboard directly", async () => {
     const setClipboard = vi.fn(async () => ({ supported: true, backend: "gtk", reason: "ok" }));
     const { context } = await makeContext({ setClipboard });
-    const result = await runTool(tool("clipboard.set"), { text: "https://www.avito.ma/?a=1&b=2" }, context);
+    const result = await runTool(tool("clipboard.set"), { text: "https://shop.example.com/?a=1&b=2" }, context);
     expect(result.ok).toBe(true);
-    expect(setClipboard).toHaveBeenCalledWith({ text: "https://www.avito.ma/?a=1&b=2" });
+    expect(setClipboard).toHaveBeenCalledWith({ text: "https://shop.example.com/?a=1&b=2" });
   });
 
   it("requires an exact confirmation before reading the clipboard", async () => {

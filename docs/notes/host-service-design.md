@@ -1,6 +1,6 @@
 # Phase 3 design: the host service and one rail
 
-Status: design only. No code changes in this document's commit. Source: `docs/notes/product-plan.md`, section 2 (One server per session), section UI (rail, global Stop), the Phase 3 row and the decisions list.
+Status: design only. No code changes in this document's commit. Source: the internal product plan (one server per session, rail, global Stop).
 
 ## 1. Problem
 

@@ -19,9 +19,9 @@ describe("app tools", () => {
   it("opens URLs in a named browser and keeps query strings out of the result", async () => {
     const openUrl = vi.fn(async (input: { url: string; browser?: string }) => ({ opened: true, url: input.url, launcher: input.browser ?? "xdg-open", reason: "ok" }));
     const tool = createAppTools().find((entry) => entry.name === "app.open_url")!;
-    const result = await tool.handler({ url: "https://www.avito.ma/fr/maroc/voitures?token=secret123", browser: "firefox" }, makeContext({ openUrl }));
+    const result = await tool.handler({ url: "https://shop.example.com/cars?token=secret123", browser: "firefox" }, makeContext({ openUrl }));
     expect(result.ok).toBe(true);
-    expect(openUrl).toHaveBeenCalledWith({ url: "https://www.avito.ma/fr/maroc/voitures?token=secret123", browser: "firefox" });
+    expect(openUrl).toHaveBeenCalledWith({ url: "https://shop.example.com/cars?token=secret123", browser: "firefox" });
     expect(JSON.stringify(result.data)).not.toContain("secret123");
     expect(tool.auditInputSummary?.({ url: "https://example.com/a?token=secret123" })).not.toContain("secret123");
   });

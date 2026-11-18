@@ -24,7 +24,7 @@ describe("action timeline", () => {
   it("labels actions from safe fields only", () => {
     expect(describeAction("desktop.type_text", { text: "my secret password", target: { appName: "firefox" } })).toBe("Type 18 chars · firefox");
     expect(describeAction("desktop.click", { x: 281, y: 295, target: { appName: "firefox" } })).toBe("Click (281,295) · firefox");
-    expect(describeAction("app.open_url", { url: "https://www.avito.ma/fr/maroc?token=abc", browser: "firefox" })).toBe("Open avito.ma in firefox");
+    expect(describeAction("app.open_url", { url: "https://shop.example.com/cars?token=abc", browser: "firefox" })).toBe("Open shop.example.com in firefox");
     expect(describeAction("shell.run", { command: "/usr/bin/xdotool", args: ["type", "secret"] })).toBe("Run xdotool");
     expect(describeAction("desktop.pointer", { direction: "down", amount: 5, x: 10, y: 20 })).toBe("Scroll down ×5 (10,20)");
     expect(describeAction("file.write", { path: "/home/user/notes/plan.md", content: "private" })).toBe("Write plan.md");
