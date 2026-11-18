@@ -1,5 +1,5 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { classifyAppSensitivity, evaluateSafety, rankVisionTargets, toolFailure, toolSuccess, type DesktopWindowContext, type ToolResult, type VisionGroundingResult } from "@agenthost/core";
 import { z } from "zod";
@@ -110,17 +110,35 @@ async function analyze(input: Base, context: AgentHostMcpContext, mode: "ocr" | 
  * Fresh full-screen OCR matched against a query, in absolute screen coordinates. Read-only:
  * it never clicks or types. desktop.click uses it as the label fallback when AT-SPI has no match.
  */
+/** OCR results by the picture's content: the same pixels are never read twice within a minute. */
+const OCR_CACHE = new Map<string, { at: number; data: VisionGroundingResult }>();
+const OCR_CACHE_MS = 60_000;
+
+/** A window rectangle as a screenshot region: whole pixels, on screen, or undefined when nothing usable remains. */
+export function regionFromBounds(bounds: { x: number; y: number; width: number; height: number } | undefined): { x: number; y: number; width: number; height: number } | undefined {
+  if (bounds === undefined) return undefined;
+  const left = Math.round(bounds.x);
+  const top = Math.round(bounds.y);
+  const x = Math.max(0, left);
+  const y = Math.max(0, top);
+  // Only the part cut off at the screen edge shortens the picture; rounding a position never does.
+  const width = Math.round(bounds.width) - (x - left);
+  const height = Math.round(bounds.height) - (y - top);
+  return width > 8 && height > 8 ? { x, y, width, height } : undefined;
+}
+
 export async function findScreenTextMatches(
   context: AgentHostMcpContext,
-  input: { query: string; match?: "exact" | "contains"; limit?: number }
+  input: { query: string; match?: "exact" | "contains"; limit?: number; region?: { x: number; y: number; width: number; height: number } | undefined }
 ): Promise<ToolResult<unknown>> {
+  const region = input.region === undefined ? undefined : regionFromBounds(input.region);
   const current = await context.linux.getActiveWindow();
   if (!current.supported || current.activeWindow === undefined) return failure("vision.find_text_on_screen", failResult("active_window_unavailable"));
   const filename = `screen-ocr-${context.sessionId.replace(/[^A-Za-z0-9._-]/g, "_")}-${randomUUID()}.png`;
   const screenshotTool = context.tools?.get("desktop.screenshot");
   let capturePath: string | undefined;
   if (screenshotTool !== undefined) {
-    const captureResult = await runTool(screenshotTool, { outputDir: path.join(context.config.agentHostDir, "screenshots"), filename, format: "png" }, context);
+    const captureResult = await runTool(screenshotTool, { outputDir: path.join(context.config.agentHostDir, "screenshots"), filename, format: "png", ...(region === undefined ? {} : { region }) }, context);
     const captureData = captureResult.data as { path?: unknown } | null;
     if (!captureResult.ok || typeof captureData?.path !== "string") return toolFailure({ tool: "vision.find_text_on_screen", riskLevel: "low", error: { code: "screen_capture_failed", message: captureResult.error?.message ?? "Fresh screen capture failed." }, observations: [captureResult.error?.code ?? "screen_capture_failed"] });
     capturePath = captureData.path;
@@ -133,13 +151,28 @@ export async function findScreenTextMatches(
     if (capture.supported !== true || capture.path === undefined) return toolFailure({ tool: "vision.find_text_on_screen", riskLevel: "low", error: { code: "screen_capture_failed", message: capture.reason }, observations: [capture.reason] });
     capturePath = capture.path;
   }
-  const data = await analyze({ imagePath: capturePath, activeWindow: current.activeWindow }, context);
+  // Same pixels as a recent read: reuse it instead of running the OCR engine again.
+  let hash: string | undefined;
+  try { hash = createHash("sha256").update(await readFile(capturePath)).digest("hex"); } catch { hash = undefined; }
+  const cacheKey = hash === undefined ? undefined : `${context.sessionId}:${hash}`;
+  const cached = cacheKey === undefined ? undefined : OCR_CACHE.get(cacheKey);
+  const data = cached !== undefined && Date.now() - cached.at < OCR_CACHE_MS
+    ? cached.data
+    : await analyze({ imagePath: capturePath, activeWindow: current.activeWindow }, context);
   if (!data.supported) return failure("vision.find_text_on_screen", data);
+  if (cacheKey !== undefined && cached === undefined) {
+    if (OCR_CACHE.size > 20) OCR_CACHE.delete(OCR_CACHE.keys().next().value as string);
+    OCR_CACHE.set(cacheKey, { at: Date.now(), data });
+  }
   const query = input.query.toLowerCase();
+  // A window-sized picture has its own origin: put the boxes back in screen coordinates.
+  const dx = region?.x ?? 0;
+  const dy = region?.y ?? 0;
+  const shift = (box: { x: number; y: number; width: number; height: number }) => ({ ...box, x: box.x + dx, y: box.y + dy });
   const matches = data.textItems
     .filter((item) => input.match === "exact" ? item.text.toLowerCase() === query : item.text.toLowerCase().includes(query))
     .slice(0, input.limit ?? 20)
-    .map((item) => ({ ...item, screenBounds: item.bounds, screenCenter: item.center, coordinateSpace: "screen" as const }));
+    .map((item) => ({ ...item, screenBounds: shift(item.bounds), screenCenter: { x: item.center.x + dx, y: item.center.y + dy }, coordinateSpace: "screen" as const }));
   return toolSuccess({ tool: "vision.find_text_on_screen", riskLevel: "low", data: { activeWindow: current.activeWindow, matches, warnings: [...data.warnings, "Coordinates are absolute screen suggestions only; revalidate active-window context before any click."], truncated: data.truncated }, observations: ["Captured fresh local OCR suggestions; no click occurred."] });
 }
 

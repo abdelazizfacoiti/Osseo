@@ -202,7 +202,8 @@ async function domElements(context: AgentHostMcpContext, elements: BrowserElemen
 }
 
 async function ocrElements(context: AgentHostMcpContext, outer: Box | undefined): Promise<Element[]> {
-  const ocr = await findScreenTextMatches(context, { query: "", match: "contains", limit: 400 }).catch(() => undefined);
+  // Read only the window's rectangle (a small picture is much faster to read), not the whole screen.
+  const ocr = await findScreenTextMatches(context, { query: "", match: "contains", limit: 400, region: outer }).catch(() => undefined);
   if (ocr === undefined || !ocr.ok) return [];
   const matches = (ocr.data as { matches?: Array<{ text?: unknown; redacted?: unknown; screenBounds?: Box }> } | null)?.matches ?? [];
   return matches.flatMap((match): Element[] => {

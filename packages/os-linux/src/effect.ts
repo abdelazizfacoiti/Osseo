@@ -45,6 +45,7 @@ export async function measureEffect<T>(options: MeasureEffectOptions, act: () =>
     const bytes = await options.capture();
     return bytes === undefined ? undefined : createHash("sha256").update(bytes).digest("hex");
   };
+  let settledBaseline: string | undefined;
   if (options.prepare !== undefined) {
     await options.prepare();
     // Hover styling can fade in. Wait only until two captures in a row match (a still window settles in about
@@ -56,11 +57,13 @@ export async function measureEffect<T>(options: MeasureEffectOptions, act: () =>
     while (last !== undefined && now() < until) {
       await sleep(poll);
       const next = await digest();
-      if (next === undefined || next === last) break;
+      if (next === undefined || next === last) { last = next; break; }
       last = next;
     }
+    settledBaseline = last;
   }
-  const before = await digest();
+  // The last capture of the hover wait is the baseline when there was one: nothing happens between them.
+  const before = settledBaseline ?? await digest();
   const value = await act();
   const started = now();
   if (before === undefined) return { value, effect: { screenChanged: null, settledMs: 0, reason: "window_not_captured" } };

@@ -68,6 +68,8 @@ async function runOcr(input: { imagePath: string; source: "agenthost_screenshot"
   const command = context.tesseractPath ?? await findCommandPath("tesseract", context.env === undefined ? {} : { env: context.env });
   if (command === undefined) return { supported: false, backend: "unavailable", mode: input.mode, textItems: [], groups: [], targetCandidates: [], warnings: [], redactionCounts: {}, truncated: false, reason: "ocr_backend_unavailable" };
   const env: NodeJS.ProcessEnv = {}; for (const key of ["PATH", "LANG", "LC_ALL", "TESSDATA_PREFIX"]) if (context.env?.[key] ?? process.env[key]) env[key] = context.env?.[key] ?? process.env[key];
+  // Tesseract's own threads fight each other on many-core machines: one thread read a 1509x1048 window in 0.59 s, the default took 1.00 s.
+  env.OMP_THREAD_LIMIT = context.env?.OMP_THREAD_LIMIT ?? process.env.OMP_THREAD_LIMIT ?? "1";
   const run = context.run ?? runTesseract; const result = await run(command, [input.imagePath, "stdout", "--psm", "11", "tsv"], env);
   if (result.timedOut) return { supported: false, backend: "tesseract", mode: input.mode, textItems: [], groups: [], targetCandidates: [], warnings: [], redactionCounts: {}, truncated: result.truncated, reason: "ocr_timeout" };
   if (result.exitCode !== 0) return { supported: false, backend: "tesseract", mode: input.mode, textItems: [], groups: [], targetCandidates: [], warnings: [], redactionCounts: {}, truncated: result.truncated, reason: "ocr_failed" };

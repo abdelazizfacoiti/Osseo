@@ -179,6 +179,21 @@ async function main() {
     // A plan: ten routine steps in one call (verified once, at the end).
     await time("plan: 5 clicks + 5 keys in 1 call", 3, (i) => mcp.call("steps", { steps: [0, 1, 2, 3, 4].flatMap((k) => [{ tool: "click", input: { n: (i + k) % 2 === 0 ? tick : field } }, { tool: "key", input: { keys: "klmnopqrstuvwxyz"[(i * 5 + k) % 16] } }]), stopOnError: true }));
 
+    // A window that does not register with the accessibility bus: `see` must read its text from the screen.
+    const textScript = path.join(root, "probe-text.py");
+    writeFileSync(textScript, PROBE.replace('title="Bench probe"', 'title="Bench text"').replace("w.move(0, 0)", "w.move(430, 0)"));
+    children.push(spawn("python3", ["-W", "ignore", textScript], { env: { ...process.env, DISPLAY: display, NO_AT_BRIDGE: "1", GTK_A11Y: "none" }, stdio: "ignore" }));
+    await sleep(2500);
+    const windowsNow = await mcp.call("windows", {});
+    const lastProbe = (windowsNow.body?.data?.windows ?? []).find((entry) => /Bench text/.test(entry.title ?? ""));
+    if (lastProbe !== undefined) {
+      await mcp.call("windows", { focus: lastProbe.windowId });
+      let source = "?";
+      await time("see (screen text, no accessibility): first read", 1, async () => { const r = await mcp.call("see", { picture: "none" }); source = String(r.body?.data?.source ?? JSON.stringify(Object.keys(r.body?.data ?? {}))); return r; });
+      await time("see (screen text, no accessibility): same window again", 4, () => mcp.call("see", { picture: "none" }));
+      console.log(`  note: the text-only window was read by: ${source}`);
+    }
+
     console.log(`\nDesktop action latency on ${display} (overlay ${flag("overlay") ? "on" : "off"}), ${RUNS} runs per action\n`);
     console.log("| action | median ms | p90 ms | failed |");
     console.log("|---|---:|---:|---:|");
