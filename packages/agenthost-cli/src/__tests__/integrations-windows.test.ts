@@ -1,12 +1,26 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { claudeAttentionHooks, claudeHooksAdd, claudeHooksRemove, claudeHooksStatus, claudeSettingsPath } from "../hooks.js";
 import { integrationAdd, integrationConfigPath, integrationRemove, integrationStatus, serverCommand, type IntegrationPaths } from "../integrations.js";
 import { codexNotifyAdd, codexNotifyLine, codexNotifyRemove, codexNotifyState } from "../codex-notify.js";
 
 const roots: string[] = [];
+// These cases describe an installed copy: `agenthost` is on PATH. CI runners have no install, so put a stand-in
+// launcher on PATH for the duration of the file (serverCommand falls back to node without one, tested below).
+const savedPath = process.env.PATH;
+let launcherDir = "";
+beforeAll(async () => {
+  launcherDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-winint-bin-"));
+  await writeFile(path.join(launcherDir, "agenthost.cmd"), "@echo off\r\n");
+  await writeFile(path.join(launcherDir, "agenthost"), "#!/bin/sh\n");
+  process.env.PATH = `${launcherDir}${path.delimiter}${savedPath ?? ""}`;
+});
+afterAll(async () => {
+  process.env.PATH = savedPath;
+  await rm(launcherDir, { recursive: true, force: true });
+});
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function paths(extra: Partial<IntegrationPaths> = {}): Promise<IntegrationPaths> {
   const home = await mkdtemp(path.join(os.tmpdir(), "agenthost-winint-"));
@@ -18,6 +32,13 @@ describe("integrations with the Windows server command", () => {
   it("starts the server through cmd /c", () => {
     expect(serverCommand("win32")).toEqual({ command: "cmd", args: ["/c", "agenthost", "start"] });
     expect(serverCommand("linux")).toEqual({ command: "agenthost", args: ["start"] });
+  });
+
+  it("runs this copy under node when agenthost is not on PATH (a checkout)", () => {
+    const fallback = serverCommand("win32", () => false);
+    expect(fallback.command).toBe(process.execPath);
+    expect(fallback.args.at(-1)).toBe("start");
+    expect(fallback.args[0]).toMatch(/(agenthost\.mjs|index\.js)$/);
   });
 
   it("writes cmd /c entries for JSON clients and reads them back as configured", async () => {
