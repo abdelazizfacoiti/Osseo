@@ -60,6 +60,11 @@ TIMELINE_GLYPHS = {"done": "✓", "failed": "✕", "waiting": "!", "halted": "�
 TIMELINE_STYLE = {"done": "ah-success", "failed": "ah-failed", "waiting": "ah-warning", "halted": "ah-failed", "running": "ah-active"}
 TIMELINE_MAX_ROWS = 40
 TIMELINE_ID_PREFIX = "agenthost-timeline-"
+
+
+def is_timeline_id(overlay_id):
+    """True for a timeline card id. The host adds "<sessionId>::" in front of every id, so look after the last "::"."""
+    return str(overlay_id).rsplit("::", 1)[-1].startswith(TIMELINE_ID_PREFIX)
 # Presses that grant something. Stop and Pause only ever halt the agent, so a
 # failed hardware check must never get in the way of them.
 TRUST_EVENTS = {"accepted", "always", "continue", "resume"}
@@ -625,7 +630,7 @@ class Renderer:
             return
         status, action, attention, error = "idle", "Idle", False, False
         for overlay_id, record in self.records.items():
-            if str(overlay_id).startswith(TIMELINE_ID_PREFIX):
+            if is_timeline_id(overlay_id):
                 payload = record.get("payload") or {}
                 status, action, attention, error = rail_status(component_rows(payload))
         rail["status"], rail["attention"], rail["error"] = status, attention, error
@@ -1469,7 +1474,7 @@ class Renderer:
 
     def is_dock_card(self, record):
         payload = record.get("payload") or {}
-        is_timeline = str(record.get("overlayId", "")).startswith(TIMELINE_ID_PREFIX)
+        is_timeline = is_timeline_id(record.get("overlayId", ""))
         return self.dock_geometry() is not None and (is_timeline or str(payload.get("placement", "top_right")).startswith("bottom"))
 
     def layout_dock(self):
@@ -1485,7 +1490,7 @@ class Renderer:
             if record is None or not self.is_dock_card(record):
                 continue
             measured = (card, *self.measure_card(card, width, record))
-            if str(overlay_id).startswith(TIMELINE_ID_PREFIX):
+            if is_timeline_id(overlay_id):
                 timeline = measured
             else:
                 bottom.append(measured)
@@ -2039,7 +2044,7 @@ class Renderer:
         if self.visual.get("layout") not in {"dock", "rail"} or record.get("type", "widget") not in CARD_TYPES:
             return False
         payload = record.get("payload") or {}
-        return str(record.get("overlayId", "")).startswith(TIMELINE_ID_PREFIX) or str(payload.get("placement", "top_right")).startswith("bottom")
+        return is_timeline_id(record.get("overlayId", "")) or str(payload.get("placement", "top_right")).startswith("bottom")
 
     def schedule_dock_release(self):
         # Give the reserved strut back once no dock card remains. The grace
