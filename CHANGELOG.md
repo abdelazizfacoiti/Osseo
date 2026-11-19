@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Several sessions on one host share a single history panel (it shows whichever session acted last) instead of stacking one per session, and an older, slower frame update can no longer dismiss a newer one (the edge frame could vanish).
+
 - Sessions share one host by default on Linux: `agenthost start` sets `AGENTHOST_HOST=1` (set it to `0` to opt out) and falls back to the in-process server if no host can be reached. One host means one overlay renderer and one dock, so a second session no longer fights the first.
 - `overlay.frameIdleMs` (default 120000, `0` keeps it): with `frame: "always"` the gray frame goes away after that long with no action and returns with the next one.
 

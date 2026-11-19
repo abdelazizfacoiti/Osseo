@@ -339,6 +339,24 @@ describe("automatic action overlay", () => {
     await overlay.close();
   });
 
+  it('frame "always": a slow older frame update does not dismiss the newer one', async () => {
+    const fake = fakeManager();
+    const original = fake.manager.showPrimitive;
+    let slow = true;
+    (fake.manager as unknown as { showPrimitive: unknown }).showPrimitive = async (primitive: Parameters<typeof original>[0]) => {
+      const first = slow && primitive.type === "frame" && primitive.style?.semantic === "info";
+      if (first) { slow = false; await new Promise((resolve) => setTimeout(resolve, 40)); }
+      return original(primitive);
+    };
+    const overlay = new ToolActionOverlay(fake.manager, { widgetId: "action-card", frame: "always", frameIdleMs: 0, targetRing: false, minDisplayMs: 0 });
+    await overlay.startFrame();
+    const handle = await overlay.begin({ tool: "windows", summary: "List windows", riskLevel: "low" });
+    await handle.finish(toolSuccess({ tool: "windows", riskLevel: "low", data: {} }));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    expect(fake.dismiss.mock.calls.filter((call) => String(call[0]).endsWith("-frame")).length).toBe(0);
+    await overlay.close();
+  });
+
   it('frame "always" retries the first frame while the renderer is still starting', async () => {
     const fake = fakeManager();
     let refusals = 2;

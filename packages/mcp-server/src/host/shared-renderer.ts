@@ -19,6 +19,9 @@ import type {
  */
 
 const SEPARATOR = "::";
+const TIMELINE_PREFIX = "agenthost-timeline-";
+/** One history panel for the whole host: every session's timeline is drawn into this widget, newest writer showing. */
+const SHARED_TIMELINE_ID = `${TIMELINE_PREFIX}host`;
 const MAX_QUEUED_EVENTS = 200;
 export const DEFAULT_RENDERER_DRAIN_MS = 250;
 
@@ -33,6 +36,8 @@ export class SharedRendererHub {
   #timer: NodeJS.Timeout | undefined;
   #draining = false;
   #dropped = 0;
+  /** The session whose timeline is on screen now, and the id that session knows it by. */
+  timelineOwner: { sessionId: string; localId: string } | undefined;
   #closed = false;
 
   constructor(renderer: OverlayRenderer, options: SharedRendererHubOptions = {}) {
@@ -88,6 +93,13 @@ export class SharedRendererHub {
   forgetAllOverlays(): void { for (const proxy of this.#proxies.values()) proxy.forgetOverlays(); }
 
   #route(event: OverlayWidgetEvent): void {
+    if (event.overlayId === SHARED_TIMELINE_ID) {
+      // The shared history panel: its events go to the session that last drew it.
+      const owner = this.timelineOwner === undefined ? undefined : this.#proxies.get(this.timelineOwner.sessionId);
+      if (owner === undefined || this.timelineOwner === undefined) { this.#dropped += 1; return; }
+      owner.deliver({ ...event, overlayId: this.timelineOwner.localId, ownerSessionId: owner.sessionId });
+      return;
+    }
     const cut = event.overlayId.indexOf(SEPARATOR);
     const proxy = cut > 0 ? this.#proxies.get(event.overlayId.slice(0, cut)) : undefined;
     if (proxy === undefined) { this.#dropped += 1; return; }
@@ -122,9 +134,22 @@ export class SessionRendererProxy implements OverlayRenderer {
 
   #wire(overlayId: string): string { return `${this.sessionId}${SEPARATOR}${overlayId}`; }
 
+  /** Timeline widgets share one wire id, so the dock holds a single history panel instead of one per session. */
+  #isTimeline(overlayId: string): boolean { return overlayId.startsWith(TIMELINE_PREFIX); }
+
+  #takeTimeline(localId: string): void { this.#hub.timelineOwner = { sessionId: this.sessionId, localId }; }
+
+  async #upsertTimeline(record: OverlayRenderRecord): Promise<OverlayOperationResult> {
+    this.#takeTimeline(record.overlayId);
+    const shared = { ...record, overlayId: SHARED_TIMELINE_ID };
+    const updated = await this.#renderer.update(shared);
+    return updated.ok ? updated : await this.#renderer.show(shared);
+  }
+
   capabilities(): Promise<OverlayCapabilityReport> | OverlayCapabilityReport { return this.#renderer.capabilities(); }
 
   async show(record: OverlayRenderRecord): Promise<OverlayOperationResult> {
+    if (this.#isTimeline(record.overlayId)) return await this.#upsertTimeline(record);
     const wire = this.#wire(record.overlayId);
     const result = await this.#renderer.show({ ...record, overlayId: wire });
     if (result.ok) this.#own.add(wire);
@@ -132,10 +157,17 @@ export class SessionRendererProxy implements OverlayRenderer {
   }
 
   async update(record: OverlayRenderRecord): Promise<OverlayOperationResult> {
+    if (this.#isTimeline(record.overlayId)) return await this.#upsertTimeline(record);
     return await this.#renderer.update({ ...record, overlayId: this.#wire(record.overlayId) });
   }
 
   async dismiss(overlayId: string): Promise<OverlayOperationResult> {
+    if (this.#isTimeline(overlayId)) {
+      // Only the session whose panel is showing can take it down; another session's panel stays.
+      if (this.#hub.timelineOwner?.sessionId !== this.sessionId) return { ok: true, reason: "overlay_not_owned", acknowledged: true };
+      this.#hub.timelineOwner = undefined;
+      return await this.#renderer.dismiss(SHARED_TIMELINE_ID);
+    }
     const wire = this.#wire(overlayId);
     this.#own.delete(wire);
     return await this.#renderer.dismiss(wire);
@@ -145,6 +177,10 @@ export class SessionRendererProxy implements OverlayRenderer {
   async clear(): Promise<OverlayOperationResult> {
     const ids = [...this.#own];
     this.#own.clear();
+    if (this.#hub.timelineOwner?.sessionId === this.sessionId) {
+      this.#hub.timelineOwner = undefined;
+      try { await this.#renderer.dismiss(SHARED_TIMELINE_ID); } catch { /* best effort */ }
+    }
     for (const id of ids) try { await this.#renderer.dismiss(id); } catch { /* best effort */ }
     return { ok: true, reason: "overlays_cleared", acknowledged: true };
   }
@@ -195,5 +231,5 @@ export class SessionRendererProxy implements OverlayRenderer {
   }
 
   /** @internal */
-  forgetOverlays(): void { this.#own.clear(); }
+  forgetOverlays(): void { this.#own.clear(); this.#hub.timelineOwner = undefined; }
 }

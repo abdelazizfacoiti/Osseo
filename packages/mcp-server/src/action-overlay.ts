@@ -180,6 +180,8 @@ export class ToolActionOverlay {
   readonly #frameIdleMs: number;
   #frameIdleTimer: ReturnType<typeof setTimeout> | undefined;
   #frameIdleHidden = false;
+  /** True from a show request until the frame is taken down on purpose; a slow older show must not dismiss a newer one. */
+  #frameWanted = false;
   #ringGeneration = 0;
 
   constructor(manager: OverlayManager, options: ToolActionOverlayOptions = {}) {
@@ -518,6 +520,7 @@ export class ToolActionOverlay {
       this.#frameIdleTimer = undefined;
       if (this.#disposed || this.#active.size > 0) return;
       this.#frameIdleHidden = true;
+      this.#frameWanted = false;
       this.#frameGeneration++;
       this.#framePromise = undefined;
       this.#framePhase = undefined;
@@ -529,6 +532,7 @@ export class ToolActionOverlay {
 
   async #showFrame(semantic: "neutral" | "info" | "success" | "warning" | "danger", animated: boolean): Promise<void> {
     const generation = ++this.#frameGeneration;
+    this.#frameWanted = true;
     const promise = (async () => {
       try {
         const result = await this.#manager.showPrimitive({
@@ -541,7 +545,7 @@ export class ToolActionOverlay {
         });
         if (generation === this.#frameGeneration) {
           this.#frameStarted = result.ok;
-        } else if (result.ok) {
+        } else if (result.ok && !this.#frameWanted) {
           try { await this.#manager.dismiss(this.#frameOverlayId()); } catch { /* Best effort. */ }
         }
       } catch {
@@ -575,6 +579,7 @@ export class ToolActionOverlay {
       return;
     }
     if (this.#frameKeepAlive !== undefined) { clearInterval(this.#frameKeepAlive); this.#frameKeepAlive = undefined; }
+    this.#frameWanted = false;
     this.#frameGeneration++;
     this.#framePromise = undefined;
     this.#framePhase = undefined;

@@ -19,6 +19,35 @@ function event(overlayId: string, owner = "x"): OverlayWidgetEvent {
 }
 const rec = (overlayId: string) => ({ overlayId, type: "widget", payload: { label: overlayId } });
 
+describe("shared history panel", () => {
+  it("draws every session's timeline into one widget, routes its events to the last writer, and keeps it up when another session leaves", async () => {
+    const renderer = new HeadlessOverlayRenderer();
+    const hub = new SharedRendererHub(renderer, { drainMs: 10_000 });
+    const a = hub.proxyFor("h_a");
+    const b = hub.proxyFor("h_b");
+    const calls: string[] = [];
+    vi.spyOn(renderer, "update").mockImplementation((r) => { calls.push(`update ${r.overlayId}`); return calls.length === 1 ? { ok: false, reason: "overlay_not_found" } : { ok: true, reason: "ok" }; });
+    vi.spyOn(renderer, "show").mockImplementation((r) => { calls.push(`show ${r.overlayId}`); return { ok: true, reason: "ok", acknowledged: true }; });
+    const dismissed: string[] = [];
+    vi.spyOn(renderer, "dismiss").mockImplementation((id) => { dismissed.push(id); return { ok: true, reason: "ok" }; });
+
+    await a.show(rec("agenthost-timeline-h_a"));
+    await b.update(rec("agenthost-timeline-h_b"));
+    expect(calls).toEqual(["update agenthost-timeline-host", "show agenthost-timeline-host", "update agenthost-timeline-host"]);
+
+    renderer.pushEvent(event("agenthost-timeline-host"));
+    await hub.drainNow();
+    expect(b.drainEvents().map((e) => e.overlayId)).toEqual(["agenthost-timeline-h_b"]);
+    expect(a.drainEvents()).toEqual([]);
+
+    // The session that is not showing its panel cannot take it down; the one that is, can.
+    await a.dismiss("agenthost-timeline-h_a");
+    expect(dismissed).toEqual([]);
+    await hub.release("h_b");
+    expect(dismissed).toEqual(["agenthost-timeline-host"]);
+  });
+});
+
 describe("shared renderer hub", () => {
   it("namespaces ids and keeps each session's events and clear() separate", async () => {
     const renderer = new HeadlessOverlayRenderer();
