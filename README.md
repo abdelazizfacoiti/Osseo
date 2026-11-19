@@ -60,11 +60,11 @@ In prompts, say "use AgentHost" rather than "don't use MCP": AgentHost is itself
 
 ## What you see
 
-The screen edge shows the state at a glance, and the panel on the right keeps a timeline of every action with Pause and Stop.
+The screen edge shows the state at a glance, and the panel on the right keeps a timeline of every action with Pause and Stop. Several agent sessions share one panel through a small local host, so they never fight over the screen.
 
 | Edge | Meaning |
 |---|---|
-| Gray | on and idle (with `"overlay": { "frame": "always" }` in `~/.config/agenthost/config.json`) |
+| Gray | on and idle (with `"overlay": { "frame": "always" }` in `~/.config/agenthost/config.json`); it fades after 2 minutes without an action (`"frameIdleMs"`, 0 keeps it) |
 | Blue | an action is running |
 | Green | done |
 | Amber | waiting for your approval, or paused |
@@ -78,6 +78,7 @@ The screen edge shows the state at a glance, and the panel on the right keeps a 
 
 - **Sees and acts by number.** `see` lists a window's controls as `[1] button "Save"`, and `click`, `type`, `key`, `scroll` take the number. Typed values are read back, and every action reports whether the screen changed.
 - **Picks the best route.** Browser pages and accessibility trees come before screenshots and pixel clicks.
+- **Fast.** On our benchmark a verified key takes 0.4 s and reading a window takes 50 ms with an accessibility tree. `steps` and `key {sequence}` batch routine work into one call ([measurements](docs/notes/speed-plan.md)).
 - **Drives a browser** on its own Chrome profile, never yours.
 - **Files and shell**, with protected system paths blocked.
 - **Tasks and workflows.** Save steps as workflows and run them on a schedule.
