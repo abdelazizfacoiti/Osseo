@@ -18,7 +18,7 @@ const runtimeDir = path.dirname(trayPy);
 const hasSession = spawnSync("dbus-run-session", ["--version"]).status === 0;
 const hasGi = spawnSync("python3", ["-c", "import gi; gi.require_version('Gio','2.0')"]).status === 0;
 
-describe("tray.py actions", () => {
+describe.skipIf(!hasGi)("tray.py actions", () => {
   it("builds the exact fixed argument lists", () => {
     const script = [
       "import json, sys",
