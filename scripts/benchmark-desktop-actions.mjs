@@ -216,7 +216,7 @@ async function main() {
   } finally {
     for (const child of children.reverse()) { try { child.kill("SIGTERM"); } catch { /* gone */ } }
     await sleep(800);
-    try { rmSync(root, { recursive: true, force: true }); } catch { /* temp */ }
+    try { rmSync(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 }); } catch { /* temp */ }
     bus.stop();
   }
 }

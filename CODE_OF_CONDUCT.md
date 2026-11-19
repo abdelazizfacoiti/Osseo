@@ -6,8 +6,9 @@ changes aligned with the project's fail-closed design.
 
 Unacceptable behavior includes harassment, doxxing, sharing credentials or
 private data, proposing security bypasses, or submitting changes that hide
-external effects. Report concerns privately to the maintainers listed in
-`SUPPORT.md`; do not include secrets or private logs.
+external effects. Report concerns privately to the maintainer through the repository's
+Security tab ("Report a vulnerability") or a private message to the repository
+owner on GitHub; do not include secrets or private logs.
 
 Maintainers may remove comments, reject changes, or restrict participation to
 protect contributors and users. This code of conduct applies to issues,

@@ -242,8 +242,8 @@ async function runTask(task, root) {
     failure = error instanceof Error ? error.message.slice(0, 160) : "harness error";
   } finally {
     await stopServer(server);
-    rmSync(home, { recursive: true, force: true });
-    rmSync(work, { recursive: true, force: true });
+    try { rmSync(home, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 }); } catch { /* temp files only: a leftover must not fail the run */ }
+    try { rmSync(work, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 }); } catch { /* temp files only: a leftover must not fail the run */ }
   }
   return {
     id: task.id,
@@ -306,7 +306,7 @@ async function main() {
       perTask.push({ task, runs });
     }
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    try { rmSync(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 }); } catch { /* temp files only: a leftover must not fail the run */ }
   }
 
   const rows = perTask.map(({ runs }) => mergeRuns(runs));

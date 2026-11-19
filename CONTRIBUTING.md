@@ -1,6 +1,13 @@
 # Contributing
 
-AgentHost is provider-agnostic and safety-first. Changes must preserve schema validation, policy/grant checks, dry-run and single-use confirmation boundaries, stop/takeover gates, target binding, redaction, and audit logging.
+AgentHost is provider-agnostic and safety-first. Changes must preserve schema validation, the policy file and its floors, dry-run and single-use confirmation boundaries, stop/takeover gates, target binding, redaction, and audit logging.
+
+## Workflow
+
+- `main` is stable; work happens on `develop`. Fork the repository, branch from `develop`, and open the pull request against `develop`.
+- Keep a change small and say what you ran. Use a short imperative commit subject (`fix(overlay): ...`, `feat(cli): ...`).
+- Add or update a test next to the code (`__tests__/` in each package). Node 20 or newer.
+- Report vulnerabilities privately, see `SECURITY.md`.
 
 Before submitting a change:
 

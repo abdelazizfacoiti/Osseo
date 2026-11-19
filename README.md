@@ -105,3 +105,5 @@ The screen edge shows the state at a glance, and the panel on the right keeps a 
 [Docs index](docs/INDEX.md) · [Tools](docs/03_MCP_TOOLS_AND_ADAPTERS.md) · [Security](docs/04_SECURITY_PERMISSIONS_AND_LOGGING.md) · [Platforms](docs/13_PLATFORMS.md) · [Agent skill](skills/agenthost/SKILL.md) · [Contributing](CONTRIBUTING.md)
 
 Early software with a single maintainer; tool names and configuration may change. Apache-2.0, see [LICENSE](LICENSE).
+
+AgentHost is an independent project, not affiliated with or endorsed by Anthropic, OpenAI, GitHub, Microsoft or Cursor. Product names are trademarks of their owners and are used only to say which clients it works with.

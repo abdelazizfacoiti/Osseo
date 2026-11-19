@@ -64,7 +64,8 @@ print(json.dumps({
 });
 
 describe("rail on a nested display", () => {
-  it("passes the selftest (skips without Xephyr or python3-gi)", () => {
+  // The self-test starts a nested X server inside the current display, so it cannot run without one.
+  it.skipIf(!process.env.DISPLAY)("passes the selftest (skips without Xephyr or python3-gi)", () => {
     const result = spawnSync("python3", [`${runtimeDir}rail_selftest.py`], { encoding: "utf8", timeout: 90_000 });
     if (result.status === 77) return;
     expect(result.stdout + result.stderr).toContain("RESULT PASS");

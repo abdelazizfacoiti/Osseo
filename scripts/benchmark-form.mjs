@@ -377,7 +377,7 @@ async function main() {
     results.push(await runBrowserRoute(root));
     results.push(await runPixelRoute("numbered", freeDisplay(149), numberedRoute, root));
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    try { rmSync(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 }); } catch { /* temp files only: a leftover must not fail the run */ }
     bus.stop();
   }
 
