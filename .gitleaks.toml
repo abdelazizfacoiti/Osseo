@@ -6,7 +6,12 @@ title = "AgentHost gitleaks config"
 useDefault = true
 
 [allowlist]
-description = "Fake secrets used by redaction tests"
+description = "Fake secrets used by redaction tests, and the extension's public key"
+# A Chrome extension manifest "key" is the extension's PUBLIC key (an SPKI blob starting MIIBIjANBgkq...). It pins the
+# extension id and is published in every packed extension. No private key is stored in this repository.
+regexes = [
+  '''"key":\s*"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA[A-Za-z0-9+/=]+"''',
+]
 paths = [
   '''__tests__/''',
   '''/dist/''',
