@@ -3,15 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { getDefaultPolicy, invalidatePolicyCache, prepareConfirmation, readConfirmation, toolSuccess, type AuditLogEntry, type RiskLevel, type ToolExecutionMetadata } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy, invalidatePolicyCache, prepareConfirmation, readConfirmation, toolSuccess, type AuditLogEntry, type RiskLevel, type ToolExecutionMetadata } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 import { askInChat, askInChatDetailed, type ElicitFn } from "../chat-approval.js";
-import { runTool, type AgentHostToolDefinition, type ToolPreviewEffect } from "../tool-runner.js";
+import { runTool, type OsseoToolDefinition, type ToolPreviewEffect } from "../tool-runner.js";
 
 const SESSION = "always-allow-test";
 const dirs: string[] = [];
 async function tempHome(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-always-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-always-"));
   dirs.push(dir);
   return dir;
 }
@@ -30,14 +30,14 @@ const stateChanging: ToolExecutionMetadata = {
   availability: "available"
 };
 
-function makeContext(home: string, logs: AuditLogEntry[]): AgentHostMcpContext {
+function makeContext(home: string, logs: AuditLogEntry[]): OsseoMcpContext {
   return {
     sessionId: SESSION,
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async (entry: AuditLogEntry) => { logs.push(entry); } },
     linux: {}
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
 function fake(name: string, actionType: string, effect: ToolPreviewEffect) {
@@ -53,10 +53,10 @@ function fake(name: string, actionType: string, effect: ToolPreviewEffect) {
     preview: { isDryRun: (i: { dryRun?: boolean }) => i.dryRun === true, resolveEffect: () => effect },
     execution: stateChanging,
     handler: async () => { ran.count += 1; return toolSuccess({ tool: name, riskLevel: "medium", data: {} }); }
-  } as unknown as AgentHostMcpLike;
+  } as unknown as OsseoMcpLike;
   return { tool, ran };
 }
-type AgentHostMcpLike = AgentHostToolDefinition<{ confirmationToken?: string; dryRun?: boolean }, unknown>;
+type OsseoMcpLike = OsseoToolDefinition<{ confirmationToken?: string; dryRun?: boolean }, unknown>;
 
 const slackSend = (app: string | undefined): ToolPreviewEffect => ({
   summary: "Send a message",
@@ -89,7 +89,7 @@ describe("Always allow here in chat", () => {
   it("alwaysAllow writes exactly one rule and the next identical action needs no approval", async () => {
     const home = await tempHome();
     const { tokenId, logs } = await pendingSend(home);
-    const outcome = await askInChatDetailed({ agentHostDir: home, sessionId: SESSION, tokenId, elicit: accept(true) });
+    const outcome = await askInChatDetailed({ osseoDir: home, sessionId: SESSION, tokenId, elicit: accept(true) });
     expect(outcome.outcome).toBe("approved");
     expect(outcome.policy?.written).toBe(true);
     expect((await readConfirmation(home, tokenId))?.status).toBe("accepted");
@@ -97,7 +97,7 @@ describe("Always allow here in chat", () => {
     const text = await readFile(policyFile(home), "utf8");
     expect(allowRules(text)).toBe(1);
     expect(text).toContain("app = \"Slack\"\naction = \"send\"\ndecision = \"allow\"\nnote = \"added from an approval prompt\"");
-    expect(text.startsWith("# AgentHost policy.")).toBe(true); // comments of the default file kept
+    expect(text.startsWith("# Osseo policy.")).toBe(true); // comments of the default file kept
 
     const again = fake("test.send", "communication_send", slackSend("Slack"));
     const result = await runTool(again.tool, {}, makeContext(home, logs));
@@ -114,7 +114,7 @@ describe("Always allow here in chat", () => {
     for (const choice of [false, undefined]) {
       const home = await tempHome();
       const { tokenId } = await pendingSend(home);
-      const outcome = await askInChatDetailed({ agentHostDir: home, sessionId: SESSION, tokenId, elicit: accept(choice) });
+      const outcome = await askInChatDetailed({ osseoDir: home, sessionId: SESSION, tokenId, elicit: accept(choice) });
       expect(outcome).toEqual({ outcome: "approved" });
       expect((await readConfirmation(home, tokenId))?.status).toBe("accepted");
       expect(await exists(policyFile(home))).toBe(false);
@@ -125,19 +125,19 @@ describe("Always allow here in chat", () => {
     const home = await tempHome();
     const { tokenId } = await pendingSend(home);
     let schema: { properties: Record<string, { title: string; description: string }>; required?: string[] } | undefined;
-    await askInChat({ agentHostDir: home, sessionId: SESSION, tokenId, elicit: async (params) => { schema = params.requestedSchema as never; return { action: "cancel" }; } });
+    await askInChat({ osseoDir: home, sessionId: SESSION, tokenId, elicit: async (params) => { schema = params.requestedSchema as never; return { action: "cancel" }; } });
     expect(schema?.properties.alwaysAllow?.title).toBe("Always allow this kind of action in this app");
-    expect(schema?.properties.alwaysAllow?.description).toContain("agenthost policy remove");
+    expect(schema?.properties.alwaysAllow?.description).toContain("osseo policy remove");
     expect(schema?.required).toEqual(["approve"]);
   });
 
   it("decline and cancel never write a rule", async () => {
     const home = await tempHome();
     const { tokenId } = await pendingSend(home);
-    expect((await askInChatDetailed({ agentHostDir: home, sessionId: SESSION, tokenId, elicit: async () => ({ action: "decline", content: { alwaysAllow: true } }) })).outcome).toBe("denied");
+    expect((await askInChatDetailed({ osseoDir: home, sessionId: SESSION, tokenId, elicit: async () => ({ action: "decline", content: { alwaysAllow: true } }) })).outcome).toBe("denied");
     expect(await exists(policyFile(home))).toBe(false);
     const second = await pendingSend(home);
-    expect((await askInChatDetailed({ agentHostDir: home, sessionId: SESSION, tokenId: second.tokenId, elicit: async () => ({ action: "accept", content: { approve: false, alwaysAllow: true } }) })).outcome).toBe("denied");
+    expect((await askInChatDetailed({ osseoDir: home, sessionId: SESSION, tokenId: second.tokenId, elicit: async () => ({ action: "accept", content: { approve: false, alwaysAllow: true } }) })).outcome).toBe("denied");
     expect(await exists(policyFile(home))).toBe(false);
   });
 
@@ -152,8 +152,8 @@ describe("Always allow here in chat", () => {
   ];
   it.each(refused)("%s approves once and writes nothing", async (_name, policyTarget, riskLevel) => {
     const home = await tempHome();
-    const record = await prepareConfirmation({ agentHostDir: home, tool: "test.send", riskLevel, args: {}, summary: "Send", sessionId: SESSION, ...(policyTarget === undefined ? {} : { policyTarget }) });
-    const outcome = await askInChatDetailed({ agentHostDir: home, sessionId: SESSION, tokenId: record.tokenId, elicit: accept(true) });
+    const record = await prepareConfirmation({ osseoDir: home, tool: "test.send", riskLevel, args: {}, summary: "Send", sessionId: SESSION, ...(policyTarget === undefined ? {} : { policyTarget }) });
+    const outcome = await askInChatDetailed({ osseoDir: home, sessionId: SESSION, tokenId: record.tokenId, elicit: accept(true) });
     expect(outcome.outcome).toBe("approved");
     expect(outcome.policy?.written).toBe(false);
     expect(outcome.policy !== undefined && !outcome.policy.written && outcome.policy.message.length).toBeGreaterThan(10);
@@ -163,8 +163,8 @@ describe("Always allow here in chat", () => {
 
   it("a site is enough when the app is unknown (browser tools)", async () => {
     const home = await tempHome();
-    const record = await prepareConfirmation({ agentHostDir: home, tool: "browser.click", riskLevel: "high", args: {}, summary: "Place order", sessionId: SESSION, policyTarget: { site: "shop.example.com", category: "pay" } });
-    const outcome = await askInChatDetailed({ agentHostDir: home, sessionId: SESSION, tokenId: record.tokenId, elicit: accept(true) });
+    const record = await prepareConfirmation({ osseoDir: home, tool: "browser.click", riskLevel: "high", args: {}, summary: "Place order", sessionId: SESSION, policyTarget: { site: "shop.example.com", category: "pay" } });
+    const outcome = await askInChatDetailed({ osseoDir: home, sessionId: SESSION, tokenId: record.tokenId, elicit: accept(true) });
     expect(outcome.policy?.written).toBe(true);
     expect(await readFile(policyFile(home), "utf8")).toContain("site = \"shop.example.com\"\naction = \"pay\"\ndecision = \"allow\"");
   });
@@ -172,12 +172,12 @@ describe("Always allow here in chat", () => {
   it("a duplicate writes nothing and says so", async () => {
     const home = await tempHome();
     const first = await pendingSend(home);
-    await askInChat({ agentHostDir: home, sessionId: SESSION, tokenId: first.tokenId, elicit: accept(true) });
+    await askInChat({ osseoDir: home, sessionId: SESSION, tokenId: first.tokenId, elicit: accept(true) });
     const before = await readFile(policyFile(home), "utf8");
     const rules = countRules(before);
     // The same approval again, as if a second prompt was shown before the rule existed.
-    const record = await prepareConfirmation({ agentHostDir: home, tool: "test.send", riskLevel: "high", args: { n: 2 }, summary: "Send", sessionId: SESSION, policyTarget: { app: "Slack", category: "send" } });
-    const outcome = await askInChatDetailed({ agentHostDir: home, sessionId: SESSION, tokenId: record.tokenId, elicit: accept(true) });
+    const record = await prepareConfirmation({ osseoDir: home, tool: "test.send", riskLevel: "high", args: { n: 2 }, summary: "Send", sessionId: SESSION, policyTarget: { app: "Slack", category: "send" } });
+    const outcome = await askInChatDetailed({ osseoDir: home, sessionId: SESSION, tokenId: record.tokenId, elicit: accept(true) });
     expect(outcome.policy).toMatchObject({ written: false, reason: "already_allowed" });
     const after = await readFile(policyFile(home), "utf8");
     expect(after).toBe(before);

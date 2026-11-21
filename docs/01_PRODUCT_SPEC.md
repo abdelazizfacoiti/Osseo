@@ -1,4 +1,4 @@
-# AgentHost Product Specification
+# Osseo Product Specification
 
 > **Current minimal-v2 status:** only the 38 tools documented in
 > `docs/03_MCP_TOOLS_AND_ADAPTERS.md` are registered. Browser Bridge,
@@ -8,11 +8,11 @@
 
 ## Product definition
 
-AgentHost is a local general-purpose computer-use agent: a safe, permissioned body for Codex and other agents on a real workstation. The model reasons about a user goal and uses the computer's available interfaces to accomplish it — inspecting the environment, planning, acting, observing results, verifying outcomes, and recovering from failures. It is also a visual copilot for showing bounded, operator-visible guidance. The core is provider-agnostic and application-agnostic; product examples never become hardcoded architecture.
+Osseo is a local general-purpose computer-use agent: a safe, permissioned body for Codex and other agents on a real workstation. The model reasons about a user goal and uses the computer's available interfaces to accomplish it — inspecting the environment, planning, acting, observing results, verifying outcomes, and recovering from failures. It is also a visual copilot for showing bounded, operator-visible guidance. The core is provider-agnostic and application-agnostic; product examples never become hardcoded architecture.
 
 ```text
 Codex / agent
-  -> AgentHost MCP server
+  -> Osseo MCP server
   -> schema + execution metadata + risk + policy + grants
   -> dry-run and confirmation when required
   -> safest available local strategy
@@ -21,10 +21,10 @@ Codex / agent
 
 ## Capability model
 
-AgentHost exposes capability families — computer, filesystem, shell,
+Osseo exposes capability families — computer, filesystem, shell,
 applications/adapters, MCP, vision, OCR, tasks, and agent control — and the model
 composes them dynamically per task. The strategy order below survives only as
-an internal cost/optimization heuristic; it never defines what AgentHost is
+an internal cost/optimization heuristic; it never defines what Osseo is
 capable of doing.
 
 ## Strategy priority (advisory cost order, not a capability boundary)
@@ -46,7 +46,7 @@ V2-A unifies dynamic visual projection behind one owner/session-bound coordinato
 
 V2-B adds `strategy.route_preview`, an advisory action-level router over loaded browser, adapter, accessibility, OCR/vision, desktop, and guide families. It is deterministic, safety-first, bounded, verification-aware, and metrics-backed only by verified outcomes. It does not execute or silently switch tools.
 
-R5 adds an honest Linux x86_64 release-candidate surface around general-purpose computer-use capabilities: rootless archive installation, `agenthost` CLI, resumable setup, redacted doctor diagnostics, Codex MCP integration with preview/backup/rollback, controlled lifecycle, browser/overlay/Control Room/speech onboarding, and deterministic release scans. Packaging adds no execution capability and keeps host dependencies explicit.
+R5 adds an honest Linux x86_64 release-candidate surface around general-purpose computer-use capabilities: rootless archive installation, `osseo` CLI, resumable setup, redacted doctor diagnostics, Codex MCP integration with preview/backup/rollback, controlled lifecycle, browser/overlay/Control Room/speech onboarding, and deterministic release scans. Packaging adds no execution capability and keeps host dependencies explicit.
 
 The default loaded registry currently contains 247 tools with validated explicit execution metadata:
 
@@ -71,7 +71,7 @@ Transmission uses two phases: preparation validates an existing route, artifact,
 
 ## R4 global runtime activity overlay
 
-R4 adds one optional global, non-blocking activity indicator for real AgentHost work. An owner-scoped bounded store normalizes direct tools and subsystem activity into safe lifecycle states, allowlisted labels, elapsed time, authoritative progress, blocker/warning codes, terminal verification, renderer binding, and screenshot-suppression status. Approval waits and policy blocks receive deterministic priority over background metadata.
+R4 adds one optional global, non-blocking activity indicator for real Osseo work. An owner-scoped bounded store normalizes direct tools and subsystem activity into safe lifecycle states, allowlisted labels, elapsed time, authoritative progress, blocker/warning codes, terminal verification, renderer binding, and screenshot-suppression status. Approval waits and policy blocks receive deterministic priority over background metadata.
 
 The indicator is visual-only: click-through, non-focus-stealing, no keyboard interception, and no target-app action. It never renders raw prompts, arguments, page/OCR text, messages, private URLs, filesystem paths, credentials, tokens, or screenshots. GTK3/X11 requires explicit `auto` or `gtk3-x11` renderer configuration; headless and unsupported Wayland sessions report unavailable visibility without claiming success. Screenshots use acknowledged hide/capture/restore. Renderer epochs invalidate stale bindings; Control Room reads same redacted store.
 
@@ -91,7 +91,7 @@ All state-changing execution remains subject to schema validation, execution met
 
 ### Visual-only
 
-Overlay primitives, the GTK/X11 renderer, bounded widgets, visual-assistance sessions, operator control surfaces, overlay events, and `overlay.emergency_hide` are visual/session state only. They never click, type, navigate, or invoke another AgentHost tool. Control surfaces are one-per-owned-assistance-session, expose strict local operator intents, and report current step/progress, blockers, warnings, and renderer health. Emergency hide affects AgentHost-owned overlays only; it is not a global circuit breaker.
+Overlay primitives, the GTK/X11 renderer, bounded widgets, visual-assistance sessions, operator control surfaces, overlay events, and `overlay.emergency_hide` are visual/session state only. They never click, type, navigate, or invoke another Osseo tool. Control surfaces are one-per-owned-assistance-session, expose strict local operator intents, and report current step/progress, blockers, warnings, and renderer health. Emergency hide affects Osseo-owned overlays only; it is not a global circuit breaker.
 
 Read-only assistance projections (`overlay.assistance_step_preview` and `overlay.assistance_session_explain`) expose current-step, waiting, renderer, target-freshness, progress, and blocker summaries without rendering or mutating sessions. Visual-flow templates are constrained metadata records: existing visual primitives/widgets only, declared scalar parameters, literal `{{parameterName}}` substitution, and typed target placeholders. Template preview is read-only; save/archive/instantiate are metadata-only; instantiation creates draft assistance metadata and never starts or renders a session.
 
@@ -160,6 +160,6 @@ Linux is first. X11 supports the GTK3 overlay and pointer/window backends when d
 
 ## Control Room MVP (Milestone A4)
 
-Control Room is local workstation reporting surface for AgentHost runtime. It projects real workflow traces, visual-assistance sessions, Forge runtime metadata, direct tool activity, renderer/browser health, and genuine screenshot metadata into bounded redacted views. It does not create tasks or fabricate timeline events.
+Control Room is local workstation reporting surface for Osseo runtime. It projects real workflow traces, visual-assistance sessions, Forge runtime metadata, direct tool activity, renderer/browser health, and genuine screenshot metadata into bounded redacted views. It does not create tasks or fabricate timeline events.
 
 Control Room is disabled by default, loopback-only, token-protected, and read-only. It cannot execute tools, approve confirmations, grant permissions, start replay, start scheduler jobs, send or submit content, access arbitrary paths, or expose remote endpoints. Screenshot views use opaque IDs and metadata; raw private content remains unavailable.

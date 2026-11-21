@@ -1,5 +1,5 @@
 import type {
-  AgentHostConfig,
+  OsseoConfig,
   AppDetectionResult,
   AppOpenResult,
   AppStrategyResult,
@@ -38,10 +38,10 @@ import type {
   SystemInfo,
   SandboxSupportProbeResult
   ,VisionGroundingResult, VisionMode
-} from "@agenthost/core";
-import type { OverlayManager } from "@agenthost/app-overlay";
-import type { BrowserAutomation, LinuxClipboardResult, RunSafeCommandInput, UrlOpenBrowser, UrlOpenResult } from "@agenthost/os-linux";
-import type { AnyAgentHostToolDefinition } from "./tool-runner.js";
+} from "@osseo/core";
+import type { OverlayManager } from "@osseo/app-overlay";
+import type { BrowserAutomation, LinuxClipboardResult, RunSafeCommandInput, UrlOpenBrowser, UrlOpenResult } from "@osseo/os-linux";
+import type { AnyOsseoToolDefinition } from "./tool-runner.js";
 import type { ToolActionOverlay } from "./action-overlay.js";
 import type { ActionTimeline } from "./action-timeline.js";
 
@@ -104,7 +104,7 @@ export interface LinuxAutomation {
   }): Promise<DesktopClickResult>;
   pointer?(input: { action: "move_mouse" | "scroll" | "double_click" | "right_click" | "drag"; activeWindow: DesktopWindowContext; x?: number; y?: number; direction?: "up" | "down" | "left" | "right"; amount?: number; startX?: number; startY?: number; endX?: number; endY?: number; durationMs?: number }): Promise<DesktopPointerResult>;
   checkSandboxSupport?(): Promise<SandboxSupportProbeResult>;
-  analyzeImage?(input: { imagePath: string; source: "agenthost_screenshot" | "agenthost_output"; basename: string; mode: VisionMode; maxItems: number }): Promise<VisionGroundingResult>;
+  analyzeImage?(input: { imagePath: string; source: "osseo_screenshot" | "osseo_output"; basename: string; mode: VisionMode; maxItems: number }): Promise<VisionGroundingResult>;
   getScreenGeometry?(): Promise<{ supported: boolean; bounds?: { x: number; y: number; width: number; height: number }; reason: string }>;
   /** Resolves on the person's next left-button press inside one of the regions. Read-only; absent on Windows. */
   waitForPointerPress?(input: { regions: Array<{ x: number; y: number; width: number; height: number }>; timeoutMs: number; signal?: AbortSignal }): Promise<{ pressed: true; index: number; x: number; y: number } | { pressed: false; reason: "timeout" | "aborted" | "unavailable"; detail?: string }>;
@@ -165,16 +165,16 @@ export interface LinuxAutomation {
   }): Promise<AccessibilityFocusElementResult>;
 }
 
-export interface AgentHostRuntimeInfo {
+export interface OsseoRuntimeInfo {
   version: string;
   entryPath: string;
   startedAt: string;
 }
 
-export interface AgentHostMcpContext {
+export interface OsseoMcpContext {
   sessionId: string;
-  runtime?: AgentHostRuntimeInfo;
-  config: AgentHostConfig;
+  runtime?: OsseoRuntimeInfo;
+  config: OsseoConfig;
   policy: RuntimePolicy;
   /** True only while the runner executes an exact confirmed effect. */
   confirmationSatisfied?: boolean;
@@ -184,7 +184,7 @@ export interface AgentHostMcpContext {
   logger: AuditLogger;
   /** Development failure log (`logs/failures.jsonl`); optional so tests can omit it. */
   failureLog?: FailureRecorder;
-  /** Optional timestamped phase trace, enabled with AGENTHOST_TRACE=1. */
+  /** Optional timestamped phase trace, enabled with OSSEO_TRACE=1. */
   trace?: ToolTraceLogger;
   /** Internal to a confirmed computer.run_steps execution; never set by MCP input. */
   planApproval?: { planFingerprint: string; maxRisk: "low" | "medium" };
@@ -198,7 +198,7 @@ export interface AgentHostMcpContext {
   /** Captures a screenshot with all visual surfaces temporarily removed. */
   overlayScreenshotSuppression?: <T>(capture: () => Promise<T>) => Promise<T>;
   /**
-   * True when no AgentHost window can overlap the work area (dock layout with reserved space, no floating
+   * True when no Osseo window can overlap the work area (dock layout with reserved space, no floating
    * pill, frame or ring). Window-only captures then need no hide-and-restore, so cards never blink.
    */
   workWindowCaptureClean?: boolean;
@@ -210,20 +210,20 @@ export interface AgentHostMcpContext {
   /** Pixels of always-on edge frame strips along the screen edges (0 when there is none). */
   captureFrameInset?: number;
   /** Live tool definitions for governed nested execution (plan executor). */
-  tools?: Map<string, AnyAgentHostToolDefinition<any>>;
+  tools?: Map<string, AnyOsseoToolDefinition<any>>;
   linux: LinuxAutomation;
 }
 
 /** The plain per-call context the safety classifier needs. */
-export function safetyContext(context: AgentHostMcpContext): {
+export function safetyContext(context: OsseoMcpContext): {
   ownerSessionId: string;
-  agentHostDir: string;
+  osseoDir: string;
   protectedPaths: string[];
   confirmationSatisfied?: boolean;
 } {
   return {
     ownerSessionId: context.sessionId,
-    agentHostDir: context.config.agentHostDir,
+    osseoDir: context.config.osseoDir,
     protectedPaths: [context.config.configPath, context.config.logFile],
     ...(context.confirmationSatisfied === true ? { confirmationSatisfied: true } : {})
   };

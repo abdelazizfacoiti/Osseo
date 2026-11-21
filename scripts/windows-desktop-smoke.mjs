@@ -8,7 +8,7 @@
  *   npm run build && node scripts/windows-desktop-smoke.mjs [--no-input] [--elevated-probe]
  *
  * --no-input        skips the test window (no mouse or keyboard input is sent)
- * --elevated-probe  focus an administrator window within 8 seconds; AgentHost must refuse input to it
+ * --elevated-probe  focus an administrator window within 8 seconds; Osseo must refuse input to it
  *
  * Do not touch the mouse or keyboard while it runs (about 20 seconds). It never sends input outside
  * its own test window.
@@ -54,7 +54,7 @@ ${NATIVE_PS}
 $out = $env:AH_CHECK_OUT
 $probe = $env:AH_CHECK_PROBE
 $form = New-Object System.Windows.Forms.Form
-$form.Text = 'AgentHost Check Window'
+$form.Text = 'Osseo Check Window'
 $form.FormBorderStyle = 'None'
 $form.StartPosition = 'Manual'
 $form.Location = New-Object System.Drawing.Point(200, 200)
@@ -93,11 +93,11 @@ $form.Controls.Add($pw)
 [void]$form.ShowDialog()
 `;
 
-const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-win-desktop-"));
-const helper = new WindowsHelperProcess({ agentHostDir: home });
+const home = mkdtempSync(path.join(os.tmpdir(), "osseo-win-desktop-"));
+const helper = new WindowsHelperProcess({ osseoDir: home });
 const desktop = createWindowsDesktop(helper);
 let formProcess;
-console.log(`AgentHost Windows desktop check, Node ${process.version}, ${os.release()}`);
+console.log(`Osseo Windows desktop check, Node ${process.version}, ${os.release()}`);
 
 try {
   const started = Date.now();
@@ -143,7 +143,7 @@ try {
     for (let i = 0; i < 60 && form === undefined; i += 1) {
       await sleep(500);
       const windows = await desktop.listWindows({ limit: 100, includeTitles: true });
-      form = windows.windows?.find((w) => w.title === "AgentHost Check Window");
+      form = windows.windows?.find((w) => w.title === "Osseo Check Window");
     }
     check("the test window appears in the window list", form !== undefined, "not listed after 30 s");
     if (form !== undefined) {
@@ -205,7 +205,7 @@ try {
       const keysSeen = existsSync(keyFile) ? readFileSync(keyFile, "utf8").trim().split(/\r?\n/).filter((line) => line !== "") : [];
       record("NOTE", "keys the test text box received", keysSeen.length === 0 ? "none" : keysSeen.join(" | "));
       check("the text box received Ctrl+A (the key reached the control)", keysSeen.some((line) => line.startsWith("A ") && line.includes("ctrl=True")), `keys seen: ${keysSeen.join(" | ") || "none"}`);
-      const final = "AgentHost W2 check éè ✓";
+      const final = "Osseo W2 check éè ✓";
       const typed = await desktop.typeText({ text: final, activeWindow: target });
       check("unicode text is pasted", typed.typed === true, typed.reason);
       let inBox = await desktop.readAccessibilityText({ windowId: form.windowId, query: "Name", role: "entry" });

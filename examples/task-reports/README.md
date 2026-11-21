@@ -1,12 +1,12 @@
 # Task reports: shareable run transcripts
 
-`agenthost task export` renders a task's redacted event log — the same
+`osseo task export` renders a task's redacted event log — the same
 bounded summaries `task watch` shows — to a self-contained file you can
 post in issues, PRs, and chat:
 
 ```bash
-agenthost task export <task-id> --format md --out ./run-report.md
-agenthost task export <task-id> --format html --out ./run-report.html
+osseo task export <task-id> --format md --out ./run-report.md
+osseo task export <task-id> --format html --out ./run-report.html
 ```
 
 - Markdown: goal, status/phase table, and a time/kind/summary timeline.

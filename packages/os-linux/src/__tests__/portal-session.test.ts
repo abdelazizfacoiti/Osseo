@@ -59,7 +59,7 @@ for raw in sys.stdin:
         emit({"id": ident, "ok": True})
 `;
 
-const dir = mkdtempSync(path.join(os.tmpdir(), "agenthost-portal-standin-"));
+const dir = mkdtempSync(path.join(os.tmpdir(), "osseo-portal-standin-"));
 const helperPath = path.join(dir, "stand_in_helper.py");
 writeFileSync(helperPath, STAND_IN);
 

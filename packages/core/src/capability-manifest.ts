@@ -39,7 +39,7 @@ function buildDesktopMarkdown(input: CapabilityManifestInput): string {
   const overlay = input.overlay === undefined
     ? ""
     : `\nActivity overlay: mode \`${input.overlay.mode}\`; ${input.overlay.triggers.length === 0 ? "automatic cards are disabled" : `automatic cards cover ${input.overlay.triggers.join(", ")}`}. Fallback status: \`${input.overlay.fallback}\`.\n`;
-  return `# AgentHost capabilities (v${input.version}, ${inventory}, profile desktop)
+  return `# Osseo capabilities (v${input.version}, ${inventory}, profile desktop)
 
 Tools: ${DESKTOP_BRIEF_TOOLS}.
 
@@ -76,9 +76,9 @@ export function buildCapabilityMarkdown(input: CapabilityManifestInput): string 
   const overlay = input.overlay === undefined
     ? ""
     : `\nActivity overlay: mode \`${input.overlay.mode}\`; ${input.overlay.triggers.length === 0 ? "automatic cards are disabled" : `automatic cards cover ${input.overlay.triggers.join(", ")}`}. Fallback status: \`${input.overlay.fallback}\`.\n`;
-  return `# AgentHost capabilities (v${input.version}, ${inventory})
+  return `# Osseo capabilities (v${input.version}, ${inventory})
 
-AgentHost is a local general-purpose computer-use runtime. Work the loop:
+Osseo is a local general-purpose computer-use runtime. Work the loop:
 understand, plan, inspect, act, observe, verify, recover. Tool errors are
 recoverable, never terminal.
 
@@ -93,7 +93,7 @@ task approval may cover bounded low/medium work; high and blocked effects
 never auto-chain. Task and agent control metadata are exempt. \`agent.stop\`
 sets the emergency stop and revokes task approval; only the operator CLI
 clears stop/takeover/pause flags. Tasks (\`task.*\`) organize long work. Pull
-\`agenthost://status\` for live stop/takeover state before starting.
+\`osseo://status\` for live stop/takeover state before starting.
 ${overlay}
 Definition of done: record observable criteria with \`task.create\`
 (\`definitionOfDone\`), verify each one, then call \`task.update_status\`
@@ -104,9 +104,9 @@ runtime warns when an identical call repeats.
 
 Operator controls: the action card stays on top for approvals, exposes
 Pause/Resume/Stop, and its close button works even after the MCP server exits.
-\`agenthost agent pause\` / \`resume --pause\` set and clear the pause gate.
+\`osseo agent pause\` / \`resume --pause\` set and clear the pause gate.
 
-Fast lane (fewer turns, fewer tokens): pull \`agenthost://capabilities.md\`
+Fast lane (fewer turns, fewer tokens): pull \`osseo://capabilities.md\`
 first instead of \`tools/list\`; fold window observation into one
 \`computer.observe_state\` call; use \`computer.wait_for\` instead of fixed
 sleeps; do not pause for routine local confirmations. Ask for confirmation
@@ -116,7 +116,7 @@ only at the exact consequential boundary.
 
 export function buildCapabilitiesJson(input: CapabilityManifestInput): Record<string, unknown> {
   return {
-    product: "agenthost",
+    product: "osseo",
     version: input.version,
     ...(input.toolCount === undefined ? {} : { toolCount: input.toolCount }),
     ...(input.byExecutionClass === undefined ? {} : { byExecutionClass: input.byExecutionClass }),
@@ -124,6 +124,6 @@ export function buildCapabilitiesJson(input: CapabilityManifestInput): Record<st
     ...(input.overlay === undefined ? {} : { overlay: input.overlay }),
     families: CAPABILITY_FAMILY_SUMMARIES,
     loop: ["understand", "plan", "inspect", "act", "observe", "verify", "recover"],
-    resources: ["agenthost://capabilities", "agenthost://capabilities.md", "agenthost://status"]
+    resources: ["osseo://capabilities", "osseo://capabilities.md", "osseo://status"]
   };
 }

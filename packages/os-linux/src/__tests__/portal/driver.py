@@ -2,7 +2,7 @@
 """Drives portal_helper.py against fake_portal.py on a private session bus. Prints one JSON object.
 
 Run it under `dbus-run-session`. It refuses to run on the caller's real session bus: the test passes that
-bus address in AGENTHOST_REAL_BUS, and the private bus address must differ from it.
+bus address in OSSEO_REAL_BUS, and the private bus address must differ from it.
 """
 import json
 import os
@@ -70,7 +70,7 @@ def run(consent, workdir, steps):
 
 
 def main():
-    if os.environ.get("DBUS_SESSION_BUS_ADDRESS", "") == os.environ.get("AGENTHOST_REAL_BUS", "x"):
+    if os.environ.get("DBUS_SESSION_BUS_ADDRESS", "") == os.environ.get("OSSEO_REAL_BUS", "x"):
         print(json.dumps({"error": "refusing to use the real session bus"}))
         return 3
     workdir = tempfile.mkdtemp(prefix="ah-portal-driver-")

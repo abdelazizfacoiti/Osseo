@@ -1,5 +1,5 @@
-import type { OverlayManager } from "@agenthost/app-overlay";
-import { OVERLAY_TIMELINE_MAX_ENTRIES, type OverlayTimelineEntry, type OverlayTimelineState, type OverlayWidget, type OverlayWidgetComponent, type ToolResult } from "@agenthost/core";
+import type { OverlayManager } from "@osseo/app-overlay";
+import { OVERLAY_TIMELINE_MAX_ENTRIES, type OverlayTimelineEntry, type OverlayTimelineState, type OverlayWidget, type OverlayWidgetComponent, type ToolResult } from "@osseo/core";
 
 /*
  * The dock timeline: a running, newest-first list of what the agent did, so a
@@ -11,7 +11,7 @@ import { OVERLAY_TIMELINE_MAX_ENTRIES, type OverlayTimelineEntry, type OverlayTi
 export interface TimelineAlertState {
   stopped: boolean;
   paused: boolean;
-  /** Present while an agent client or AgentHost waits for the user. */
+  /** Present while an agent client or Osseo waits for the user. */
   attention?: { source: string; reason: string };
 }
 
@@ -151,7 +151,7 @@ export class ActionTimeline {
 
   constructor(manager: OverlayManager, options: ActionTimelineOptions) {
     this.#manager = manager;
-    this.#widgetId = `agenthost-timeline-${options.sessionId}`.slice(0, 120);
+    this.#widgetId = `osseo-timeline-${options.sessionId}`.slice(0, 120);
     this.#max = Math.max(1, Math.min(OVERLAY_TIMELINE_MAX_ENTRIES, options.maxEntries ?? OVERLAY_TIMELINE_MAX_ENTRIES));
     this.#now = options.now ?? Date.now;
     this.#clock = options.clock ?? defaultClock;
@@ -217,10 +217,10 @@ export class ActionTimeline {
     const alerts = this.#alerts;
     if (alerts.attention !== undefined) {
       components.push({ type: "status_badge", status: "warning", text: "Waiting for you" });
-      components.push({ type: "warning", text: alerts.attention.source === "agenthost" ? "AgentHost needs approval: press Approve on the approval card, or run agenthost confirmations." : `${alerts.attention.source} is asking for permission in its terminal.` });
+      components.push({ type: "warning", text: alerts.attention.source === "osseo" ? "Osseo needs approval: press Approve on the approval card, or run osseo confirmations." : `${alerts.attention.source} is asking for permission in its terminal.` });
     } else if (alerts.stopped) {
       components.push({ type: "status_badge", status: "danger", text: "Stopped" });
-      components.push({ type: "warning", text: "Actions are blocked. Resume from the task card or run: agenthost agent resume --stop" });
+      components.push({ type: "warning", text: "Actions are blocked. Resume from the task card or run: osseo agent resume --stop" });
     } else if (alerts.paused) {
       components.push({ type: "status_badge", status: "warning", text: "Paused" });
     } else {

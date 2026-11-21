@@ -1,9 +1,9 @@
-// AgentHost content script. Builds the element list and performs actions in the page.
+// Osseo content script. Builds the element list and performs actions in the page.
 // It never reads or sends cookies, browser-side storage or credentials, and refuses sensitive
 // fields before any typing. Page content leaves only as the reply to the background script.
 (() => {
-  if (window.__agenthostContent) return;
-  window.__agenthostContent = true;
+  if (window.__osseoContent) return;
+  window.__osseoContent = true;
 
   // BEGIN refusals
   const REFUSED_AUTOCOMPLETE = /^(one-time-code|cc-number|cc-csc|cc-exp(-month|-year)?|cc-name|cc-type|current-password|new-password)$/;
@@ -119,7 +119,7 @@
   }
 
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (!msg || msg.agenthost !== true) return;
+    if (!msg || msg.osseo !== true) return;
     try {
       if (msg.type === "snapshot") sendResponse(snapshot(Math.min(Number(msg.max) || 120, 300)));
       else if (msg.type === "read") sendResponse(read());

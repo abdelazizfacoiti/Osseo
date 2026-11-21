@@ -2,15 +2,15 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { appendTaskEvent, createTask, readRunState, requestStop, toolSuccess } from "@agenthost/core";
-import { HeadlessOverlayRenderer, OverlayManager } from "@agenthost/app-overlay";
+import { appendTaskEvent, createTask, readRunState, requestStop, toolSuccess } from "@osseo/core";
+import { HeadlessOverlayRenderer, OverlayManager } from "@osseo/app-overlay";
 import { TaskActivityOverlay } from "../task-overlay.js";
 
 const SESSION = "task-overlay-test";
 const directories: string[] = [];
 
 async function tempHome(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "agenthost-task-overlay-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "osseo-task-overlay-"));
   directories.push(directory);
   return directory;
 }
@@ -33,7 +33,7 @@ function buttons(manager: OverlayManager): unknown[] {
 
 function createController(home: string) {
   const manager = new OverlayManager(new HeadlessOverlayRenderer(), { sessionId: SESSION }, { hideMarkerPath: null });
-  const overlay = new TaskActivityOverlay({ manager, agentHostDir: home, heartbeatMs: 60_000 });
+  const overlay = new TaskActivityOverlay({ manager, osseoDir: home, heartbeatMs: 60_000 });
   return { manager, overlay };
 }
 
@@ -69,9 +69,9 @@ describe("TaskActivityOverlay", () => {
     try {
       await overlay.initialize();
       await overlay.noteActivity({ toolName: "computer.observe_state", summary: "Observe computer state" });
-      expect(overlay.snapshot()).toMatchObject({ taskId: "agenthost-activity-default", implicit: true, status: "running" });
+      expect(overlay.snapshot()).toMatchObject({ taskId: "osseo-activity-default", implicit: true, status: "running" });
       const payload = manager.suppressionSnapshot()[0]?.payload as Record<string, unknown>;
-      expect(payload.title).toBe("AgentHost · Computer activity");
+      expect(payload.title).toBe("Osseo · Computer activity");
       expect(component(manager, "text")).toMatchObject({ text: "computer.observe_state · Observe computer state" });
 
       await overlay.noteActivity({ toolName: "computer.wait_for", summary: "Wait for active window", outcome: "done" });
@@ -80,7 +80,7 @@ describe("TaskActivityOverlay", () => {
       const task = await createTask(home, "Real task");
       await overlay.observe("task.create", toolSuccess({ tool: "task.create", riskLevel: "low", data: task }));
       expect(overlay.snapshot()).toMatchObject({ taskId: task.taskId, implicit: false });
-      expect((manager.suppressionSnapshot()[0]?.payload as Record<string, unknown>).title).toBe("AgentHost · Real task");
+      expect((manager.suppressionSnapshot()[0]?.payload as Record<string, unknown>).title).toBe("Osseo · Real task");
     } finally {
       await overlay.close();
       await manager.close();
@@ -93,7 +93,7 @@ describe("TaskActivityOverlay", () => {
     try {
       await overlay.initialize();
       await overlay.noteActivity({ toolName: "computer.observe_state", summary: "Observe computer state" });
-      manager.pushEvent(event("agenthost-activity-default", "dismissed"));
+      manager.pushEvent(event("osseo-activity-default", "dismissed"));
       expect(await overlay.pollOnce()).toEqual(["dismiss"]);
       expect(overlay.snapshot()).toMatchObject({ implicit: true, dismissed: true });
       await overlay.noteActivity({ toolName: "computer.wait_for", summary: "Wait for active window" });
@@ -215,11 +215,11 @@ describe("TaskActivityOverlay", () => {
     const task = await createTask(home, "Finish the form", ["Submit it"]);
     const finished: string[] = [];
     const manager = new OverlayManager(new HeadlessOverlayRenderer(), { sessionId: SESSION }, { hideMarkerPath: null });
-    const overlay = new TaskActivityOverlay({ manager, agentHostDir: home, heartbeatMs: 60_000, onFinished: (done) => { finished.push(done.taskId); } });
+    const overlay = new TaskActivityOverlay({ manager, osseoDir: home, heartbeatMs: 60_000, onFinished: (done) => { finished.push(done.taskId); } });
     try {
       await overlay.initialize();
       expect(overlay.hasOpenTask()).toBe(true);
-      const { transitionTask } = await import("@agenthost/core");
+      const { transitionTask } = await import("@osseo/core");
       const done = await transitionTask(home, task.taskId, "completed");
       await overlay.observe("task.update_status", toolSuccess({ tool: "task.update_status", riskLevel: "low", data: done }));
       await overlay.observe("task.update_status", toolSuccess({ tool: "task.update_status", riskLevel: "low", data: done }));

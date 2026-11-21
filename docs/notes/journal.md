@@ -6,7 +6,7 @@ Not journaled: `scroll`, `drag`, direct `desktop.*`/`browser.*` calls, clicks by
 
 ## Saving
 
-    agenthost journal show [--session <id>]
-    agenthost journal save <name> [--session <id>] [--last <n>] [--description <text>] [--apply]
+    osseo journal show [--session <id>]
+    osseo journal save <name> [--session <id>] [--last <n>] [--description <text>] [--apply]
 
-`save` previews unless `--apply`. A saved workflow has at most 20 steps; use `--last` to keep the final steps of a longer journal. Names are the workflow names (`a-z`, `0-9`, `_`, `-`, 2-49 characters). Replay uses names, not numbers: a click becomes `desktop.click` with `label` and `role`, a type step `desktop.set_field` with `text: "{{text_1}}"`, a key step `desktop.hotkey`. Run it with `agenthost workflow run <name> --param text_1=...`. Browser-page elements replay through accessibility labels, which Chrome exposes only with accessibility enabled.
+`save` previews unless `--apply`. A saved workflow has at most 20 steps; use `--last` to keep the final steps of a longer journal. Names are the workflow names (`a-z`, `0-9`, `_`, `-`, 2-49 characters). Replay uses names, not numbers: a click becomes `desktop.click` with `label` and `role`, a type step `desktop.set_field` with `text: "{{text_1}}"`, a key step `desktop.hotkey`. Run it with `osseo workflow run <name> --param text_1=...`. Browser-page elements replay through accessibility labels, which Chrome exposes only with accessibility enabled.

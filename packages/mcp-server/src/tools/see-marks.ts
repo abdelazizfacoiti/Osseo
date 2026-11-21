@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { findCommandPath } from "@agenthost/os-linux";
+import { findCommandPath } from "@osseo/os-linux";
 
 export interface PictureMark {
   n: number;
@@ -39,11 +39,11 @@ function run(command: string, args: string[]): Promise<boolean> {
  * Draws numbered boxes on a JPEG (base64 in, base64 out). Returns undefined when ffmpeg is missing,
  * lacks drawtext, or fails, so the caller can fall back to the plain picture.
  */
-export async function drawMarks(agentHostDir: string, jpegBase64: string, marks: PictureMark[]): Promise<string | undefined> {
+export async function drawMarks(osseoDir: string, jpegBase64: string, marks: PictureMark[]): Promise<string | undefined> {
   if (marks.length === 0) return undefined;
   const ffmpeg = await findCommandPath("ffmpeg").catch(() => undefined);
   if (ffmpeg === undefined) return undefined;
-  const dir = path.join(agentHostDir, "screenshots");
+  const dir = path.join(osseoDir, "screenshots");
   const id = randomUUID();
   const input = path.join(dir, `marks-in-${id}.jpg`);
   const output = path.join(dir, `marks-out-${id}.jpg`);

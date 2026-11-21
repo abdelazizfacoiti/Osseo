@@ -1,12 +1,12 @@
 # Benchmark suite (Phase 7)
 
-Public numbers for AgentHost: 25 small browser tasks, each measured for success, tool calls, result bytes and seconds. `npm run benchmark:suite` runs it; the same script is a CI gate.
+Public numbers for Osseo: 25 small browser tasks, each measured for success, tool calls, result bytes and seconds. `npm run benchmark:suite` runs it; the same script is a CI gate.
 
 ## What it is and is not
 
 - The tasks are scripts that make the tool calls an agent would make. They measure the tool surface (how many calls and bytes a job takes, and whether the page ends up right), not a model's choices. Read the numbers as a regression gate and a public yardstick, not as a claim about any one agent.
 - Every task runs in headless Chrome (`--headless=new`) through `browser.open`, on a local HTML page in `benchmarks/suite/tasks/`. There is no display, no nested X server and no external URL. The real screen is never touched: `DISPLAY` is removed from the server's environment.
-- Each task gets a fresh server process, a fresh `AGENTHOST_HOME` in a temp directory, and a fresh Chrome profile. The server runs with `AGENTHOST_TOOLS_PROFILE=full`, because the tasks call `browser.*` by name.
+- Each task gets a fresh server process, a fresh `OSSEO_HOME` in a temp directory, and a fresh Chrome profile. The server runs with `OSSEO_TOOLS_PROFILE=full`, because the tasks call `browser.*` by name.
 - This is the browser route only. The pixel routes (desktop clicks and typing in a nested display) stay in `benchmark:form` and `check:live`. A desktop-route suite is a later extension.
 
 ## Running it
@@ -15,7 +15,7 @@ Public numbers for AgentHost: 25 small browser tasks, each measured for success,
     node scripts/benchmark-suite.mjs [--tasks id,id] [--runs n] [--out file]
 
 - `--tasks` runs a subset by id. `--runs n` repeats each task n times (each run is a fresh server); the table shows per-task medians and a task passes only if every run passed. `--out` overrides `benchmarks/suite/results/latest.json`.
-- `AGENTHOST_REPO=<dir>` uses the built servers of another tree (fixtures still come from this one).
+- `OSSEO_REPO=<dir>` uses the built servers of another tree (fixtures still come from this one).
 - Exit code 0 when the gate passes and every task passed, 1 otherwise, 2 when the build or a fixture is missing.
 
 ## What is measured
@@ -28,7 +28,7 @@ Public numbers for AgentHost: 25 small browser tasks, each measured for success,
 | seconds | wall clock from the first call to the end of the driver, not including server start |
 | refused | the task expects a refusal and it happened |
 
-Two things happen outside the counts: the operator's `agenthost confirm <token>` for the two tasks that need a confirmation token, and writing the upload fixture file. The tool calls for those tasks (a dry run, then the call with `confirmationToken`) are counted.
+Two things happen outside the counts: the operator's `osseo confirm <token>` for the two tasks that need a confirmation token, and writing the upload fixture file. The tool calls for those tasks (a dry run, then the call with `confirmationToken`) are counted.
 
 An unverified success is a task whose driver finished without error (an agent would have reported "done") while the condition is false. The gate wants none.
 
@@ -70,7 +70,7 @@ Each task's id, goal, fixture, tools, driver and condition are in `benchmarks/su
 
 ## Output
 
-`benchmarks/suite/results/latest.json` is overwritten on each run. Its header has the AgentHost version, tool profile, Chrome version and date. Per task it has the metrics and the first run's tool names with ok/error codes. It holds no page content and no typed text. The results folder should be git-ignored (keep `.gitkeep`).
+`benchmarks/suite/results/latest.json` is overwritten on each run. Its header has the Osseo version, tool profile, Chrome version and date. Per task it has the metrics and the first run's tool names with ok/error codes. It holds no page content and no typed text. The results folder should be git-ignored (keep `.gitkeep`).
 
 ## Known limits
 

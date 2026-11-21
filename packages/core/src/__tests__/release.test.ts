@@ -21,7 +21,7 @@ describe("release integrity helpers", () => {
   });
 
   it("computes files and reads adjacent checksum sidecars", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-release-integrity-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "osseo-release-integrity-"));
     const file = path.join(root, "archive.tar.gz");
     await writeFile(file, "release");
     const digest = await sha256File(file);
@@ -40,16 +40,16 @@ describe("release integrity helpers", () => {
     expect(inventory.length).toBeGreaterThan(0);
     expect(inventory.every((item: { lockPath: string; license: string }) =>
       item.lockPath.startsWith("node_modules/")
-      && !item.lockPath.startsWith("node_modules/@agenthost/")
+      && !item.lockPath.startsWith("node_modules/@osseo/")
       && item.license.length > 0)).toBe(true);
     expect(await readFile(path.resolve("THIRD_PARTY_NOTICES"), "utf8"))
       .toBe(renderThirdPartyNotices(inventory));
   });
 
   it("requires legal files and an exact release manifest", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-release-tree-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "osseo-release-tree-"));
     await writeFile(path.join(root, "LICENSE"), "Apache License\n");
-    await writeFile(path.join(root, "NOTICE"), "AgentHost\n");
+    await writeFile(path.join(root, "NOTICE"), "Osseo\n");
     await writeFile(
       path.join(root, "THIRD_PARTY_NOTICES"),
       "Bundled npm production dependencies:\n"
@@ -57,7 +57,7 @@ describe("release integrity helpers", () => {
     await writeFile(path.join(root, "payload.txt"), "bounded release payload");
     const { files } = await collectReleaseFiles(root);
     const manifest = {
-      product: "AgentHost",
+      product: "Osseo",
       version: "0.1.0",
       schemaVersion: 2,
       platform: "linux",
@@ -84,7 +84,7 @@ describe("release integrity helpers", () => {
   });
 
   it("prunes package roots without deleting package-internal build metadata", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-release-prune-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "osseo-release-prune-"));
     const kept = path.join(root, "node_modules", "kept");
     const removed = path.join(root, "node_modules", "removed");
     await mkdir(path.join(kept, "dist", "esm"), { recursive: true });
@@ -104,11 +104,11 @@ describe("release integrity helpers", () => {
   });
 
   it("accepts workspace-relative symlinks and rejects escaping symlinks", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-release-links-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "osseo-release-links-"));
     await mkdir(path.join(root, "packages", "core"), { recursive: true });
-    await mkdir(path.join(root, "node_modules", "@agenthost"), { recursive: true });
+    await mkdir(path.join(root, "node_modules", "@osseo"), { recursive: true });
     await writeFile(path.join(root, "packages", "core", "index.js"), "export {};\n");
-    await symlink(path.join("..", "..", "packages", "core"), path.join(root, "node_modules", "@agenthost", "core"), "junction");
+    await symlink(path.join("..", "..", "packages", "core"), path.join(root, "node_modules", "@osseo", "core"), "junction");
     expect((await collectReleaseFiles(root)).symlinkFailures).toEqual([]);
     await symlink("/tmp", path.join(root, "node_modules", "escape"), "junction");
     expect((await collectReleaseFiles(root)).symlinkFailures).toContain("node_modules/escape:symlink_escape");

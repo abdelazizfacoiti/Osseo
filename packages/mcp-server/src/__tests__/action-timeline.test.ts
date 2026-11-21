@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { HeadlessOverlayRenderer, VisualSurfaceCoordinator } from "@agenthost/app-overlay";
-import { toolFailure, toolSuccess, validateOverlayWidget, type OverlayWidget } from "@agenthost/core";
+import { HeadlessOverlayRenderer, VisualSurfaceCoordinator } from "@osseo/app-overlay";
+import { toolFailure, toolSuccess, validateOverlayWidget, type OverlayWidget } from "@osseo/core";
 import { ActionTimeline, describeAction, type TimelineAlertState } from "../action-timeline.js";
 
 function timeline(alerts?: () => Promise<TimelineAlertState>) {

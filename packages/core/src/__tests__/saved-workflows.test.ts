@@ -6,7 +6,7 @@ import { WorkflowError, deleteWorkflow, expandWorkflow, listWorkflows, loadWorkf
 
 const directories: string[] = [];
 async function home(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "agenthost-workflows-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "osseo-workflows-"));
   directories.push(directory);
   return directory;
 }

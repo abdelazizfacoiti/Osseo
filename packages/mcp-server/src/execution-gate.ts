@@ -1,15 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks";
-import type { AgentHostMcpContext } from "./context.js";
+import type { OsseoMcpContext } from "./context.js";
 
 interface ExecutionLane {
   tail: Promise<void>;
 }
 
-const EXECUTION_LANES = new WeakMap<AgentHostMcpContext, ExecutionLane>();
+const EXECUTION_LANES = new WeakMap<OsseoMcpContext, ExecutionLane>();
 const ACTIVE_LANE = new AsyncLocalStorage<ExecutionLane>();
 
 export async function withStateChangingLane<T>(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   action: () => Promise<T>
 ): Promise<T> {
   let lane = EXECUTION_LANES.get(context);

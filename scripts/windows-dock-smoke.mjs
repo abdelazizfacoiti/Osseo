@@ -51,13 +51,13 @@ const { createWindowsDesktop, WindowsHelperProcess } = await import(pathToFileUR
 const { BrowserSession } = await import(pathToFileURL(OS_LINUX).href);
 
 const DOCK = { layout: "dock", dockSide: "right", dockWidthPercent: 18, dockReserveSpace: true };
-const CARD_TITLE = "AgentHost overlay";
-const STRIP_TITLE = "AgentHost dock";
-const FORM_TITLE = "AgentHost dock check window";
-const TIMELINE = "agenthost-timeline-w3-dock";
-const homes = [mkdtempSync(path.join(os.tmpdir(), "agenthost-win-dock-helper-"))];
+const CARD_TITLE = "Osseo overlay";
+const STRIP_TITLE = "Osseo dock";
+const FORM_TITLE = "Osseo dock check window";
+const TIMELINE = "osseo-timeline-w3-dock";
+const homes = [mkdtempSync(path.join(os.tmpdir(), "osseo-win-dock-helper-"))];
 const renderers = [];
-const helper = new WindowsHelperProcess({ agentHostDir: homes[0] });
+const helper = new WindowsHelperProcess({ osseoDir: homes[0] });
 const desktop = createWindowsDesktop(helper);
 
 /**
@@ -81,7 +81,7 @@ async function titled(title) {
   return listed.windows.filter((window) => window.title === title);
 }
 
-/** Window ids already on screen under the AgentHost titles, so only this run's windows are counted. */
+/** Window ids already on screen under the Osseo titles, so only this run's windows are counted. */
 async function knownIds() {
   const ids = new Set();
   for (const title of [CARD_TITLE, STRIP_TITLE]) for (const window of await titled(title)) ids.add(window.windowId);
@@ -89,9 +89,9 @@ async function knownIds() {
 }
 
 async function startRenderer(sessionId) {
-  const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-win-dock-"));
+  const home = mkdtempSync(path.join(os.tmpdir(), "osseo-win-dock-"));
   homes.push(home);
-  const renderer = new WindowsOverlayRenderer({ agentHostDir: home, sessionId, visual: DOCK, startupTimeoutMs: 45_000 });
+  const renderer = new WindowsOverlayRenderer({ osseoDir: home, sessionId, visual: DOCK, startupTimeoutMs: 45_000 });
   renderers.push(renderer);
   await renderer.warmup();
   let report = await renderer.capabilities();
@@ -202,7 +202,7 @@ try {
       response.end("<title>Dock check page</title><h1>Dock check page</h1>");
     });
     await new Promise((resolve) => page.listen(0, "127.0.0.1", resolve));
-    const chrome = new BrowserSession({ agentHostDir: homes[0] });
+    const chrome = new BrowserSession({ osseoDir: homes[0] });
     try {
       const opened = await chrome.open({ url: `http://127.0.0.1:${page.address().port}/`, headless: false });
       check("the agent's Chrome opens for the dock check", opened.opened === true, opened.reason ?? "");

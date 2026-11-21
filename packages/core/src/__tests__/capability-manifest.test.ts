@@ -8,8 +8,8 @@ describe("capability manifest", () => {
     expect(markdown).toContain("computer");
     expect(markdown).toContain("browser");
     expect(markdown).toContain("skills");
-    expect(markdown).toContain("agenthost://status");
-    expect(markdown).not.toContain("agenthost://skills");
+    expect(markdown).toContain("osseo://status");
+    expect(markdown).not.toContain("osseo://skills");
     expect(markdown).not.toContain("task.execute_plan");
     expect(markdown).toContain("observe, verify");
   });
@@ -18,11 +18,11 @@ describe("capability manifest", () => {
     const markdown = buildCapabilityMarkdown({ version: "0.1.0", toolCount: 250, byExecutionClass: { read_only: 60 } });
     expect(markdown).toContain("250 tools");
     const json = buildCapabilitiesJson({ version: "0.1.0", toolCount: 250, byExecutionClass: {} });
-    expect(json).toMatchObject({ product: "agenthost", toolCount: 250 });
+    expect(json).toMatchObject({ product: "osseo", toolCount: 250 });
   });
 
   it("states the automatic overlay mode and fallback", () => {
-    const overlay = { mode: "always" as const, triggers: ["computer.*", "desktop.*"], fallback: "agenthost overlay status" };
+    const overlay = { mode: "always" as const, triggers: ["computer.*", "desktop.*"], fallback: "osseo overlay status" };
     expect(buildCapabilityMarkdown({ version: "0.1.0", overlay })).toContain("Activity overlay: mode `always`");
     expect(buildCapabilitiesJson({ version: "0.1.0", overlay }).overlay).toEqual(overlay);
   });

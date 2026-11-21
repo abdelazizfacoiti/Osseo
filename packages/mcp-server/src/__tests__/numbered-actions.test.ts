@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentHostMcpContext } from "../context.js";
+import type { OsseoMcpContext } from "../context.js";
 
 const calls: Array<{ name: string; input: Record<string, any> }> = [];
 let reply: (name: string, input: Record<string, any>) => Record<string, any> = () => ({});
@@ -13,14 +13,14 @@ vi.mock("../nested.js", () => ({
 import { createNumberedTools } from "../tools/numbered.js";
 import { forgetViews, rememberView, type Box, type ViewTarget } from "../view-registry.js";
 
-type Tool = { name: string; delegatesExecutionArgs?: boolean; inputSchema: { safeParse(v: unknown): { success: boolean; data?: any } }; handler(input: unknown, context: AgentHostMcpContext): Promise<any> };
+type Tool = { name: string; delegatesExecutionArgs?: boolean; inputSchema: { safeParse(v: unknown): { success: boolean; data?: any } }; handler(input: unknown, context: OsseoMcpContext): Promise<any> };
 const tools = new Map((createNumberedTools() as unknown as Tool[]).map((tool) => [tool.name, tool]));
 
 const WIN: Box = { x: 100, y: 50, width: 600, height: 400 };
 const screen = (extra: Partial<Extract<ViewTarget, { kind: "screen" }>> = {}): ViewTarget => ({ kind: "screen", bounds: { x: 120, y: 100, width: 100, height: 20 }, enabled: true, blocked: false, role: "push button", name: "Save", windowId: "w1", ...extra });
 const dom = (extra: Partial<Extract<ViewTarget, { kind: "dom" }>> = {}): ViewTarget => ({ kind: "dom", ref: "s1-e2", role: "button", name: "Go", enabled: true, blocked: false, ...extra });
 
-function context(boundsOrNull: Box | null = WIN, options: { active?: boolean; page?: { title: string }; windows?: unknown[] } = {}): AgentHostMcpContext {
+function context(boundsOrNull: Box | null = WIN, options: { active?: boolean; page?: { title: string }; windows?: unknown[] } = {}): OsseoMcpContext {
   const bounds = boundsOrNull ?? undefined;
   return {
     linux: {
@@ -30,14 +30,14 @@ function context(boundsOrNull: Box | null = WIN, options: { active?: boolean; pa
       listWindows: async () => ({ supported: true, backend: "t", truncated: false, reason: "ok", windows: options.windows ?? (bounds === undefined ? [] : [{ windowId: "w1", title: "App", appName: "App", bounds }]) }),
       findAccessibilityElement: async () => ({ supported: true, backend: "t", candidates: [], reason: "ok" })
     }
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
 function seen(targets: Array<[number, ViewTarget]>, windowKey = "w1") {
   return rememberView({ windowKey, ...(windowKey === "browser" ? {} : { windowBounds: WIN }), source: windowKey === "browser" ? "dom" : "accessibility", targets: new Map(targets) });
 }
 
-async function call(name: string, input: unknown, ctx: AgentHostMcpContext = context()) {
+async function call(name: string, input: unknown, ctx: OsseoMcpContext = context()) {
   const tool = tools.get(name)!;
   const parsed = tool.inputSchema.safeParse(input);
   expect(parsed.success, `${name} input ${JSON.stringify(input)}`).toBe(true);
@@ -118,7 +118,7 @@ describe("click", () => {
   it("passes dryRun and confirmationToken through, and returns a nested confirmation_required intact", async () => {
     const view = seen([[1, screen()]]);
     reply = (_name, input) => input.confirmationToken === undefined
-      ? { ok: false, preview: true, confirmation: { tokenId: "tok_12345678" }, error: { code: "confirmation_required", message: "confirm" }, observations: ["Operator approval: agenthost confirm tok_12345678"] }
+      ? { ok: false, preview: true, confirmation: { tokenId: "tok_12345678" }, error: { code: "confirmation_required", message: "confirm" }, observations: ["Operator approval: osseo confirm tok_12345678"] }
       : {};
     const first = await call("click", { n: 1, view: view.id, dryRun: true });
     expect(calls[0]!.input.dryRun).toBe(true);

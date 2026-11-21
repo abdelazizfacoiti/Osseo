@@ -2,7 +2,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import type { OverlayCapabilityReport } from "@agenthost/core";
+import type { OverlayCapabilityReport } from "@osseo/core";
 import { LinuxOverlayRenderer } from "../linux-renderer.js";
 import { probeLinuxOverlay } from "../linux-probe.js";
 

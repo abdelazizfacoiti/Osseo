@@ -1,4 +1,4 @@
-import type { OverlayPlacement, AgentTask, ToolResult } from "@agenthost/core";
+import type { OverlayPlacement, AgentTask, ToolResult } from "@osseo/core";
 import {
   clearActiveTaskApproval,
   clearPause,
@@ -7,13 +7,13 @@ import {
   readRunState,
   requestPause,
   requestStop
-} from "@agenthost/core";
-import { TaskProgressOverlay, type TaskProgressAction, type TaskProgressStep } from "@agenthost/app-overlay";
-import type { OverlayManager } from "@agenthost/app-overlay";
+} from "@osseo/core";
+import { TaskProgressOverlay, type TaskProgressAction, type TaskProgressStep } from "@osseo/app-overlay";
+import type { OverlayManager } from "@osseo/app-overlay";
 
 export interface TaskActivityOverlayOptions {
   manager: OverlayManager;
-  agentHostDir: string;
+  osseoDir: string;
   sessionId?: string;
   placement?: OverlayPlacement;
   persistent?: boolean;
@@ -71,7 +71,7 @@ function taskSummary(task: AgentTask): string {
   const recovered = task.events.filter((event) => event.kind === "recovery").length;
   const outcome = task.status === "completed" ? "Finished" : "Stopped";
   const counts = [errors === 0 ? "no errors" : `${errors} error${errors === 1 ? "" : "s"}`, ...(recovered > 0 ? [`${recovered} recovered`] : [])].join(", ");
-  return `${outcome} · ${counts} · Report: agenthost task export ${task.taskId}`.slice(0, 300);
+  return `${outcome} · ${counts} · Report: osseo task export ${task.taskId}`.slice(0, 300);
 }
 
 function taskDetail(task: AgentTask): string {
@@ -104,7 +104,7 @@ export class TaskActivityOverlay {
   async initialize(): Promise<void> {
     if (this.#closed) return;
     try {
-      const tasks = await listTasks(this.#options.agentHostDir);
+      const tasks = await listTasks(this.#options.osseoDir);
       this.#runningTaskCount = Math.max(1, tasks.filter((task) => !TERMINAL_TASK_STATUSES.has(task.status)).length);
       const current = tasks.find((task) => !TERMINAL_TASK_STATUSES.has(task.status) && this.#isFresh(task));
       if (current !== undefined) await this.#sync(current);
@@ -225,7 +225,7 @@ export class TaskActivityOverlay {
 
   #implicitTaskId(): string {
     const session = (this.#options.sessionId ?? "default").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120);
-    return `agenthost-activity-${session}`;
+    return `osseo-activity-${session}`;
   }
 
   #isImplicitTask(taskId: string): boolean {
@@ -239,7 +239,7 @@ export class TaskActivityOverlay {
   }
 
   async #refreshRunningCount(): Promise<void> {
-    const tasks = await listTasks(this.#options.agentHostDir);
+    const tasks = await listTasks(this.#options.osseoDir);
     this.#runningTaskCount = Math.max(1, tasks.filter((task) => !TERMINAL_TASK_STATUSES.has(task.status)).length);
   }
 
@@ -272,7 +272,7 @@ export class TaskActivityOverlay {
     }
     const snapshot = controller.snapshot().status;
     if (snapshot === "paused" || snapshot === "pause_requested" || snapshot === "waiting_approval") {
-      const state = await readRunState(this.#options.agentHostDir).catch(() => undefined);
+      const state = await readRunState(this.#options.osseoDir).catch(() => undefined);
       if (state?.pause.requested !== true && state?.stop.requested !== true) await controller.resume();
     }
   }
@@ -293,7 +293,7 @@ export class TaskActivityOverlay {
     const controller = new TaskProgressOverlay({
       manager: this.#manager,
       taskId: task.taskId,
-      title: `AgentHost · ${task.goal.slice(0, 150)}`,
+      title: `Osseo · ${task.goal.slice(0, 150)}`,
       steps: taskSteps(task),
       placement: this.#options.placement ?? "bottom_right",
       persistent: this.#options.persistent ?? true,
@@ -321,7 +321,7 @@ export class TaskActivityOverlay {
     if (task === undefined || controller === undefined) return;
     if (action === "pause") {
       try {
-        await requestPause(this.#options.agentHostDir, `agent_task_overlay_pause:${task.taskId}`);
+        await requestPause(this.#options.osseoDir, `agent_task_overlay_pause:${task.taskId}`);
         await controller.pause();
       } catch {
         await controller.resume();
@@ -329,9 +329,9 @@ export class TaskActivityOverlay {
       return;
     }
     if (action === "resume" && controller.snapshot().status === "stopped") {
-      // Resume on a stopped card: the same flag `agenthost agent resume --stop` clears.
+      // Resume on a stopped card: the same flag `osseo agent resume --stop` clears.
       try {
-        await clearStop(this.#options.agentHostDir);
+        await clearStop(this.#options.osseoDir);
         this.#stoppedByOperator = false;
         await controller.resume();
       } catch {
@@ -341,11 +341,11 @@ export class TaskActivityOverlay {
     }
     if (action === "resume") {
       try {
-        const state = await readRunState(this.#options.agentHostDir);
+        const state = await readRunState(this.#options.osseoDir);
         if (state.pause.requested && state.pause.reason !== `agent_task_overlay_pause:${task.taskId}`) {
           await controller.pause();
         } else if (state.pause.requested) {
-          await clearPause(this.#options.agentHostDir);
+          await clearPause(this.#options.osseoDir);
         }
       } catch {
         await controller.pause();
@@ -354,8 +354,8 @@ export class TaskActivityOverlay {
     }
     if (action === "stop") {
       try {
-        await requestStop(this.#options.agentHostDir, `agent_task_overlay_stop:${task.taskId}`);
-        await clearActiveTaskApproval(this.#options.agentHostDir);
+        await requestStop(this.#options.osseoDir, `agent_task_overlay_stop:${task.taskId}`);
+        await clearActiveTaskApproval(this.#options.osseoDir);
         this.#stoppedByOperator = true;
         await controller.stopped("Stopped by operator", { resumable: true });
       } catch {
@@ -375,7 +375,7 @@ export class TaskActivityOverlay {
     const controller = this.#controller;
     if (task === undefined || controller === undefined || task.status !== "active") return;
     try {
-      const state = await readRunState(this.#options.agentHostDir);
+      const state = await readRunState(this.#options.osseoDir);
       const cardStatus = controller.snapshot().status;
       if (state.stop.requested) {
         this.#stoppedByOperator = true;

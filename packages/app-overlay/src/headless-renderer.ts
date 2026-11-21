@@ -1,4 +1,4 @@
-import type { OverlayCapabilityReport, OverlayStateSnapshot, OverlayWidgetEvent } from "@agenthost/core";
+import type { OverlayCapabilityReport, OverlayStateSnapshot, OverlayWidgetEvent } from "@osseo/core";
 import type { OverlayOperationResult, OverlayRenderRecord, OverlayRenderer, OverlayRendererDiagnostics, OverlayRendererRestartResult } from "./renderer.js";
 
 export class HeadlessOverlayRenderer implements OverlayRenderer {

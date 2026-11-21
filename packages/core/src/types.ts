@@ -74,7 +74,7 @@ export interface VisionPoint { x: number; y: number; }
 export interface VisionTextItem { id: string; text: string; redactedText: string; bounds: VisionBounds; center: VisionPoint; confidence: number; kind: "text"; page: number; block: number; paragraph: number; line: number; redacted: boolean; }
 export interface VisionTextGroup { id: string; text: string; bounds: VisionBounds; center: VisionPoint; confidence: number; matchedTextIds: string[]; }
 export interface VisionTargetCandidate { candidateId: string; label: string; kind: "text" | "button_candidate" | "input_candidate" | "region"; bounds: VisionBounds; center: VisionPoint; coordinateSpace: "image"; confidence: number; reason: string; matchedTextIds: string[]; riskHint: "normal" | "medium" | "high"; }
-export interface VisionGroundingResult { supported: boolean; backend: "tesseract" | "unavailable"; mode: VisionMode; image?: { width: number; height: number; source: "agenthost_screenshot" | "agenthost_output"; basename: string; pathRedacted: true; }; textItems: VisionTextItem[]; groups: VisionTextGroup[]; targetCandidates: VisionTargetCandidate[]; warnings: string[]; redactionCounts: Record<string, number>; truncated: boolean; reason: string; }
+export interface VisionGroundingResult { supported: boolean; backend: "tesseract" | "unavailable"; mode: VisionMode; image?: { width: number; height: number; source: "osseo_screenshot" | "osseo_output"; basename: string; pathRedacted: true; }; textItems: VisionTextItem[]; groups: VisionTextGroup[]; targetCandidates: VisionTargetCandidate[]; warnings: string[]; redactionCounts: Record<string, number>; truncated: boolean; reason: string; }
 export const CHECKPOINT_KINDS = ["browser_url_contains", "browser_text_appears_redacted", "browser_element_exists", "browser_element_missing", "accessibility_element_exists", "accessibility_element_missing", "active_window_matches", "active_window_title_contains", "file_exists", "file_missing", "output_artifact_exists", "vision_text_appears", "vision_text_missing", "vision_target_exists", "manual_check"] as const;
 export type CheckpointKind = (typeof CHECKPOINT_KINDS)[number];
 export type CheckpointStrategy = "browser" | "accessibility" | "vision" | "file" | "desktop" | "manual";
@@ -443,10 +443,10 @@ export interface ExecutionConfig {
   /** Pause after this many state-changing actions per task; 0 disables the budget. */
   maxActionsPerTask?: number;
 }
-export interface AgentHostConfig {
+export interface OsseoConfig {
   /** Public configuration schema version. Loader accepts legacy files without this field. */
   schemaVersion?: 1;
-  agentHostDir: string;
+  osseoDir: string;
   configPath: string;
   logFile: string;
   execution?: ExecutionConfig;
@@ -463,7 +463,7 @@ export interface AgentHostConfig {
   output?: { verbosity?: "lean" | "full" };
   /** chat: ask the person in their agent client (MCP elicitation) when a confirmation is pending. Default true. */
   approvals?: { chat?: boolean };
-  /** A soft repeating chime while AgentHost waits for the person (default on). */
+  /** A soft repeating chime while Osseo waits for the person (default on). */
   attention?: { sound?: boolean; soundIntervalMs?: number };
   /** onTaskFinish: write a session replay in the background when an explicit task finishes. Default false. */
   replay?: { onTaskFinish: boolean };
@@ -563,7 +563,7 @@ export type ForgeRuntimeSandboxMode = "auto" | "none" | "bubblewrap" | "firejail
 
 export interface ToolContext {
   sessionId: string;
-  config: AgentHostConfig;
+  config: OsseoConfig;
   policy: RuntimePolicy;
   registry: CapabilityRegistrySnapshot;
 }
@@ -687,7 +687,7 @@ export interface PathSafetyResult {
   normalizedPath: string;
   access: PathAccessMode;
   isProtectedPath: boolean;
-  protectionKind: "none" | "root" | "home" | "credential" | "browser_profile" | "system" | "agenthost_control";
+  protectionKind: "none" | "root" | "home" | "credential" | "browser_profile" | "system" | "osseo_control";
   isAllowedWriteRoot: boolean;
   allowedWriteRoots: string[];
   riskLevel: RiskLevel;
@@ -703,7 +703,7 @@ export interface SafetyEvaluationContext {
   platform?: NodeJS.Platform;
   /** Environment for %NAME% expansion in Windows paths (defaults to process.env). */
   env?: Record<string, string | undefined>;
-  agentHostDir?: string;
+  osseoDir?: string;
   protectedPaths?: string[];
   /** Set only after the runner accepted an exact single-use confirmation. */
   confirmationSatisfied?: boolean;
@@ -934,7 +934,7 @@ export interface SandboxSupportProbeResult {
   limitations: string[];
   requiresInstall: boolean;
   requiresSudo: false;
-  safeForAgentHostUse: boolean;
+  safeForOsseoUse: boolean;
   notes: string[];
 }
 
@@ -1213,7 +1213,7 @@ export interface SystemInfo {
   platform: string;
   arch: string;
   nodeVersion: string;
-  agentHostDir: string;
+  osseoDir: string;
   strategies: AutomationStrategy[];
   tools: string[];
   serverVersion?: string;
@@ -1297,7 +1297,7 @@ export interface ToolForgeRuntimePermissionRequest {
 }
 
 export interface ToolForgeManifest {
-  schemaVersion: "agenthost.forge.v1";
+  schemaVersion: "osseo.forge.v1";
   id: string;
   displayName: string;
   version: string;

@@ -2,9 +2,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getDefaultPolicy, invalidatePolicyCache, type AuditLogEntry } from "@agenthost/core";
-import type { BrowserAutomation, BrowserElementInfo } from "@agenthost/os-linux";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy, invalidatePolicyCache, type AuditLogEntry } from "@osseo/core";
+import type { BrowserAutomation, BrowserElementInfo } from "@osseo/os-linux";
+import type { OsseoMcpContext } from "../context.js";
 import { applyProductionExecutionMetadata } from "../tool-metadata.js";
 import { createBrowserTools } from "../tools/browser.js";
 import { createDesktopTools } from "../tools/desktop.js";
@@ -22,8 +22,8 @@ for (const tool of applyProductionExecutionMetadata([...createDesktopTools(), ..
 
 interface Counts { desktopClicks: number; browserClicks: number }
 
-async function makeContext(url: string, elementName: string): Promise<{ context: AgentHostMcpContext; counts: Counts }> {
-  const home = await mkdtemp(path.join(os.tmpdir(), "agenthost-shopify-click-"));
+async function makeContext(url: string, elementName: string): Promise<{ context: OsseoMcpContext; counts: Counts }> {
+  const home = await mkdtemp(path.join(os.tmpdir(), "osseo-shopify-click-"));
   dirs.push(home);
   const counts: Counts = { desktopClicks: 0, browserClicks: 0 };
   const element: BrowserElementInfo = { name: elementName, role: "button", tag: "button", isSubmit: false, formHasPassword: false, formHasPayment: false, sensitiveField: false };
@@ -35,7 +35,7 @@ async function makeContext(url: string, elementName: string): Promise<{ context:
   const window = { windowId: "w1", title: "Products - Chrome", appName: "Chrome", pid: 7 };
   const context = {
     sessionId: "shopify-click",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async (_entry: AuditLogEntry) => undefined },
     tools,
@@ -48,7 +48,7 @@ async function makeContext(url: string, elementName: string): Promise<{ context:
       click: async () => { counts.desktopClicks += 1; return { supported: true, clicked: true, backend: "fake" }; },
       pointer: async () => ({ supported: true, backend: "fake" })
     }
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
   return { context, counts };
 }
 
@@ -59,7 +59,7 @@ function viewOf(windowKey: "w1" | "browser", target: ViewTarget) {
   return rememberView({ windowKey, ...(windowKey === "browser" ? {} : { windowBounds: WIN }), source: windowKey === "browser" ? "dom" : "accessibility", targets: new Map([[1, target]]) });
 }
 
-async function numberedClick(context: AgentHostMcpContext, view: string): Promise<any> {
+async function numberedClick(context: OsseoMcpContext, view: string): Promise<any> {
   const tool = tools.get("click");
   const parsed = tool.inputSchema.safeParse({ n: 1, view });
   expect(parsed.success).toBe(true);
@@ -173,7 +173,7 @@ describe("targetName on the click tools", () => {
 describe("a window titled Shopify, with no address from the agent's own browser", () => {
   const SHOPIFY_WINDOW = { windowId: "w1", title: "testdev \u00b7 Home \u00b7 Shopify \u2014 zfc \u2014 Mozilla Firefox", appName: "firefox", pid: 9 };
 
-  async function firefoxContext(): Promise<{ context: AgentHostMcpContext; counts: Counts }> {
+  async function firefoxContext(): Promise<{ context: OsseoMcpContext; counts: Counts }> {
     const made = await makeContext(SHOPIFY, "x");
     const linux = made.context.linux as any;
     linux.browser = undefined;

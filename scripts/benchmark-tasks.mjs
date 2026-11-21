@@ -6,17 +6,17 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 
 const scenarios = JSON.parse(await readFile(new URL("../benchmarks/tasks/scenarios.json", import.meta.url), "utf8"));
-const home = await mkdtemp(path.join(os.tmpdir(), "agenthost-task-bench-"));
-process.env.AGENTHOST_HOME = home;
+const home = await mkdtemp(path.join(os.tmpdir(), "osseo-task-bench-"));
+process.env.OSSEO_HOME = home;
 process.env.NODE_ENV = "test";
 
-const { loadAgentHostConfig, toolSuccess } = await import("../packages/core/dist/index.js");
-const { createAgentHostMcpServer } = await import("../packages/mcp-server/dist/server.js");
+const { loadOsseoConfig, toolSuccess } = await import("../packages/core/dist/index.js");
+const { createOsseoMcpServer } = await import("../packages/mcp-server/dist/server.js");
 const { runTool } = await import("../packages/mcp-server/dist/tool-runner.js");
 const { ToolActionOverlay } = await import("../packages/mcp-server/dist/action-overlay.js");
 
-const config = await loadAgentHostConfig();
-const server = await createAgentHostMcpServer({ config: { ...config, overlay: { ...config.overlay, mode: "off" } }, sessionId: "session_task_benchmark" });
+const config = await loadOsseoConfig();
+const server = await createOsseoMcpServer({ config: { ...config, overlay: { ...config.overlay, mode: "off" } }, sessionId: "session_task_benchmark" });
 const context = server.context;
 const tools = context.tools;
 const outputDir = path.join(home, "outputs", "task-benchmark");
@@ -58,7 +58,7 @@ async function withMockDesktop(fn) {
       if (property === "typeText") return async (input) => { typed.push(input.text); return { supported: true, backend: "mock", typed: true, characterCount: input.text.length, activeWindow: input.activeWindow, method: "direct", reason: "mock" }; };
       if (property === "click") return async (input) => { clicked.push({ x: input.x, y: input.y }); return { supported: true, backend: "mock", clicked: true, activeWindow: input.activeWindow, reason: "mock" }; };
       if (property === "screenshot") return async ({ path: imagePath }) => { await mkdir(path.dirname(imagePath), { recursive: true }); await import("node:fs/promises").then(({ writeFile }) => writeFile(imagePath, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64"))); return { supported: true, backend: "mock", path: imagePath, bytesWritten: 68, reason: "mock" }; };
-      if (property === "analyzeImage") return async () => ({ supported: true, backend: "tesseract", mode: "ocr", image: { width: 1920, height: 1080, source: "agenthost_screenshot", basename: "screen.png", pathRedacted: true }, textItems: [{ id: "text_001", text: "Save", redactedText: "Save", bounds: { x: 120, y: 220, width: 40, height: 20 }, center: { x: 140, y: 230 }, confidence: 0.99, kind: "text", page: 1, block: 1, paragraph: 1, line: 1, redacted: false }], groups: [], targetCandidates: [], warnings: [], redactionCounts: {}, truncated: false, reason: "mock" });
+      if (property === "analyzeImage") return async () => ({ supported: true, backend: "tesseract", mode: "ocr", image: { width: 1920, height: 1080, source: "osseo_screenshot", basename: "screen.png", pathRedacted: true }, textItems: [{ id: "text_001", text: "Save", redactedText: "Save", bounds: { x: 120, y: 220, width: 40, height: 20 }, center: { x: 140, y: 230 }, confidence: 0.99, kind: "text", page: 1, block: 1, paragraph: 1, line: 1, redacted: false }], groups: [], targetCandidates: [], warnings: [], redactionCounts: {}, truncated: false, reason: "mock" });
       return Reflect.get(targetObject, property);
     }
   });

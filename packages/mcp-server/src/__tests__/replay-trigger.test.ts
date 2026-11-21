@@ -2,8 +2,8 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { cliEntryFor, triggerReplay } from "../replay-trigger.js";
 
-const serverDir = path.join("/opt", "agenthost", "packages", "mcp-server", "dist");
-const entry = path.join("/opt", "agenthost", "packages", "agenthost-cli", "dist", "index.js");
+const serverDir = path.join("/opt", "osseo", "packages", "mcp-server", "dist");
+const entry = path.join("/opt", "osseo", "packages", "osseo-cli", "dist", "index.js");
 
 function fake() {
   const unref = vi.fn();

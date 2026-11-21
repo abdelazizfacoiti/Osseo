@@ -85,7 +85,7 @@ describe("evaluateSafety", () => {
 
   it("blocks screenshots when the policy disables them", () => {
     const policy = { ...getDefaultPolicy(), allowScreenshots: false };
-    const result = evaluateSafety({ tool: "desktop.screenshot", actionType: "file_write", filePath: "/tmp/agenthost-shot.png" }, policy, { homeDir });
+    const result = evaluateSafety({ tool: "desktop.screenshot", actionType: "file_write", filePath: "/tmp/osseo-shot.png" }, policy, { homeDir });
     expect(result.riskLevel).toBe("blocked");
     expect(result.matchedRules).toContain("policy.screenshot.disabled");
   });

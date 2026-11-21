@@ -12,10 +12,10 @@ import {
   type SavedWorkflow,
   type ToolResult,
   type WorkflowStep
-} from "@agenthost/core";
+} from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 
 /*
  * Saved workflows are recalled plans, not a second way to execute. workflow.get
@@ -52,8 +52,8 @@ function failure(tool: string, error: unknown): ToolResult<never> {
   return toolFailure({ tool, riskLevel: "low", error: { code: "workflow_store_failed", message: "The workflow store could not be used." }, observations: ["No workflow was changed."] });
 }
 
-export function createWorkflowTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const save: AgentHostToolDefinition<z.infer<typeof saveInput>, { workflow: ReturnType<typeof summary> }, AgentHostMcpContext> = {
+export function createWorkflowTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const save: OsseoToolDefinition<z.infer<typeof saveInput>, { workflow: ReturnType<typeof summary> }, OsseoMcpContext> = {
     name: "workflow.save",
     description: "Saves a plan that just worked as a named, reusable workflow. Use {{param}} placeholders in step inputs for anything that changes between runs and declare each in parameters. Secrets are rejected: pass them as parameters at run time. Only the plan is stored; running it later still goes through computer.run_steps and every safety gate.",
     riskLevel: "low",
@@ -69,7 +69,7 @@ export function createWorkflowTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     safety: { actionType: "inspect" },
     async handler(input, context): Promise<ToolResult<{ workflow: ReturnType<typeof summary> }>> {
       try {
-        const workflow = await saveWorkflow(context.config.agentHostDir, {
+        const workflow = await saveWorkflow(context.config.osseoDir, {
           name: input.name,
           description: input.description,
           parameters: (input.parameters ?? []).map((parameter) => ({ name: parameter.name, ...(parameter.description === undefined ? {} : { description: parameter.description }) })),
@@ -83,7 +83,7 @@ export function createWorkflowTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     }
   };
 
-  const list: AgentHostToolDefinition<z.infer<typeof listInput>, { workflows: Array<ReturnType<typeof summary>> }, AgentHostMcpContext> = {
+  const list: OsseoToolDefinition<z.infer<typeof listInput>, { workflows: Array<ReturnType<typeof summary>> }, OsseoMcpContext> = {
     name: "workflow.list",
     description: "Lists saved workflows with their parameters. Check this before planning a task from scratch.",
     riskLevel: "observe",
@@ -92,11 +92,11 @@ export function createWorkflowTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     inputSummary: "List workflows",
     safety: { actionType: "observe" },
     async handler(_input, context): Promise<ToolResult<{ workflows: Array<ReturnType<typeof summary>> }>> {
-      return toolSuccess({ tool: "workflow.list", riskLevel: "observe", data: { workflows: (await listWorkflows(context.config.agentHostDir)).map(summary) } });
+      return toolSuccess({ tool: "workflow.list", riskLevel: "observe", data: { workflows: (await listWorkflows(context.config.osseoDir)).map(summary) } });
     }
   };
 
-  const get: AgentHostToolDefinition<z.infer<typeof getInput>, { name: string; description: string; steps: WorkflowStep[]; runWith: string }, AgentHostMcpContext> = {
+  const get: OsseoToolDefinition<z.infer<typeof getInput>, { name: string; description: string; steps: WorkflowStep[]; runWith: string }, OsseoMcpContext> = {
     name: "workflow.get",
     description: "Returns a saved workflow's steps with parameters filled in. It does not run anything: pass the returned steps to computer.run_steps (with stopOnError) to execute them under the usual approval and safety gates.",
     riskLevel: "observe",
@@ -106,10 +106,10 @@ export function createWorkflowTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     safety: { actionType: "observe" },
     async handler(input, context): Promise<ToolResult<{ name: string; description: string; steps: WorkflowStep[]; runWith: string }>> {
       try {
-        const workflow = await loadWorkflow(context.config.agentHostDir, input.name);
+        const workflow = await loadWorkflow(context.config.osseoDir, input.name);
         if (workflow === undefined) return toolFailure({ tool: "workflow.get", riskLevel: "observe", error: { code: "workflow_not_found", message: `No saved workflow named ${input.name}.` } });
         const steps = expandWorkflow(workflow, input.parameters ?? {});
-        await noteWorkflowUsed(context.config.agentHostDir, input.name).catch(() => undefined);
+        await noteWorkflowUsed(context.config.osseoDir, input.name).catch(() => undefined);
         return toolSuccess({ tool: "workflow.get", riskLevel: "observe", data: { name: workflow.name, description: workflow.description, steps, runWith: "computer.run_steps" }, observations: ["Not executed. Pass these steps to computer.run_steps. Re-check the screen first: it may have changed since the workflow was saved."] });
       } catch (error) {
         return failure("workflow.get", error);
@@ -117,7 +117,7 @@ export function createWorkflowTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     }
   };
 
-  const remove: AgentHostToolDefinition<z.infer<typeof deleteInput>, { deleted: boolean }, AgentHostMcpContext> = {
+  const remove: OsseoToolDefinition<z.infer<typeof deleteInput>, { deleted: boolean }, OsseoMcpContext> = {
     name: "workflow.delete",
     description: "Deletes a saved workflow.",
     riskLevel: "low",
@@ -127,7 +127,7 @@ export function createWorkflowTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     safety: { actionType: "inspect" },
     async handler(input, context): Promise<ToolResult<{ deleted: boolean }>> {
       try {
-        const deleted = await deleteWorkflow(context.config.agentHostDir, input.name);
+        const deleted = await deleteWorkflow(context.config.osseoDir, input.name);
         return deleted
           ? toolSuccess({ tool: "workflow.delete", riskLevel: "low", data: { deleted: true } })
           : toolFailure({ tool: "workflow.delete", riskLevel: "low", error: { code: "workflow_not_found", message: `No saved workflow named ${input.name}.` } });

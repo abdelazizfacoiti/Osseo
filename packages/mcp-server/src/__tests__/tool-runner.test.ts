@@ -22,11 +22,11 @@ import {
   type OverlayWidget,
   type RiskLevel,
   type ToolExecutionMetadata
-} from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
-import type { OverlayManager } from "@agenthost/app-overlay";
+} from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
+import type { OverlayManager } from "@osseo/app-overlay";
 import { ToolActionOverlay } from "../action-overlay.js";
-import { runTool, type AgentHostToolDefinition } from "../tool-runner.js";
+import { runTool, type OsseoToolDefinition } from "../tool-runner.js";
 import { createFileTools } from "../tools/file.js";
 import { createDesktopTools } from "../tools/desktop.js";
 import { createWindowTools } from "../tools/window.js";
@@ -36,7 +36,7 @@ import { applyProductionExecutionMetadata } from "../tool-metadata.js";
 
 const roots: string[] = [];
 async function tempHome(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-runner-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "osseo-runner-"));
   roots.push(root);
   return root;
 }
@@ -69,17 +69,17 @@ function readOnly(): ToolExecutionMetadata {
   };
 }
 
-function makeContext(home: string, logs: AuditLogEntry[]): AgentHostMcpContext {
+function makeContext(home: string, logs: AuditLogEntry[]): OsseoMcpContext {
   return {
     sessionId: "test-session",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async (entry: AuditLogEntry) => { logs.push(entry); } },
-    runtime: { version: "9.9.9-test", entryPath: "/opt/agenthost/mcp-server/dist/index.js", startedAt: "2026-01-01T00:00:00.000Z" }
-  } as unknown as AgentHostMcpContext;
+    runtime: { version: "9.9.9-test", entryPath: "/opt/osseo/mcp-server/dist/index.js", startedAt: "2026-01-01T00:00:00.000Z" }
+  } as unknown as OsseoMcpContext;
 }
 
-function writeTool(handler: (input: { value: string }) => Promise<unknown>, riskLevel: RiskLevel = "medium"): AgentHostToolDefinition<{ value: string; dryRun?: boolean; confirmationToken?: string }, unknown> {
+function writeTool(handler: (input: { value: string }) => Promise<unknown>, riskLevel: RiskLevel = "medium"): OsseoToolDefinition<{ value: string; dryRun?: boolean; confirmationToken?: string }, unknown> {
   return {
     name: "test.write",
     description: "Test write",
@@ -97,7 +97,7 @@ function writeTool(handler: (input: { value: string }) => Promise<unknown>, risk
       await handler(input);
       return toolSuccess({ tool: "test.write", riskLevel: "medium", data: { wrote: input.value } });
     }
-  } as AgentHostToolDefinition<{ value: string; dryRun?: boolean; confirmationToken?: string }, unknown>;
+  } as OsseoToolDefinition<{ value: string; dryRun?: boolean; confirmationToken?: string }, unknown>;
 }
 
 describe("governed tool runner", () => {
@@ -183,8 +183,8 @@ describe("governed tool runner", () => {
     expect(handler).toHaveBeenCalledTimes(1);
     expect(executed.confirmation?.status).toBe("tokenAccepted");
     expect(executed.serverVersion).toBe("9.9.9-test");
-    expect(executed.serverPath).toBe("/opt/agenthost/mcp-server/dist/index.js");
-    expect(logs.at(-1)).toMatchObject({ tool: "test.write", ok: true, serverVersion: "9.9.9-test", serverPath: "/opt/agenthost/mcp-server/dist/index.js" });
+    expect(executed.serverPath).toBe("/opt/osseo/mcp-server/dist/index.js");
+    expect(logs.at(-1)).toMatchObject({ tool: "test.write", ok: true, serverVersion: "9.9.9-test", serverPath: "/opt/osseo/mcp-server/dist/index.js" });
     expect(JSON.stringify(logs)).not.toContain(tokenId);
 
     const reused = await runTool(tool, { value: "hello", confirmationToken: tokenId }, context);
@@ -213,7 +213,7 @@ describe("governed tool runner", () => {
     expect(writeResult.error?.code).toBe("emergency_stop_requested");
     expect(writeHandler).not.toHaveBeenCalled();
 
-    const readTool: AgentHostToolDefinition<Record<string, never>, unknown> = {
+    const readTool: OsseoToolDefinition<Record<string, never>, unknown> = {
       name: "test.read",
       description: "Test read",
       riskLevel: "observe",
@@ -232,7 +232,7 @@ describe("governed tool runner", () => {
     const home = await tempHome();
     await beginHandoff(home, { kind: "login", message: "Log in" });
     const context = makeContext(home, []);
-    const makeRead = (name: string): AgentHostToolDefinition<Record<string, never>, unknown> => ({
+    const makeRead = (name: string): OsseoToolDefinition<Record<string, never>, unknown> => ({
       name,
       description: name,
       riskLevel: "observe",
@@ -256,7 +256,7 @@ describe("governed tool runner", () => {
     const home = await tempHome();
     const context = makeContext(home, []);
     const handler = vi.fn(async () => undefined);
-    const tool: AgentHostToolDefinition<{ value: string }, unknown> = {
+    const tool: OsseoToolDefinition<{ value: string }, unknown> = {
       name: "test.direct",
       description: "Direct state-changing test tool",
       riskLevel: "low",
@@ -287,17 +287,17 @@ describe("governed tool runner", () => {
 
   it("refuses ui tools on a nested display because AT-SPI reaches the real desktop", async () => {
     const home = await tempHome();
-    const context = { ...makeContext(home, []), linux: { backgroundDisplay: ":90" } } as unknown as AgentHostMcpContext;
+    const context = { ...makeContext(home, []), linux: { backgroundDisplay: ":90" } } as unknown as OsseoMcpContext;
     const handler = vi.fn(async () => toolSuccess({ tool: "ui.tree", riskLevel: "observe", data: {} }));
-    const uiTree: AgentHostToolDefinition<Record<string, never>, unknown> = { name: "ui.tree", description: "x", riskLevel: "observe", inputSchema: z.object({}).strict(), mcpInputSchema: {}, inputSummary: "x", safety: { actionType: "observe" }, execution: readOnly(), handler };
+    const uiTree: OsseoToolDefinition<Record<string, never>, unknown> = { name: "ui.tree", description: "x", riskLevel: "observe", inputSchema: z.object({}).strict(), mcpInputSchema: {}, inputSummary: "x", safety: { actionType: "observe" }, execution: readOnly(), handler };
     expect((await runTool(uiTree, {}, context)).error?.code).toBe("unsupported_in_background");
     expect(handler).not.toHaveBeenCalled();
   });
 
   it("fails desktop tools with unsupported_platform where there is no adapter, but not other tools", async () => {
     const home = await tempHome();
-    const context = { ...makeContext(home, []), linux: { unsupportedPlatform: "Windows desktop control is not implemented yet." } } as unknown as AgentHostMcpContext;
-    const make = (name: string, handler: () => Promise<unknown>): AgentHostToolDefinition<Record<string, never>, unknown> => ({ name, description: "x", riskLevel: "observe", inputSchema: z.object({}).strict(), mcpInputSchema: {}, inputSummary: "x", safety: { actionType: "observe" }, execution: readOnly(), handler: handler as never });
+    const context = { ...makeContext(home, []), linux: { unsupportedPlatform: "Windows desktop control is not implemented yet." } } as unknown as OsseoMcpContext;
+    const make = (name: string, handler: () => Promise<unknown>): OsseoToolDefinition<Record<string, never>, unknown> => ({ name, description: "x", riskLevel: "observe", inputSchema: z.object({}).strict(), mcpInputSchema: {}, inputSummary: "x", safety: { actionType: "observe" }, execution: readOnly(), handler: handler as never });
     const desktopHandler = vi.fn(async () => toolSuccess({ tool: "window.list", riskLevel: "observe", data: {} }));
     const blocked = await runTool(make("window.list", desktopHandler), {}, context);
     expect(blocked.error?.code).toBe("unsupported_platform");
@@ -309,7 +309,7 @@ describe("governed tool runner", () => {
     const home = await tempHome();
     const context = makeContext(home, []);
     const handler = vi.fn(async () => undefined);
-    const tool: AgentHostToolDefinition<{ value: string }, unknown> = {
+    const tool: OsseoToolDefinition<{ value: string }, unknown> = {
       name: "test.direct",
       description: "Direct state-changing test tool",
       riskLevel: "low",
@@ -338,7 +338,7 @@ describe("governed tool runner", () => {
     const home = await tempHome();
     const context = makeContext(home, []);
     const handler = vi.fn(async () => undefined);
-    const hotkey: AgentHostToolDefinition<{ keys: string[] }, unknown> = {
+    const hotkey: OsseoToolDefinition<{ keys: string[] }, unknown> = {
       name: "desktop.hotkey",
       description: "test hotkey",
       riskLevel: "low",
@@ -366,7 +366,7 @@ describe("governed tool runner", () => {
     expect(writeResult.observations?.join(" ")).toContain("test pause");
     expect(writeHandler).not.toHaveBeenCalled();
 
-    const readTool: AgentHostToolDefinition<Record<string, never>, unknown> = {
+    const readTool: OsseoToolDefinition<Record<string, never>, unknown> = {
       name: "test.read",
       description: "Test read",
       riskLevel: "observe",
@@ -431,7 +431,7 @@ describe("governed tool runner", () => {
     ]));
   });
 
-  it("blocks shell commands whose cwd would enter the AgentHost control plane", async () => {
+  it("blocks shell commands whose cwd would enter the Osseo control plane", async () => {
     const home = await tempHome();
     const context = makeContext(home, []);
     const run = vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 }));
@@ -465,10 +465,10 @@ describe("governed tool runner", () => {
     const result = await runTool(tool, { value: "hello" }, context);
     expect(result.ok).toBe(true);
     expect(showWidget).toHaveBeenCalledTimes(1);
-    expect(showWidget.mock.calls[0]?.[0]).toMatchObject({ widgetId: "action-card", title: "AgentHost · test.write" });
+    expect(showWidget.mock.calls[0]?.[0]).toMatchObject({ widgetId: "action-card", title: "Osseo · test.write" });
     expect(updateWidget).toHaveBeenCalled();
 
-    const readTool: AgentHostToolDefinition<Record<string, never>, unknown> = {
+    const readTool: OsseoToolDefinition<Record<string, never>, unknown> = {
       name: "test.read",
       description: "Test read",
       riskLevel: "observe",
@@ -490,7 +490,7 @@ describe("governed tool runner", () => {
     const finish = vi.fn(async () => undefined);
     const begin = vi.fn(async () => ({ finish }));
     (context as unknown as { actionOverlay: unknown }).actionOverlay = { begin };
-    const observation: AgentHostToolDefinition<Record<string, never>, unknown> = {
+    const observation: OsseoToolDefinition<Record<string, never>, unknown> = {
       name: "computer.observe_state",
       description: "Observe",
       riskLevel: "observe",
@@ -682,11 +682,11 @@ describe("governed tool runner", () => {
   it("confirms private read-only effects without exposing execution fields to the schema", async () => {
     const home = await tempHome();
     const context = makeContext(home, []);
-    const handler = vi.fn(async (_input: { path: string }, toolContext: AgentHostMcpContext) => {
+    const handler = vi.fn(async (_input: { path: string }, toolContext: OsseoMcpContext) => {
       expect(toolContext.confirmationSatisfied).toBe(true);
       return toolSuccess({ tool: "test.private_read", riskLevel: "medium", data: { read: true } });
     });
-    const read: AgentHostToolDefinition<{ path: string; dryRun?: boolean; confirmationToken?: string }, unknown> = {
+    const read: OsseoToolDefinition<{ path: string; dryRun?: boolean; confirmationToken?: string }, unknown> = {
       name: "test.private_read",
       description: "Test private read",
       riskLevel: "low",
@@ -741,7 +741,7 @@ describe("governed tool runner", () => {
     expect(high.error?.code).toBe("confirmation_required");
     expect(handler).toHaveBeenCalledTimes(1);
 
-    const privateRead: AgentHostToolDefinition<{ path: string }, unknown> = {
+    const privateRead: OsseoToolDefinition<{ path: string }, unknown> = {
       name: "test.private_read",
       description: "Test private read",
       riskLevel: "low",
@@ -763,7 +763,7 @@ describe("governed tool runner", () => {
   it("warns once when the exact same call repeats without progress", async () => {
     const home = await tempHome();
     const context = makeContext(home, []);
-    const probe: AgentHostToolDefinition<{ query: string }, unknown> = {
+    const probe: OsseoToolDefinition<{ query: string }, unknown> = {
       name: "desktop.probe",
       description: "Test probe",
       riskLevel: "observe",
@@ -791,7 +791,7 @@ describe("governed tool runner", () => {
       listWindows: vi.fn(async () => ({ supported: true, backend: "test", windows: [{ windowId: activeId }], truncated: false, reason: "ok" })),
       getScreenGeometry: vi.fn(async () => ({ supported: true, bounds: { x: 0, y: 0, width: 100, height: 100 }, reason: "ok" }))
     };
-    const tool: AgentHostToolDefinition<{ value: string }, unknown> = {
+    const tool: OsseoToolDefinition<{ value: string }, unknown> = {
       name: "file.write",
       description: "state test",
       riskLevel: "low",
@@ -818,7 +818,7 @@ describe("governed tool runner", () => {
       getActiveWindow: vi.fn(async () => ({ supported: true, backend: "test", activeWindow: { windowId: "browser" }, reason: "ok" })),
       listWindows: vi.fn(async () => ({ supported: true, backend: "test", windows: [...windows], truncated: false, reason: "ok" }))
     };
-    const tool: AgentHostToolDefinition<{ value: string }, unknown> = {
+    const tool: OsseoToolDefinition<{ value: string }, unknown> = {
       name: "file.write",
       description: "state test",
       riskLevel: "low",
@@ -842,7 +842,7 @@ describe("governed tool runner", () => {
   it("does not nudge paging or scrolling that repeats the same input", async () => {
     const home = await tempHome();
     const context = makeContext(home, []);
-    const hotkey: AgentHostToolDefinition<{ keys: string[] }, unknown> = {
+    const hotkey: OsseoToolDefinition<{ keys: string[] }, unknown> = {
       name: "desktop.hotkey",
       description: "hotkey test",
       riskLevel: "observe",
@@ -898,7 +898,7 @@ describe("governed tool runner", () => {
     const begin = vi.fn(async () => ({ finish }));
     (context as unknown as { actionOverlay: unknown }).actionOverlay = { begin };
     (context.config as { overlay?: { mode: string } }).overlay = { mode: "on_change" };
-    const privateRead: AgentHostToolDefinition<{ path: string }, unknown> = {
+    const privateRead: OsseoToolDefinition<{ path: string }, unknown> = {
       name: "file.read",
       description: "Read private data",
       riskLevel: "low",
@@ -1000,7 +1000,7 @@ describe("governed tool runner", () => {
     const context = makeContext(home, []);
     const runSteps = createRunStepsTool();
     const second = vi.fn(async () => toolSuccess({ tool: "test.second", riskLevel: "observe", data: { ran: true } }));
-    const fail: AgentHostToolDefinition<Record<string, never>, unknown> = {
+    const fail: OsseoToolDefinition<Record<string, never>, unknown> = {
       name: "test.fail",
       description: "Test failure",
       riskLevel: "observe",
@@ -1011,7 +1011,7 @@ describe("governed tool runner", () => {
       execution: readOnly(),
       handler: async () => toolFailure({ tool: "test.fail", riskLevel: "observe", error: { code: "expectation_failed", message: "Expected state was not reached." }, observations: [] })
     };
-    const next: AgentHostToolDefinition<Record<string, never>, unknown> = {
+    const next: OsseoToolDefinition<Record<string, never>, unknown> = {
       name: "test.second",
       description: "Test second",
       riskLevel: "observe",
@@ -1035,7 +1035,7 @@ describe("governed tool runner", () => {
     const events: string[] = [];
     let releaseFirst: () => void = () => undefined;
     const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    const stateTool = (name: string, behavior: () => Promise<void>): AgentHostToolDefinition<{ id: string }, unknown> => ({
+    const stateTool = (name: string, behavior: () => Promise<void>): OsseoToolDefinition<{ id: string }, unknown> => ({
       name,
       description: name,
       riskLevel: "low",
@@ -1055,7 +1055,7 @@ describe("governed tool runner", () => {
       events.push("first-end");
     });
     const second = stateTool("test.second", async () => { events.push("second-start"); });
-    const read: AgentHostToolDefinition<{ id: string }, unknown> = {
+    const read: OsseoToolDefinition<{ id: string }, unknown> = {
       name: "test.read",
       description: "read",
       riskLevel: "observe",
@@ -1102,7 +1102,7 @@ describe("governed tool runner", () => {
     const events: string[] = [];
     let releaseFirst: () => void = () => undefined;
     const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
-    const stateTool = (name: string, behavior: () => Promise<void>): AgentHostToolDefinition<{ id: string }, unknown> => ({
+    const stateTool = (name: string, behavior: () => Promise<void>): OsseoToolDefinition<{ id: string }, unknown> => ({
       name,
       description: name,
       riskLevel: "low",

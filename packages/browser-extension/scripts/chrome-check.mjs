@@ -13,7 +13,7 @@ import { encodeFrame, FrameDecoder } from "../src/protocol.mjs";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const extDir = path.resolve(here, "../extension");
 const hostScript = path.resolve(here, "../host/native-host.mjs");
-const HOST_NAME = "dev.agenthost.browser";
+const HOST_NAME = "dev.osseo.browser";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
 const record = (step, status, reason) => { results.push({ step, status, reason }); console.log(`${step}: ${status} - ${reason}`); };
@@ -68,8 +68,8 @@ function freePort() {
   return new Promise((res) => { const s = net.createServer(); s.listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => res(p)); }); });
 }
 
-const agentHostDir = path.join(os.homedir(), ".agenthost");
-const fingerprint = () => { try { return execFileSync("sh", ["-c", `find '${agentHostDir}' -printf '%p %T@ %s\\n' 2>/dev/null | sort | md5sum`], { encoding: "utf8" }).trim(); } catch { return "unreadable"; } };
+const osseoDir = path.join(os.homedir(), ".osseo");
+const fingerprint = () => { try { return execFileSync("sh", ["-c", `find '${osseoDir}' -printf '%p %T@ %s\\n' 2>/dev/null | sort | md5sum`], { encoding: "utf8" }).trim(); } catch { return "unreadable"; } };
 
 async function main() {
   const chrome = findChrome();
@@ -129,17 +129,17 @@ async function main() {
     // Step 3: host manifest in the temp HOME, launcher script, then a real connectNative round trip.
     const launcher = path.join(tmp, "host-launcher.sh");
     fs.writeFileSync(launcher, `#!/bin/sh\nexec node '${hostScript.replace(/'/g, "'\\''")}'\n`, { mode: 0o755 });
-    const hostManifest = { name: HOST_NAME, description: "AgentHost browser bridge (check)", path: launcher, type: "stdio", allowed_origins: [`chrome-extension://${extId}/`] };
+    const hostManifest = { name: HOST_NAME, description: "Osseo browser bridge (check)", path: launcher, type: "stdio", allowed_origins: [`chrome-extension://${extId}/`] };
     const nmDir = path.join(home, ".config", "google-chrome", "NativeMessagingHosts");
     fs.mkdirSync(nmDir, { recursive: true });
     fs.writeFileSync(path.join(nmDir, HOST_NAME + ".json"), JSON.stringify(hostManifest));
     const altDir = path.join(profile, "NativeMessagingHosts");
     fs.mkdirSync(altDir, { recursive: true });
     fs.writeFileSync(path.join(altDir, HOST_NAME + ".json"), JSON.stringify(hostManifest));
-    const allowedFile = path.join(home, ".agenthost", "browser-extension", "allowed-hosts.json");
+    const allowedFile = path.join(home, ".osseo", "browser-extension", "allowed-hosts.json");
     fs.mkdirSync(path.dirname(allowedFile), { recursive: true });
     fs.writeFileSync(allowedFile, JSON.stringify([]));
-    const sock = path.join(home, ".agenthost", "run", "browser-extension.sock");
+    const sock = path.join(home, ".osseo", "run", "browser-extension.sock");
 
     // The background script's own connect() ran at start-up, before the manifest existed. Run it again.
     const portBefore = await evalIn(pipe, swSession, "typeof port === 'undefined' ? 'no port variable' : String(port !== null)");
@@ -238,7 +238,7 @@ async function main() {
     try { execFileSync("pkill", ["-KILL", "-f", "--", `--user-data-dir=${profile}`]); } catch { /* none left */ }
     fs.rmSync(tmp, { recursive: true, force: true });
     const after = fingerprint();
-    console.log(before === after ? "~/.agenthost unchanged" : "WARNING: ~/.agenthost changed during the run (other processes may use it)");
+    console.log(before === after ? "~/.osseo unchanged" : "WARNING: ~/.osseo changed during the run (other processes may use it)");
   }
 }
 

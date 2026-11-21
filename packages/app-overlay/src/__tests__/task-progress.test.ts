@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { OverlayWidget } from "@agenthost/core";
+import type { OverlayWidget } from "@osseo/core";
 import { HeadlessOverlayRenderer, OverlayManager, TaskProgressOverlay, type TaskProgressAction } from "../index.js";
 
 function payloads(manager: OverlayManager): Array<Record<string, unknown>> {
@@ -141,7 +141,7 @@ describe("TaskProgressOverlay", () => {
       await controller.start();
       await controller.waitingForApproval("task-1");
       expect(component(manager, "status_badge")).toMatchObject({ status: "warning", text: "Waiting for approval" });
-      expect(component(manager, "warning")).toMatchObject({ text: "Approval needed. Run: agenthost task approve task-1" });
+      expect(component(manager, "warning")).toMatchObject({ text: "Approval needed. Run: osseo task approve task-1" });
 
       await controller.complete("Report is ready");
       expect(controller.snapshot().status).toBe("done");
@@ -202,7 +202,7 @@ describe("TaskProgressOverlay", () => {
   });
 
   it("emergency-hides persistent cards through the cross-process hide marker", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "agenthost-overlay-hide-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "osseo-overlay-hide-"));
     const marker = path.join(directory, "overlay.hide");
     const manager = new OverlayManager(new HeadlessOverlayRenderer(), { sessionId: "session-1" }, { hideMarkerPath: marker });
     const controller = new TaskProgressOverlay({ manager, taskId: "task-hide", title: "Hide me", heartbeatMs: 60_000 });

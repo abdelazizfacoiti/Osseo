@@ -1,8 +1,8 @@
-import { toolFailure, toolSuccess, evaluateSafety, type AppOpenResult, type ToolResult } from "@agenthost/core";
-import { URL_OPEN_BROWSERS, type UrlOpenResult } from "@agenthost/os-linux";
+import { toolFailure, toolSuccess, evaluateSafety, type AppOpenResult, type ToolResult } from "@osseo/core";
+import { URL_OPEN_BROWSERS, type UrlOpenResult } from "@osseo/os-linux";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { safetyContext } from "../context.js";
 
 const openAppInput = z.object({
@@ -14,7 +14,7 @@ const openUrlInput = z.object({
   browser: z.enum(URL_OPEN_BROWSERS).optional()
 }).strict();
 
-function launchSafety(tool: string, context: AgentHostMcpContext, target: { appName?: string; url?: string }) {
+function launchSafety(tool: string, context: OsseoMcpContext, target: { appName?: string; url?: string }) {
   return evaluateSafety(
     { tool, actionType: "app_launch", strategy: "cli_or_script", ...target },
     context.policy,
@@ -42,8 +42,8 @@ function redactedUrl(url: string): string {
   }
 }
 
-export function createAppTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const openApp: AgentHostToolDefinition<z.infer<typeof openAppInput>, AppOpenResult, AgentHostMcpContext> = {
+export function createAppTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const openApp: OsseoToolDefinition<z.infer<typeof openAppInput>, AppOpenResult, OsseoMcpContext> = {
     name: "app.open",
     description: "Launches an installed desktop app by name through its desktop entry or executable. Follow with computer.wait_for windowAppears to confirm the window.",
     riskLevel: "low",
@@ -72,7 +72,7 @@ export function createAppTools(): AnyAgentHostToolDefinition<AgentHostMcpContext
     }
   };
 
-  const openUrl: AgentHostToolDefinition<z.infer<typeof openUrlInput>, UrlOpenResult, AgentHostMcpContext> = {
+  const openUrl: OsseoToolDefinition<z.infer<typeof openUrlInput>, UrlOpenResult, OsseoMcpContext> = {
     name: "app.open_url",
     description: "Opens an http(s) or file:// URL in the default handler, or in a new tab of a named browser (reusing its logged-in profile). Faster and layout-safe compared to typing into the address bar.",
     riskLevel: "low",

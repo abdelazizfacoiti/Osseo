@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { activeTaskApprovalPath, readActiveTaskApproval, requestStop, writeActivityStatus, type CapabilityRegistrySnapshot, type ToolCapability } from "@agenthost/core";
+import { activeTaskApprovalPath, readActiveTaskApproval, requestStop, writeActivityStatus, type CapabilityRegistrySnapshot, type ToolCapability } from "@osseo/core";
 import { listResourceEntries, readResource } from "../resources.js";
 import { applyProductionExecutionMetadata, materializeToolDefinitions } from "../tool-metadata.js";
 import { createFileTools } from "../tools/file.js";
@@ -13,7 +13,7 @@ import { createTaskTools } from "../tools/tasks.js";
 
 const roots: string[] = [];
 async function tempHome(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-resources-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "osseo-resources-"));
   roots.push(root);
   return root;
 }
@@ -48,7 +48,7 @@ function context(home: string, overlay?: { mode: "always" | "on_change" | "off" 
   } as unknown as CapabilityRegistrySnapshot;
   return {
     registry,
-    config: { agentHostDir: home, tools: { profile: "full" }, ...(overlay === undefined ? {} : { overlay }) } as never
+    config: { osseoDir: home, tools: { profile: "full" }, ...(overlay === undefined ? {} : { overlay }) } as never
   };
 }
 
@@ -57,29 +57,29 @@ describe("MCP resources", () => {
     const home = await tempHome();
     const entries = listResourceEntries();
     expect(entries.map((entry) => entry.uri)).toEqual([
-      "agenthost://capabilities",
-      "agenthost://capabilities.md",
-      "agenthost://status"
+      "osseo://capabilities",
+      "osseo://capabilities.md",
+      "osseo://status"
     ]);
     expect(entries.some((entry) => entry.uri.includes("skills"))).toBe(false);
 
-    const json = JSON.parse((await readResource(context(home), "agenthost://capabilities")).text);
+    const json = JSON.parse((await readResource(context(home), "osseo://capabilities")).text);
     expect(json.toolCount).toBe(2);
     expect(json.byExecutionClass).toEqual({ state_changing: 1, read_only: 1 });
-    expect(json.resources).not.toContain("agenthost://skills");
-    expect(json.overlay).toMatchObject({ mode: "always", fallback: "agenthost overlay status" });
+    expect(json.resources).not.toContain("osseo://skills");
+    expect(json.overlay).toMatchObject({ mode: "always", fallback: "osseo overlay status" });
     expect(json.overlay.triggers).toContain("computer.*");
 
-    const markdown = (await readResource(context(home), "agenthost://capabilities.md")).text;
-    expect(markdown).not.toContain("agenthost://skills");
+    const markdown = (await readResource(context(home), "osseo://capabilities.md")).text;
+    expect(markdown).not.toContain("osseo://skills");
     expect(markdown).toContain("routine local actions");
     expect(markdown).toContain("Activity overlay: mode `always`");
 
-    const disabledJson = JSON.parse((await readResource(context(home, { mode: "off" }), "agenthost://capabilities")).text);
+    const disabledJson = JSON.parse((await readResource(context(home, { mode: "off" }), "osseo://capabilities")).text);
     expect(disabledJson.overlay).toMatchObject({ mode: "off", triggers: [] });
-    const disabledMarkdown = (await readResource(context(home, { mode: "off" }), "agenthost://capabilities.md")).text;
+    const disabledMarkdown = (await readResource(context(home, { mode: "off" }), "osseo://capabilities.md")).text;
     expect(disabledMarkdown).toContain("automatic cards are disabled");
-    await expect(readResource(context(home), "agenthost://unknown")).rejects.toThrow(/Unknown resource/);
+    await expect(readResource(context(home), "osseo://unknown")).rejects.toThrow(/Unknown resource/);
   });
 
   it("clears active approval when an agent requests an emergency stop", async () => {
@@ -114,7 +114,7 @@ describe("MCP resources", () => {
       overlay: { started: true, visible: true },
       updatedAt: new Date().toISOString()
     });
-    const status = JSON.parse((await readResource(context(home), "agenthost://status")).text);
+    const status = JSON.parse((await readResource(context(home), "osseo://status")).text);
     expect(status.runState.stop).toMatchObject({ requested: true, reason: "test stop" });
     expect(status.activeTaskApproval).toBeNull();
     expect(status.lastActivity).toMatchObject({ tool: "computer.observe_state", overlay: { started: true, visible: true } });

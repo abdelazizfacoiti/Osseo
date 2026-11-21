@@ -7,7 +7,7 @@ const win: SafetyEvaluationContext = {
   platform: "win32",
   homeDir: "C:\\Users\\alice",
   cwd: "C:\\Users\\alice\\Projects",
-  agentHostDir: "C:\\Users\\alice\\.agenthost",
+  osseoDir: "C:\\Users\\alice\\.osseo",
   env: {
     USERPROFILE: "C:\\Users\\alice",
     APPDATA: "C:\\Users\\alice\\AppData\\Roaming",
@@ -43,9 +43,9 @@ describe("Windows path policy", () => {
     expect(classifyPath("%LOCALAPPDATA%\\Microsoft\\Edge\\User Data\\Default\\Cookies", getDefaultPolicy(), { ...win, access: "read" }).riskLevel).toBe("blocked");
   });
 
-  it("treats the AgentHost control plane as operator-only on Windows too", () => {
-    expect(classifyPath("C:\\Users\\alice\\.agenthost\\run\\stop.requested", getDefaultPolicy(), { ...win, access: "write" })).toMatchObject({ protectionKind: "agenthost_control", riskLevel: "blocked" });
-    expect(classifyPath("C:\\Users\\alice\\.agenthost\\config.json", getDefaultPolicy(), { ...win, access: "write" }).riskLevel).toBe("blocked");
+  it("treats the Osseo control plane as operator-only on Windows too", () => {
+    expect(classifyPath("C:\\Users\\alice\\.osseo\\run\\stop.requested", getDefaultPolicy(), { ...win, access: "write" })).toMatchObject({ protectionKind: "osseo_control", riskLevel: "blocked" });
+    expect(classifyPath("C:\\Users\\alice\\.osseo\\config.json", getDefaultPolicy(), { ...win, access: "write" }).riskLevel).toBe("blocked");
   });
 
   it("expands %NAME% from the environment and falls back to the standard folders", () => {
@@ -113,12 +113,12 @@ describe("Windows shell classifier", () => {
   it("applies the path policy to Windows path words in commands", () => {
     expect(decide("type C:\\Windows\\System32\\drivers\\etc\\hosts")).toMatchObject({ riskLevel: "high" });
     expect(decide("type %USERPROFILE%\\.ssh\\id_ed25519").blocked).toBe(true);
-    expect(decide("type C:\\Users\\alice\\.agenthost\\run\\pause.requested").blocked).toBe(true);
+    expect(decide("type C:\\Users\\alice\\.osseo\\run\\pause.requested").blocked).toBe(true);
   });
 
-  it("refuses AgentHost operator commands and control-plane paths with either separator", () => {
-    expect(decide("agenthost confirm tok_123").blocked).toBe(true);
-    expect(decide("type C:\\Users\\alice\\.agenthost\\logs\\agenthost.jsonl").blocked).toBe(true);
+  it("refuses Osseo operator commands and control-plane paths with either separator", () => {
+    expect(decide("osseo confirm tok_123").blocked).toBe(true);
+    expect(decide("type C:\\Users\\alice\\.osseo\\logs\\osseo.jsonl").blocked).toBe(true);
   });
 
   it("leaves Windows rules out of POSIX platforms", () => {

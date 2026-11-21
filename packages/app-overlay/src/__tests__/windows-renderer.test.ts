@@ -55,12 +55,12 @@ afterEach(async () => {
 });
 
 async function start(mode = "normal", extra: Partial<WindowsOverlayRendererOptions> = {}): Promise<WindowsOverlayRenderer> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-win-overlay-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-win-overlay-"));
   dirs.push(dir);
   const script = path.join(dir, "fake-overlay.cjs");
   await writeFile(script, FAKE);
   const renderer = new WindowsOverlayRenderer({
-    agentHostDir: dir,
+    osseoDir: dir,
     sessionId: "session-test",
     command: { program: process.execPath, args: [script, mode] },
     startupTimeoutMs: 5_000,
@@ -169,9 +169,9 @@ describe("WindowsOverlayRenderer", () => {
   });
 
   it("writes the script under run/ when no test command is injected", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-win-overlay-script-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-win-overlay-script-"));
     dirs.push(dir);
-    const renderer = new WindowsOverlayRenderer({ agentHostDir: dir, startupTimeoutMs: 1_000 });
+    const renderer = new WindowsOverlayRenderer({ osseoDir: dir, startupTimeoutMs: 1_000 });
     renderers.push(renderer);
     await renderer.warmup();
     await renderer.capabilities();
@@ -181,8 +181,8 @@ describe("WindowsOverlayRenderer", () => {
 
 describe("windowsOverlayEnabled", () => {
   it("is on only for the exact opt-in value", () => {
-    expect(windowsOverlayEnabled({ AGENTHOST_WINDOWS_OVERLAY: "1" })).toBe(true);
-    expect(windowsOverlayEnabled({ AGENTHOST_WINDOWS_OVERLAY: "true" })).toBe(false);
+    expect(windowsOverlayEnabled({ OSSEO_WINDOWS_OVERLAY: "1" })).toBe(true);
+    expect(windowsOverlayEnabled({ OSSEO_WINDOWS_OVERLAY: "true" })).toBe(false);
     expect(windowsOverlayEnabled({})).toBe(false);
   });
 });

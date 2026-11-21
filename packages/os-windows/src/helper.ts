@@ -25,8 +25,8 @@ interface Pending {
 }
 
 export interface WindowsHelperOptions {
-  /** AgentHost home: the script is written under <home>/run. */
-  agentHostDir: string;
+  /** Osseo home: the script is written under <home>/run. */
+  osseoDir: string;
   /** Test seam: the program and arguments that run the helper. */
   command?: { program: string; args: string[] };
   startTimeoutMs?: number;
@@ -100,7 +100,7 @@ export class WindowsHelperProcess implements HelperTransport {
   }
 
   async #writeScript(): Promise<{ program: string; args: string[] }> {
-    const dir = path.join(this.#options.agentHostDir, "run");
+    const dir = path.join(this.#options.osseoDir, "run");
     await mkdir(dir, { recursive: true });
     const file = path.join(dir, "windows-helper.ps1");
     await writeFile(file, HELPER_SCRIPT, { encoding: "utf8" });

@@ -5,7 +5,7 @@ Status: code and unit tests exist in `packages/browser-extension/`; connected to
 ## Parts
 
 - `extension/` is a Manifest V3 extension for Chrome and Firefox. The person loads it unpacked.
-- `host/native-host.mjs` is the native messaging host. The browser starts it; it talks Chrome framing on stdin and stdout, and listens on a private unix socket (`~/.agenthost/run/browser-extension.sock`, mode 0600) for requests from AgentHost.
+- `host/native-host.mjs` is the native messaging host. The browser starts it; it talks Chrome framing on stdin and stdout, and listens on a private unix socket (`~/.osseo/run/browser-extension.sock`, mode 0600) for requests from Osseo.
 - `src/protocol.mjs` holds framing, request validation and the allowed-host check. `src/refusals.mjs` holds the field refusal predicate.
 
 ## Requests
@@ -16,7 +16,7 @@ Types: `snapshot`, `click`, `type`, `select`, `navigate`, `read`. Each names `id
 
 - No site is touched unless it is in the allowed list. The popup asks the browser for permission for that one host and stores it in `chrome.storage.local`. The manifest has no `<all_urls>` and no `host_permissions`, only optional http and https patterns that the popup narrows to one host.
 - The background script reads the list on every request and also checks that the tab is still on the named host, so a redirect to another site is refused.
-- The native host checks the list again from `~/.agenthost/browser-extension/allowed-hosts.json` (read per request; a missing or bad file allows nothing). A navigation target must be allowed too.
+- The native host checks the list again from `~/.osseo/browser-extension/allowed-hosts.json` (read per request; a missing or bad file allows nothing). A navigation target must be allowed too.
 - Password fields, `one-time-code`, `cc-*` and `current-password`/`new-password` autocomplete values, and names or ids matching `password|passcode|otp|token|secret|card|cvv|cvc|iban|ssn` are refused before any typing, and their value is never returned. The pattern is broad on purpose: "tokenizer", "classname" and "discard" are refused too.
 - The content script never touches cookies or page storage. Page content goes only back through the native host to the requester. Messages over 1 MB are refused.
 
@@ -37,7 +37,7 @@ Content scripts cannot import modules, so the refusal predicate lives in `src/re
 
 ## Connected to the MCP server
 
-The server now has `browser.own_snapshot`, `browser.own_click`, `browser.own_type`, `browser.own_select`, `browser.own_navigate`, `browser.own_read` and `browser.own_tabs` (`packages/mcp-server/src/tools/own-browser.ts`). `browser-extension-client.ts` sends one framed request per call to the native host's socket (`<agent home>/run/browser-extension.sock`, or `AGENTHOST_BROWSER_SOCKET`) and waits up to 15 s for the reply with the same id. The framing is a copy of `src/protocol.mjs`; a test compares the two.
+The server now has `browser.own_snapshot`, `browser.own_click`, `browser.own_type`, `browser.own_select`, `browser.own_navigate`, `browser.own_read` and `browser.own_tabs` (`packages/mcp-server/src/tools/own-browser.ts`). `browser-extension-client.ts` sends one framed request per call to the native host's socket (`<agent home>/run/browser-extension.sock`, or `OSSEO_BROWSER_SOCKET`) and waits up to 15 s for the reply with the same id. The framing is a copy of `src/protocol.mjs`; a test compares the two.
 
 - Each call names `tabId`, `host` (a plain lower-case hostname, else `bad_host`) and the ref or value it needs.
 - A host is usable only when the first `site` rule in `policy.toml` that matches it (action `any`, any app) says `allow`. No rule, `ask` or `never` gives `host_not_allowed` before anything is sent. A suffix rule matches the host and its subdomains, never `evil-example.com`. A navigation target must pass the same check.
@@ -67,7 +67,7 @@ Findings from the run:
 - Fixed: a second host process started by Chrome (one per `connectNative` port, or one-shot from `sendNativeMessage`) used to unlink the first host's socket at start and at exit. Now `claimSocket` in `host/native-host.mjs` tries to connect first. If a live host answers, the new host does not unlink and does not listen; it only relays its own Chrome port over stdio. A stale socket (no answer) is removed and replaced. At exit a host removes the socket only if it created it. The check's step 3b confirms the first host's socket survives a one-shot host.
 - Known limit (not changed): `sendNativeMessage` with a request gets no reply. The host treats frames from the extension as responses and drops them. Only requests that arrive through the socket are answered, and the protocol stays as it is.
 - Fixed: `extension/background.js` now reconnects after `onDisconnect` with a timer backoff of 1 s, 2 s, 4 s, doubling, capped at 60 s; the count restarts once a connection has lasted 2 s. `connect()` does nothing when a port exists. A request that arrives with no port triggers one connect attempt; if that fails, the answer is `extension_disconnected` (when no port exists at all, the native host already fails the client with the same reason). No `chrome.alarms`: a sleeping service worker is still restarted by Chrome only on events, so a reconnect timer is lost if the worker is stopped; the next start calls `connect()` again.
-- Fixed: `host/install-host.mjs --apply` writes a launcher `<home>/.agenthost/browser-extension/bin/agenthost-browser-host` (directory and file mode 0700) with `#!/bin/sh` and `exec '<node>' '<native-host.mjs>'`, both single-quoted for sh, and sets the manifest `path` to it. The manifest stays in the browser's `NativeMessagingHosts` folder (mode 0644). Preview is still the default and writes nothing; nothing is written outside the home folder. The launcher fixes the dependence on `node` being on the PATH Chrome gives native hosts. If node moves, run the installer again.
+- Fixed: `host/install-host.mjs --apply` writes a launcher `<home>/.osseo/browser-extension/bin/osseo-browser-host` (directory and file mode 0700) with `#!/bin/sh` and `exec '<node>' '<native-host.mjs>'`, both single-quoted for sh, and sets the manifest `path` to it. The manifest stays in the browser's `NativeMessagingHosts` folder (mode 0644). Preview is still the default and writes nothing; nothing is written outside the home folder. The launcher fixes the dependence on `node` being on the PATH Chrome gives native hosts. If node moves, run the installer again.
 
 Not tested: the permission prompt, the content script in a real page, a snapshot/click/type on a real site, the popup UI, Windows and macOS, and everything about Firefox (Firefox was not run; the `background.scripts` key and `allowed_extensions` are unchecked).
 
@@ -86,7 +86,7 @@ Date: 2026-11-12. Chrome 150.0.7871.128 (`--headless=new`), Firefox 155.0.1 (`-h
 | Field named `token` | PASS | `sensitive_name`, same checks |
 | Field named `classname` | PASS | `sensitive_name` (matches `ssn`; the documented over-refusal) |
 | Plain button click | PASS | the page's onclick ran once |
-| Firefox: `webExtension.install` (type `path`) over BiDi | PASS | Reply `{"extension":"agenthost-browser@agenthost.dev"}`; `webExtension.uninstall` of that id then succeeded, so the add-on was installed. Firefox did not error on a manifest with both `background.service_worker` and `background.scripts`. Warnings in Firefox's console were not captured, and whether the background script ran was not checked. |
+| Firefox: `webExtension.install` (type `path`) over BiDi | PASS | Reply `{"extension":"osseo-browser@osseo.dev"}`; `webExtension.uninstall` of that id then succeeded, so the add-on was installed. Firefox did not error on a manifest with both `background.service_worker` and `background.scripts`. Warnings in Firefox's console were not captured, and whether the background script ran was not checked. |
 
 Notes: the snap Firefox cannot read `/tmp` ("Could not find profile folder"), so `firefox-check.mjs` puts its temp directory under `~/snap/firefox/common/` and removes it after. It does not write `DevToolsActivePort`; the port is read from the line `WebDriver BiDi listening on ws://127.0.0.1:<port>` in the output. Node 20 has no WebSocket, so the script has a minimal client.
 

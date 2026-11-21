@@ -7,9 +7,9 @@ import { ensurePrivateDirectory } from "../private-directory.js";
 describe("ensurePrivateDirectory", () => {
   // Windows has no POSIX mode bits, so the mode check runs only where they exist.
   it.skipIf(process.platform === "win32")("creates an owner-only directory on POSIX", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-private-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "osseo-private-"));
     try {
-      const directory = path.join(root, "home", ".agenthost");
+      const directory = path.join(root, "home", ".osseo");
       const result = await ensurePrivateDirectory(directory, { platform: "linux" });
       expect(result).toEqual({ ok: true, method: "posix_mode" });
       expect((await stat(directory)).mode & 0o777).toBe(0o700);
@@ -19,10 +19,10 @@ describe("ensurePrivateDirectory", () => {
   });
 
   it("sets an access list on Windows: inheritance off, only the user and SYSTEM kept", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-private-win-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "osseo-private-win-"));
     try {
       const calls: Array<{ command: string; args: string[] }> = [];
-      const directory = path.join(root, ".agenthost");
+      const directory = path.join(root, ".osseo");
       const result = await ensurePrivateDirectory(directory, {
         platform: "win32",
         user: "DESKTOP-1\\alice",
@@ -39,7 +39,7 @@ describe("ensurePrivateDirectory", () => {
   });
 
   it("reports a failed icacls run instead of claiming the folder is private", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-private-fail-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "osseo-private-fail-"));
     try {
       const result = await ensurePrivateDirectory(path.join(root, "x"), {
         platform: "win32",

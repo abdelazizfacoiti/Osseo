@@ -1,7 +1,7 @@
-import type { OverlayCapabilityReport, OverlayStateSnapshot, OverlayWidgetEvent } from "@agenthost/core";
+import type { OverlayCapabilityReport, OverlayStateSnapshot, OverlayWidgetEvent } from "@osseo/core";
 import type {
   OverlayOperationResult, OverlayRenderRecord, OverlayRenderer, OverlayRendererDiagnostics, OverlayRendererRestartResult
-} from "@agenthost/app-overlay";
+} from "@osseo/app-overlay";
 
 /*
  * One overlay renderer for the whole host service. The hub owns the renderer;
@@ -19,7 +19,7 @@ import type {
  */
 
 const SEPARATOR = "::";
-const TIMELINE_PREFIX = "agenthost-timeline-";
+const TIMELINE_PREFIX = "osseo-timeline-";
 /** One history panel for the whole host: every session's timeline is drawn into this widget, newest writer showing. */
 const SHARED_TIMELINE_ID = `${TIMELINE_PREFIX}host`;
 const MAX_QUEUED_EVENTS = 200;

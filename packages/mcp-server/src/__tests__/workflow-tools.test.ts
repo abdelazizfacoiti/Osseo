@@ -2,15 +2,15 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getDefaultPolicy, type AuditLogEntry } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy, type AuditLogEntry } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 import { applyProductionExecutionMetadata } from "../tool-metadata.js";
 import { runTool } from "../tool-runner.js";
 import { createWorkflowTools } from "../tools/workflow.js";
 
 const directories: string[] = [];
 async function tempHome(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "agenthost-workflow-tools-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "osseo-workflow-tools-"));
   directories.push(directory);
   return directory;
 }
@@ -18,15 +18,15 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((directory) 
 
 const tools = new Map(applyProductionExecutionMetadata(createWorkflowTools() as never).map((tool) => [tool.name, tool]));
 const tool = (name: string) => tools.get(name)!;
-function context(home: string): AgentHostMcpContext {
+function context(home: string): OsseoMcpContext {
   return {
     sessionId: "workflow-test",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async (_entry: AuditLogEntry) => undefined },
     tools: new Map([["app.open_url", {}], ["desktop.type_text", {}]]) as never,
     linux: {}
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
 describe("workflow tools", () => {

@@ -1,4 +1,4 @@
-# AgentHost Windows check (W2: the desktop adapter).
+# Osseo Windows check (W2: the desktop adapter).
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\windows-desktop-check.ps1
 #   (add -SkipInstall to reuse node_modules, -NoInput to skip the part that moves the mouse,
@@ -25,13 +25,13 @@ function Invoke-Step([string]$Name, [scriptblock]$Body) {
     }
 }
 
-Write-Host "AgentHost Windows desktop check (W2)"
+Write-Host "Osseo Windows desktop check (W2)"
 Write-Host ("Windows: " + [System.Environment]::OSVersion.VersionString)
 Write-Host ("PowerShell: " + $PSVersionTable.PSVersion.ToString())
 Write-Host ("Folder: " + (Get-Location).Path)
 
 if (-not (Test-Path "package.json")) {
-    Write-Host "FAIL: run this from the AgentHost repository folder (package.json not found)."
+    Write-Host "FAIL: run this from the Osseo repository folder (package.json not found)."
     exit 1
 }
 

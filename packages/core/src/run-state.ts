@@ -25,12 +25,12 @@ const FLAG_FILES: Record<RunFlagName, string> = {
   pause: "pause.requested"
 };
 
-function flagPath(agentHostDir: string, name: RunFlagName): string {
-  return path.join(agentHostDir, "run", FLAG_FILES[name]);
+function flagPath(osseoDir: string, name: RunFlagName): string {
+  return path.join(osseoDir, "run", FLAG_FILES[name]);
 }
 
-async function readFlag(agentHostDir: string, name: RunFlagName): Promise<RunFlagState> {
-  const file = flagPath(agentHostDir, name);
+async function readFlag(osseoDir: string, name: RunFlagName): Promise<RunFlagState> {
+  const file = flagPath(osseoDir, name);
   try {
     const raw = await readFile(file, "utf8");
     const value = JSON.parse(raw) as { reason?: unknown; at?: unknown };
@@ -45,21 +45,21 @@ async function readFlag(agentHostDir: string, name: RunFlagName): Promise<RunFla
   }
 }
 
-export async function readRunState(agentHostDir: string): Promise<RunStateSnapshot> {
+export async function readRunState(osseoDir: string): Promise<RunStateSnapshot> {
   const [stop, takeover, pause] = await Promise.all([
-    readFlag(agentHostDir, "stop"),
-    readFlag(agentHostDir, "takeover"),
-    readFlag(agentHostDir, "pause")
+    readFlag(osseoDir, "stop"),
+    readFlag(osseoDir, "takeover"),
+    readFlag(osseoDir, "pause")
   ]);
   return { stop, takeover, pause };
 }
 
-async function writeFlag(agentHostDir: string, name: RunFlagName, reason: string): Promise<RunFlagState> {
-  const directory = path.dirname(flagPath(agentHostDir, name));
+async function writeFlag(osseoDir: string, name: RunFlagName, reason: string): Promise<RunFlagState> {
+  const directory = path.dirname(flagPath(osseoDir, name));
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
   const record = { requested: true, reason: reason.slice(0, 500), at: new Date().toISOString() };
-  const target = flagPath(agentHostDir, name);
+  const target = flagPath(osseoDir, name);
   const temporary = `${target}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
   await chmod(temporary, 0o600);
@@ -68,32 +68,32 @@ async function writeFlag(agentHostDir: string, name: RunFlagName, reason: string
   return { requested: true, reason: record.reason, at: record.at };
 }
 
-async function clearFlag(agentHostDir: string, name: RunFlagName): Promise<void> {
-  await rm(flagPath(agentHostDir, name), { force: true });
+async function clearFlag(osseoDir: string, name: RunFlagName): Promise<void> {
+  await rm(flagPath(osseoDir, name), { force: true });
 }
 
-export function requestStop(agentHostDir: string, reason = "operator_stop"): Promise<RunFlagState> {
-  return writeFlag(agentHostDir, "stop", reason);
+export function requestStop(osseoDir: string, reason = "operator_stop"): Promise<RunFlagState> {
+  return writeFlag(osseoDir, "stop", reason);
 }
 
-export function clearStop(agentHostDir: string): Promise<void> {
-  return clearFlag(agentHostDir, "stop");
+export function clearStop(osseoDir: string): Promise<void> {
+  return clearFlag(osseoDir, "stop");
 }
 
-export function beginTakeover(agentHostDir: string, reason = "operator_takeover"): Promise<RunFlagState> {
-  return writeFlag(agentHostDir, "takeover", reason);
+export function beginTakeover(osseoDir: string, reason = "operator_takeover"): Promise<RunFlagState> {
+  return writeFlag(osseoDir, "takeover", reason);
 }
 
-export function endTakeover(agentHostDir: string): Promise<void> {
-  return clearFlag(agentHostDir, "takeover");
+export function endTakeover(osseoDir: string): Promise<void> {
+  return clearFlag(osseoDir, "takeover");
 }
 
-export function requestPause(agentHostDir: string, reason = "operator_pause"): Promise<RunFlagState> {
-  return writeFlag(agentHostDir, "pause", reason);
+export function requestPause(osseoDir: string, reason = "operator_pause"): Promise<RunFlagState> {
+  return writeFlag(osseoDir, "pause", reason);
 }
 
-export function clearPause(agentHostDir: string): Promise<void> {
-  return clearFlag(agentHostDir, "pause");
+export function clearPause(osseoDir: string): Promise<void> {
+  return clearFlag(osseoDir, "pause");
 }
 
 export const HANDOFF_KINDS = ["login", "mfa", "captcha", "payment", "other"] as const;
@@ -107,14 +107,14 @@ export interface HandoffState {
   at?: string;
 }
 
-function handoffPath(agentHostDir: string): string {
-  return path.join(agentHostDir, "run", "handoff.active");
+function handoffPath(osseoDir: string): string {
+  return path.join(osseoDir, "run", "handoff.active");
 }
 
 /** Reads the active "your turn" handoff, if any. Unreadable records count as active with no detail. */
-export async function readHandoff(agentHostDir: string): Promise<HandoffState> {
+export async function readHandoff(osseoDir: string): Promise<HandoffState> {
   try {
-    const value = JSON.parse(await readFile(handoffPath(agentHostDir), "utf8")) as { kind?: unknown; message?: unknown; at?: unknown };
+    const value = JSON.parse(await readFile(handoffPath(osseoDir), "utf8")) as { kind?: unknown; message?: unknown; at?: unknown };
     return {
       active: true,
       kind: HANDOFF_KINDS.find((kind) => kind === value.kind) ?? "other",
@@ -131,25 +131,25 @@ export async function readHandoff(agentHostDir: string): Promise<HandoffState> {
  * It raises the takeover flag, so state-changing tools halt, and records the
  * handoff so screen-reading tools are refused until the human continues.
  */
-export async function beginHandoff(agentHostDir: string, input: { kind: HandoffKind; message: string }): Promise<HandoffState> {
-  const directory = path.dirname(handoffPath(agentHostDir));
+export async function beginHandoff(osseoDir: string, input: { kind: HandoffKind; message: string }): Promise<HandoffState> {
+  const directory = path.dirname(handoffPath(osseoDir));
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
   const record = { kind: input.kind, message: input.message.slice(0, 300), at: new Date().toISOString() };
-  const target = handoffPath(agentHostDir);
+  const target = handoffPath(osseoDir);
   const temporary = `${target}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(record)}\n`, { encoding: "utf8", mode: 0o600 });
   await rename(temporary, target);
   await chmod(target, 0o600);
-  await beginTakeover(agentHostDir, `${HANDOFF_REASON_PREFIX}${input.kind}`);
+  await beginTakeover(osseoDir, `${HANDOFF_REASON_PREFIX}${input.kind}`);
   return { active: true, ...record };
 }
 
 /** Ends a handoff. A takeover the operator started separately is left alone. */
-export async function endHandoff(agentHostDir: string): Promise<void> {
-  const takeover = await readFlag(agentHostDir, "takeover");
-  if (takeover.reason?.startsWith(HANDOFF_REASON_PREFIX) === true) await endTakeover(agentHostDir);
-  await rm(handoffPath(agentHostDir), { force: true });
+export async function endHandoff(osseoDir: string): Promise<void> {
+  const takeover = await readFlag(osseoDir, "takeover");
+  if (takeover.reason?.startsWith(HANDOFF_REASON_PREFIX) === true) await endTakeover(osseoDir);
+  await rm(handoffPath(osseoDir), { force: true });
 }
 
 export function evaluateRunStateGate(state: RunStateSnapshot): {
@@ -177,7 +177,7 @@ export function evaluateRunStateGate(state: RunStateSnapshot): {
     return {
       allowed: false,
       code: "pause_requested",
-      reason: state.pause.reason ?? "The operator paused AgentHost; state-changing tools are held until resume."
+      reason: state.pause.reason ?? "The operator paused Osseo; state-changing tools are held until resume."
     };
   }
 

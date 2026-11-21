@@ -1,8 +1,8 @@
-import { evaluateSafety, toolFailure, toolSuccess, type ToolResult } from "@agenthost/core";
+import { evaluateSafety, toolFailure, toolSuccess, type ToolResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
+import type { OsseoMcpContext } from "../context.js";
 import { safetyContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 
 /**
  * Text before pixels: an outline of the active window, from the accessibility tree. It names what
@@ -76,8 +76,8 @@ export function outlineOf(root: OutlineNode | undefined, maxBytes: number): { li
   return { lines, elements, truncated };
 }
 
-export function createScreenTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const read: AgentHostToolDefinition<ReadInput, unknown, AgentHostMcpContext> = {
+export function createScreenTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const read: OsseoToolDefinition<ReadInput, unknown, OsseoMcpContext> = {
     name: "screen.read",
     description: "Outline of the active window from the accessibility tree: roles, names, enabled state and screen bounds, no text content, capped in bytes (default 2048). Cheaper than a screenshot for \"what is on screen\" questions; falls back to a hint when the app exposes no accessibility tree.",
     riskLevel: "low",

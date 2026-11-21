@@ -7,7 +7,7 @@ import { killProcessTree } from "./process-tree.js";
 
 /*
  * One dedicated Chrome/Chromium instance the agent drives through the DevTools
- * Protocol. It runs in its own profile under ~/.agenthost/browser/profiles/agent
+ * Protocol. It runs in its own profile under ~/.osseo/browser/profiles/agent
  * (never the person's everyday profile) so a login the person completes during a
  * handoff persists for the agent without exposing their other accounts.
  *
@@ -153,8 +153,8 @@ export function chromeSpawnOptions(headless: boolean, env: NodeJS.ProcessEnv): {
   return { stdio: "ignore", env, ...(headless ? { windowsHide: true as const } : {}) };
 }
 
-export function browserProfileDir(agentHostDir: string): string {
-  return path.join(agentHostDir, "browser", "profiles", "agent");
+export function browserProfileDir(osseoDir: string): string {
+  return path.join(osseoDir, "browser", "profiles", "agent");
 }
 
 const SNAPSHOT_SCRIPT = `(max) => {
@@ -220,7 +220,7 @@ const DESCRIBE_SCRIPT = `(ref) => {
 function sleep(ms: number): Promise<void> { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 export class BrowserSession implements BrowserAutomation {
-  readonly #agentHostDir: string;
+  readonly #osseoDir: string;
   readonly #executable: string | undefined;
   readonly #env: NodeJS.ProcessEnv;
   #child: ChildProcess | undefined;
@@ -230,8 +230,8 @@ export class BrowserSession implements BrowserAutomation {
   #headless = false;
   #sharedBrowser = false;
 
-  constructor(options: { agentHostDir: string; executable?: string; env?: NodeJS.ProcessEnv }) {
-    this.#agentHostDir = options.agentHostDir;
+  constructor(options: { osseoDir: string; executable?: string; env?: NodeJS.ProcessEnv }) {
+    this.#osseoDir = options.osseoDir;
     this.#env = options.env ?? process.env;
     this.#executable = options.executable ?? findChromeExecutable(this.#env);
   }
@@ -240,7 +240,7 @@ export class BrowserSession implements BrowserAutomation {
     if (this.#connection !== undefined && !this.#connection.closed && this.#sessionId !== undefined) return { ok: true };
     this.#reset();
     if (this.#executable === undefined) return { ok: false, reason: "No Chrome or Chromium executable was found on PATH." };
-    const profile = browserProfileDir(this.#agentHostDir);
+    const profile = browserProfileDir(this.#osseoDir);
     await mkdir(profile, { recursive: true, mode: 0o700 });
     const attached = await this.#attachToRunning(profile);
     if (attached) return { ok: true };
@@ -634,12 +634,12 @@ export class BrowserSession implements BrowserAutomation {
 
 const SESSIONS = new Map<string, BrowserSession>();
 
-/** One browser per AgentHost home, shared by every server in this process. */
-export function getBrowserSession(agentHostDir: string, env?: NodeJS.ProcessEnv): BrowserSession {
-  let session = SESSIONS.get(agentHostDir);
+/** One browser per Osseo home, shared by every server in this process. */
+export function getBrowserSession(osseoDir: string, env?: NodeJS.ProcessEnv): BrowserSession {
+  let session = SESSIONS.get(osseoDir);
   if (session === undefined) {
-    session = new BrowserSession({ agentHostDir, ...(env === undefined ? {} : { env }) });
-    SESSIONS.set(agentHostDir, session);
+    session = new BrowserSession({ osseoDir, ...(env === undefined ? {} : { env }) });
+    SESSIONS.set(osseoDir, session);
   }
   return session;
 }

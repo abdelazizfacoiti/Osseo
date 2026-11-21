@@ -15,7 +15,7 @@ import {
   type GuideWorkflowKind,
   type InstalledAppSummary,
   type RuntimePolicy
-} from "@agenthost/core";
+} from "@osseo/core";
 import {
   findCommandPath,
   listDesktopEntries,

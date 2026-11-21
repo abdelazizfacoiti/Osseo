@@ -1,14 +1,14 @@
-import type { AgentHostConfig, CapabilityRegistrySnapshot, SystemInfo } from "@agenthost/core";
+import type { OsseoConfig, CapabilityRegistrySnapshot, SystemInfo } from "@osseo/core";
 
 export function getLinuxSystemInfo(
-  config: AgentHostConfig,
+  config: OsseoConfig,
   registry: CapabilityRegistrySnapshot
 ): SystemInfo {
   return {
     platform: process.platform,
     arch: process.arch,
     nodeVersion: process.version,
-    agentHostDir: config.agentHostDir,
+    osseoDir: config.osseoDir,
     strategies: registry.listStrategies(),
     tools: registry.listTools().map((tool) => tool.name)
   };

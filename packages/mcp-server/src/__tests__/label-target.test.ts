@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AccessibilityElementCandidate, DesktopWindowBounds, DesktopWindowContext } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import type { AccessibilityElementCandidate, DesktopWindowBounds, DesktopWindowContext } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 import { resolveLabelTarget } from "../label-target.js";
 
 const WINDOW: DesktopWindowBounds = { x: 0, y: 0, width: 800, height: 600 };
@@ -30,7 +30,7 @@ function fakeContext(options: {
     windows: [{ windowId: "w1", bounds: options.windows ?? WINDOW }]
   }));
   const getActiveWindow = vi.fn(async () => ({ supported: options.activeSupported ?? false, backend: "fake", reason: "", activeWindow: undefined }));
-  const context = { linux: { findAccessibilityElement, listWindows, getActiveWindow } } as unknown as AgentHostMcpContext;
+  const context = { linux: { findAccessibilityElement, listWindows, getActiveWindow } } as unknown as OsseoMcpContext;
   return { context, findAccessibilityElement };
 }
 

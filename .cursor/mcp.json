@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "agenthost": {
-      "command": "agenthost",
+    "osseo": {
+      "command": "osseo",
       "args": [
         "start"
       ]

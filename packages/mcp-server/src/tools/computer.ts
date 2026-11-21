@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { evaluateSafety, normalizePathForPolicy, toolFailure, toolSuccess, type DesktopWindowBounds, type DesktopWindowContext, type ToolResult } from "@agenthost/core";
+import { evaluateSafety, normalizePathForPolicy, toolFailure, toolSuccess, type DesktopWindowBounds, type DesktopWindowContext, type ToolResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { createRunStepsTool } from "./run-steps.js";
 import { safetyContext } from "../context.js";
 
@@ -61,8 +61,8 @@ function stateFingerprint(state: unknown): string {
   return createHash("sha256").update(JSON.stringify(state)).digest("hex").slice(0, 16);
 }
 
-export function createComputerTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const observe: AgentHostToolDefinition<z.infer<typeof observeInput>, unknown, AgentHostMcpContext> = {
+export function createComputerTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const observe: OsseoToolDefinition<z.infer<typeof observeInput>, unknown, OsseoMcpContext> = {
     name: "computer.observe_state",
     description: "Observes current computer state: active window, screen geometry, desktop capabilities, optionally window list. Call after actions to verify outcomes and recover from failures.",
     riskLevel: "observe",
@@ -102,7 +102,7 @@ export function createComputerTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     }
   };
 
-  const waitFor: AgentHostToolDefinition<z.infer<typeof waitInput>, unknown, AgentHostMcpContext> = {
+  const waitFor: OsseoToolDefinition<z.infer<typeof waitInput>, unknown, OsseoMcpContext> = {
     name: "computer.wait_for",
     description: "Polls active-window, window-appears, title, file, or screen conditions until they match (or timeout), returning a timestamped state snapshot and fingerprint. Replaces fixed multi-second sleeps.",
     riskLevel: "observe",
@@ -156,7 +156,7 @@ export function createComputerTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     async handler(input, context): Promise<ToolResult<unknown>> {
       let fileConditionPath: string | undefined;
       if (input.fileExists !== undefined) {
-        fileConditionPath = normalizePathForPolicy(input.fileExists, { agentHostDir: context.config.agentHostDir });
+        fileConditionPath = normalizePathForPolicy(input.fileExists, { osseoDir: context.config.osseoDir });
         const safety = evaluateSafety({ tool: "computer.wait_for", actionType: "file_read", filePath: fileConditionPath, strategy: "cli_or_script" }, context.policy, safetyContext(context));
         if (!safety.allowed) return toolFailure({ tool: "computer.wait_for", riskLevel: safety.riskLevel, approval: safety.approval, error: { code: safety.blocked ? "safety_blocked" : "approval_required", message: safety.blocked ? "Blocked by safety engine." : "File condition requires approval.", details: safety }, observations: safety.reasons });
       }
@@ -229,7 +229,7 @@ export function createComputerTools(): AnyAgentHostToolDefinition<AgentHostMcpCo
     }
   };
 
-  const wait: AgentHostToolDefinition<z.infer<typeof pauseInput>, unknown, AgentHostMcpContext> = {
+  const wait: OsseoToolDefinition<z.infer<typeof pauseInput>, unknown, OsseoMcpContext> = {
     name: "computer.wait",
     description: "Waits a fixed number of milliseconds (50-10000) for pages, animations, or apps to settle when no observable condition fits computer.wait_for.",
     riskLevel: "observe",

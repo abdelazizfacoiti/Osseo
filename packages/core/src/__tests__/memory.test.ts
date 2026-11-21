@@ -6,7 +6,7 @@ import { MAX_LESSON_CHARS, clearMemory, deleteMemory, listMemory, saveMemory, se
 
 const directories: string[] = [];
 async function home(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "agenthost-memory-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "osseo-memory-"));
   directories.push(directory);
   return directory;
 }

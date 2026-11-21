@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AgentHost Wayland portal helper.
+"""Osseo Wayland portal helper.
 
 Talks to the XDG desktop portal (org.freedesktop.portal.Desktop) on the person's
 session bus. RemoteDesktop sends keyboard and pointer input; ScreenCast captures the
@@ -69,7 +69,7 @@ def capture_to(path, fd, node, fmt, quality, timeout_ms):
     from gi.repository import Gst
 
     Gst.init(None)
-    pipeline = Gst.Pipeline.new("agenthost-capture")
+    pipeline = Gst.Pipeline.new("osseo-capture")
     source = Gst.ElementFactory.make("pipewiresrc", "source")
     convert = Gst.ElementFactory.make("videoconvert", "convert")
     encoder = Gst.ElementFactory.make("pngenc" if fmt == "png" else "jpegenc", "encoder")
@@ -116,7 +116,7 @@ class Helper:
         The subscription is made before the call, at the request path the portal uses for this sender
         and handle token, so the Response cannot be missed. If the reply names another path, the
         subscription moves to that path. Returns (response_code, results)."""
-        token = "agenthost_" + secrets.token_hex(8)
+        token = "osseo_" + secrets.token_hex(8)
         expected = "%s/request/%s/%s" % (PORTAL_PATH, self.sender, token)
         options = {"handle_token": GLib.Variant("s", token)}
         seen = {}
@@ -153,7 +153,7 @@ class Helper:
 
     def create_session(self, timeout_ms):
         """RemoteDesktop.CreateSession. The portal also needs a session_handle_token, or it answers "Missing token"."""
-        session_token = "agenthost_" + secrets.token_hex(8)
+        session_token = "osseo_" + secrets.token_hex(8)
 
         def build(options):
             return GLib.Variant("(a{sv})", (dict(options, session_handle_token=GLib.Variant("s", session_token)),))

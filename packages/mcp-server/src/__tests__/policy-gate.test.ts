@@ -3,17 +3,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { getDefaultPolicy, invalidatePolicyCache, toolSuccess, type AuditLogEntry, type RiskLevel, type ToolExecutionMetadata } from "@agenthost/core";
-import type { BrowserAutomation, BrowserElementInfo } from "@agenthost/os-linux";
-import type { AgentHostMcpContext } from "../context.js";
-import { runTool, type AgentHostToolDefinition, type ToolPreviewEffect } from "../tool-runner.js";
+import { getDefaultPolicy, invalidatePolicyCache, toolSuccess, type AuditLogEntry, type RiskLevel, type ToolExecutionMetadata } from "@osseo/core";
+import type { BrowserAutomation, BrowserElementInfo } from "@osseo/os-linux";
+import type { OsseoMcpContext } from "../context.js";
+import { runTool, type OsseoToolDefinition, type ToolPreviewEffect } from "../tool-runner.js";
 import { applyProductionExecutionMetadata } from "../tool-metadata.js";
 import { createBrowserTools } from "../tools/browser.js";
 import { createFileTools } from "../tools/file.js";
 
 const dirs: string[] = [];
 async function tempHome(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-policy-gate-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-policy-gate-"));
   dirs.push(dir);
   return dir;
 }
@@ -32,14 +32,14 @@ const stateChanging: ToolExecutionMetadata = {
   availability: "available"
 };
 
-function makeContext(home: string, logs: AuditLogEntry[], browser?: BrowserAutomation): AgentHostMcpContext {
+function makeContext(home: string, logs: AuditLogEntry[], browser?: BrowserAutomation): OsseoMcpContext {
   return {
     sessionId: "policy-test",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async (entry: AuditLogEntry) => { logs.push(entry); } },
     linux: browser === undefined ? {} : { browser }
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
 async function setPolicy(home: string, text: string): Promise<void> {
@@ -50,7 +50,7 @@ async function setPolicy(home: string, text: string): Promise<void> {
 }
 
 interface Fake {
-  tool: AgentHostToolDefinition<{ confirmationToken?: string; dryRun?: boolean }, unknown>;
+  tool: OsseoToolDefinition<{ confirmationToken?: string; dryRun?: boolean }, unknown>;
   ran: { count: number; confirmed: boolean[] };
 }
 function fake(name: string, actionType: string, effect: ToolPreviewEffect, getInput?: () => Record<string, unknown>): Fake {
@@ -65,7 +65,7 @@ function fake(name: string, actionType: string, effect: ToolPreviewEffect, getIn
     safety: { actionType, ...(getInput === undefined ? {} : { getInput }) },
     preview: { isDryRun: (i: { dryRun?: boolean }) => i.dryRun === true, resolveEffect: () => effect },
     execution: stateChanging,
-    handler: async (_input: unknown, ctx: AgentHostMcpContext) => {
+    handler: async (_input: unknown, ctx: OsseoMcpContext) => {
       ran.count += 1;
       ran.confirmed.push(ctx.confirmationSatisfied === true);
       return toolSuccess({ tool: name, riskLevel: "medium", data: {} });
@@ -243,7 +243,7 @@ describe("policy.toml in the tool runner", () => {
       const result = await runTool(files.get(name)!, input, context);
       expect(result.ok, name).toBe(false);
       expect(result.error?.code, name).toBe("safety_blocked");
-      expect(JSON.stringify(result), name).toMatch(/agenthost_control|control/i);
+      expect(JSON.stringify(result), name).toMatch(/osseo_control|control/i);
     }
     expect(await readFile(policy, "utf8")).toBe(before);
     expect((await stat(policy)).mtimeMs).toBe(mtime);

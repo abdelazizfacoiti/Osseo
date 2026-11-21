@@ -2,14 +2,14 @@ import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { listConfirmations, prepareConfirmation, validateOverlayWidget } from "@agenthost/core";
-import { HeadlessOverlayRenderer, OverlayManager } from "@agenthost/app-overlay";
+import { listConfirmations, prepareConfirmation, validateOverlayWidget } from "@osseo/core";
+import { HeadlessOverlayRenderer, OverlayManager } from "@osseo/app-overlay";
 import { ApprovalOverlay } from "../approval-overlay.js";
 
 const SESSION = "approval-test";
 const directories: string[] = [];
 async function tempHome(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "agenthost-approval-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "osseo-approval-"));
   directories.push(directory);
   return directory;
 }
@@ -17,11 +17,11 @@ afterEach(async () => { await Promise.all(directories.splice(0).map((directory) 
 
 function setup(home: string) {
   const manager = new OverlayManager(new HeadlessOverlayRenderer(), { sessionId: SESSION }, { hideMarkerPath: null });
-  const overlay = new ApprovalOverlay(manager, { agentHostDir: home, sessionId: SESSION, pollMs: 3_600_000 });
+  const overlay = new ApprovalOverlay(manager, { osseoDir: home, sessionId: SESSION, pollMs: 3_600_000 });
   const press = (name: "accepted" | "always" | "rejected", overlayId?: string) => manager.pushEvent({ eventId: `event_${name}_${Math.random()}`, overlayId: overlayId ?? overlay.widgetId ?? "missing", event: name, createdAt: new Date().toISOString(), ownerSessionId: SESSION });
   return { manager, overlay, press };
 }
-const request = (home: string, summary: string, sessionId: string = SESSION) => prepareConfirmation({ agentHostDir: home, tool: "file.delete", riskLevel: "high", args: { path: summary }, summary, sessionId });
+const request = (home: string, summary: string, sessionId: string = SESSION) => prepareConfirmation({ osseoDir: home, tool: "file.delete", riskLevel: "high", args: { path: summary }, summary, sessionId });
 
 describe("approval card", () => {
   it("shows the exact redacted preview, never the token, and approves only that token", async () => {
@@ -68,7 +68,7 @@ describe("approval card", () => {
       const mine = await request(home, "Delete mine.txt");
       await overlay.tick();
       expect(overlay.visible).toBe(true);
-      const { rejectConfirmation } = await import("@agenthost/core");
+      const { rejectConfirmation } = await import("@osseo/core");
       await rejectConfirmation(home, mine.tokenId);
       await overlay.tick();
       expect(overlay.visible).toBe(false);
@@ -78,7 +78,7 @@ describe("approval card", () => {
     }
   });
 
-  const slackSend = (home: string, category: "send" | "any" = "send") => prepareConfirmation({ agentHostDir: home, tool: "desktop.click", riskLevel: "high", args: { n: Math.random() }, summary: "Send the message", sessionId: SESSION, policyTarget: { app: "Slack", category } });
+  const slackSend = (home: string, category: "send" | "any" = "send") => prepareConfirmation({ osseoDir: home, tool: "desktop.click", riskLevel: "high", args: { n: Math.random() }, summary: "Send the message", sessionId: SESSION, policyTarget: { app: "Slack", category } });
   const hasFile = (home: string) => stat(path.join(home, "policy.toml")).then(() => true, () => false);
 
   it("offers Always allow here as a third button the renderer will accept", async () => {
@@ -136,7 +136,7 @@ describe("approval card", () => {
     try {
       const record = await slackSend(home);
       await overlay.tick();
-      press("always", "agenthost-approval-someone-else");
+      press("always", "osseo-approval-someone-else");
       await overlay.tick();
       expect((await listConfirmations(home)).find((entry) => entry.tokenId === record.tokenId)?.status).toBe("pending");
       expect(await hasFile(home)).toBe(false);

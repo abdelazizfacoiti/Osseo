@@ -46,7 +46,7 @@ describe("OverlayManager prewarm", () => {
   });
 
   it("ignores a stale cross-process hide marker so new cards survive startup", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "agenthost-overlay-marker-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "osseo-overlay-marker-"));
     const marker = path.join(directory, "overlay.hide");
     const manager = new OverlayManager(new HeadlessOverlayRenderer(), { sessionId: "test" }, { hideMarkerPath: marker });
     try {

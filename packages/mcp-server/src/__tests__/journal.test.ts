@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync, statSync, utimesSync, writeFile
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentHostMcpContext } from "../context.js";
+import type { OsseoMcpContext } from "../context.js";
 
 vi.mock("../nested.js", () => ({
   callGoverned: vi.fn(async (_c: unknown, name: string) => ({ ok: true, tool: name, riskLevel: "medium", approval: { required: false, status: "not_required" }, data: {}, observations: [], error: null }))
@@ -12,8 +12,8 @@ import { JOURNAL_STEP_CAP, JournalError, journalToWorkflow, pruneJournals, readJ
 import { createNumberedTools } from "../tools/numbered.js";
 import { forgetViews, rememberView } from "../view-registry.js";
 
-const dir = () => mkdtempSync(path.join(os.tmpdir(), "agenthost-journal-"));
-const ctx = (home: string, sessionId = "s1") => ({ sessionId, config: { agentHostDir: home } }) as unknown as AgentHostMcpContext;
+const dir = () => mkdtempSync(path.join(os.tmpdir(), "osseo-journal-"));
+const ctx = (home: string, sessionId = "s1") => ({ sessionId, config: { osseoDir: home } }) as unknown as OsseoMcpContext;
 afterEach(() => forgetViews());
 
 describe("recordStep", () => {
@@ -105,7 +105,7 @@ describe("numbered actions", () => {
     writeFileSync(blocker, "x");
     const view = rememberView({ windowKey: "browser", source: "dom", targets: new Map([[1, { kind: "dom", ref: "s1-e2", role: "button", name: "Go", enabled: true, blocked: false }]]) });
     const tool = createNumberedTools().find((t) => t.name === "click")! as unknown as { handler(i: unknown, c: unknown): Promise<any> };
-    const context = { sessionId: "s1", config: { agentHostDir: path.join(blocker, "sub") }, linux: { getActiveWindow: async () => ({}), listWindows: async () => ({ windows: [] }), browser: undefined } };
+    const context = { sessionId: "s1", config: { osseoDir: path.join(blocker, "sub") }, linux: { getActiveWindow: async () => ({}), listWindows: async () => ({ windows: [] }), browser: undefined } };
     const result = await tool.handler({ n: 1, view: view.id }, context);
     expect(result.ok).toBe(true);
     expect(result.tool).toBe("click");

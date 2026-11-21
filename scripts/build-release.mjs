@@ -35,13 +35,13 @@ if ((await readFile(path.join(root, "THIRD_PARTY_NOTICES"), "utf8")).replace(/\r
   throw new Error("release_third_party_notices_stale");
 }
 const releaseRoot = path.join(root, "release");
-const stage = path.join(releaseRoot, `agenthost-v${version}-linux-x64`);
+const stage = path.join(releaseRoot, `osseo-v${version}-linux-x64`);
 // Release staging can contain large dependency trees; tolerate transient
 // directory-entry races while pruning a prior stage, but never reuse it.
 await rm(stage, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
 await mkdir(stage, { recursive: true, mode: 0o755 });
 async function copy(source, destination, options = {}) { await mkdir(path.dirname(destination), { recursive: true }); await cp(source, destination, { recursive: true, force: true, verbatimSymlinks: true, ...options }); }
-for (const packageName of ["core", "mcp-server", "os-linux", "os-windows", "app-overlay", "agenthost-cli"]) {
+for (const packageName of ["core", "mcp-server", "os-linux", "os-windows", "app-overlay", "osseo-cli"]) {
   await copy(path.join(root, "packages", packageName, "dist"), path.join(stage, "packages", packageName, "dist"));
   await copy(path.join(root, "packages", packageName, "package.json"), path.join(stage, "packages", packageName, "package.json"));
 }
@@ -59,9 +59,9 @@ for (const legalFile of LEGAL_FILES) {
   await copy(path.join(root, legalFile), path.join(stage, legalFile));
 }
 if (await stat(path.join(root, "node_modules")).then(() => true).catch(() => false)) await copy(path.join(root, "node_modules"), path.join(stage, "node_modules"));
-await mkdir(path.join(stage, "node_modules", "@agenthost"), { recursive: true });
+await mkdir(path.join(stage, "node_modules", "@osseo"), { recursive: true });
 for (const packageName of ["core", "os-linux", "os-windows", "app-overlay", "mcp-server"]) {
-  const link = path.join(stage, "node_modules", "@agenthost", packageName);
+  const link = path.join(stage, "node_modules", "@osseo", packageName);
   await rm(link, { recursive: true, force: true }).catch(() => undefined);
   if (process.platform === "win32") {
     // A Windows stage holds copies. A junction reads back as an absolute path, and the cleanup below removes
@@ -89,10 +89,10 @@ async function removeDanglingSymlinks(directory) {
   }
 }
 await removeDanglingSymlinks(stage);
-const wrapper = `#!/usr/bin/env node\nimport { fileURLToPath } from "node:url";\nprocess.env.AGENTHOST_RELEASE_ROOT = fileURLToPath(new URL("..", import.meta.url));\nawait import(new URL("../packages/agenthost-cli/dist/index.js", import.meta.url));\n`;
+const wrapper = `#!/usr/bin/env node\nimport { fileURLToPath } from "node:url";\nprocess.env.OSSEO_RELEASE_ROOT = fileURLToPath(new URL("..", import.meta.url));\nawait import(new URL("../packages/osseo-cli/dist/index.js", import.meta.url));\n`;
 await mkdir(path.join(stage, "bin"), { recursive: true });
-await writeFile(path.join(stage, "bin", "agenthost.mjs"), wrapper, { mode: 0o755 }); await chmod(path.join(stage, "bin", "agenthost.mjs"), 0o755);
-for (const packageName of ["core", "mcp-server", "os-linux", "os-windows", "app-overlay", "agenthost-cli"]) {
+await writeFile(path.join(stage, "bin", "osseo.mjs"), wrapper, { mode: 0o755 }); await chmod(path.join(stage, "bin", "osseo.mjs"), 0o755);
+for (const packageName of ["core", "mcp-server", "os-linux", "os-windows", "app-overlay", "osseo-cli"]) {
   const packageManifest = JSON.parse(await readFile(path.join(stage, "packages", packageName, "package.json"), "utf8"));
   if (packageManifest.license !== PROJECT_LICENSE) {
     throw new Error(`release_package_license_invalid:${packageName}`);
@@ -103,7 +103,7 @@ if (inventory.symlinkFailures.length > 0) {
   throw new Error(`release_symlink_invalid:${inventory.symlinkFailures.join(",")}`);
 }
 const manifest = {
-  product: "AgentHost",
+  product: "Osseo",
   version,
   schemaVersion: 2,
   platform: "linux",
@@ -134,7 +134,7 @@ if (stageOnly) {
   process.exit(0);
 }
 await mkdir(releaseRoot, { recursive: true });
-const archive = path.join(releaseRoot, `agenthost-v${version}-linux-x64.tar.gz`);
+const archive = path.join(releaseRoot, `osseo-v${version}-linux-x64.tar.gz`);
 // Normalize both tar metadata and the gzip header timestamp so identical
 // source trees produce byte-identical release archives.
 const tar = spawnSync("tar", ["--use-compress-program=gzip -n", "-cf", archive, "--sort=name", "--mtime=@0", "--owner=0", "--group=0", "--numeric-owner", "-C", releaseRoot, path.basename(stage)], { stdio: "pipe" });
@@ -144,7 +144,7 @@ await writeFile(`${archive}.sha256`, `${archiveHash}  ${path.basename(archive)}\
 await writeFile(path.join(releaseRoot, "SHA256SUMS"), `${archiveHash}  ${path.basename(archive)}\n`, { mode: 0o644 });
 // A copy under a fixed name: scripts/install.sh fetches releases/latest/download/<fixed name>,
 // and that URL cannot carry a version.
-const latest = path.join(releaseRoot, "agenthost-linux-x64.tar.gz");
+const latest = path.join(releaseRoot, "osseo-linux-x64.tar.gz");
 await copyFile(archive, latest);
 await writeFile(`${latest}.sha256`, `${archiveHash}  ${path.basename(latest)}\n`, { mode: 0o644 });
 console.log(JSON.stringify({ stage, archive, version, fileCount: inventory.files.length }, null, 2));

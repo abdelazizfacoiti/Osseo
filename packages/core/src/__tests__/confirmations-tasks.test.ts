@@ -27,7 +27,7 @@ import { getDefaultPolicy } from "../policies.js";
 
 const roots: string[] = [];
 async function tempHome(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-core-state-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "osseo-core-state-"));
   roots.push(root);
   return root;
 }
@@ -47,7 +47,7 @@ describe("confirmation tokens", () => {
   it("requires acceptance, consumes once, and preserves mismatch rejection", async () => {
     const home = await tempHome();
     const token = await prepareConfirmation({
-      agentHostDir: home,
+      osseoDir: home,
       tool: "file.write",
       riskLevel: "medium",
       args: { path: "/tmp/a", text: "hello" },
@@ -56,7 +56,7 @@ describe("confirmation tokens", () => {
     });
 
     await expect(consumeConfirmation({
-      agentHostDir: home,
+      osseoDir: home,
       tokenId: token.tokenId,
       tool: "file.write",
       args: { path: "/tmp/a", text: "hello" },
@@ -66,7 +66,7 @@ describe("confirmation tokens", () => {
 
     await acceptConfirmation(home, token.tokenId);
     await expect(consumeConfirmation({
-      agentHostDir: home,
+      osseoDir: home,
       tokenId: token.tokenId,
       tool: "file.write",
       args: { path: "/tmp/a", text: "different" },
@@ -78,7 +78,7 @@ describe("confirmation tokens", () => {
     expect(accepted[0]?.status).toBe("accepted");
 
     await consumeConfirmation({
-      agentHostDir: home,
+      osseoDir: home,
       tokenId: token.tokenId,
       tool: "file.write",
       args: { path: "/tmp/a", text: "hello" },
@@ -86,7 +86,7 @@ describe("confirmation tokens", () => {
       allowPending: false
     });
     await expect(consumeConfirmation({
-      agentHostDir: home,
+      osseoDir: home,
       tokenId: token.tokenId,
       tool: "file.write",
       args: { path: "/tmp/a", text: "hello" },
@@ -98,7 +98,7 @@ describe("confirmation tokens", () => {
   it("rejects tokens instead of leaving them pending", async () => {
     const home = await tempHome();
     const token = await prepareConfirmation({
-      agentHostDir: home,
+      osseoDir: home,
       tool: "shell.run",
       riskLevel: "high",
       args: { command: "echo", args: ["hi"] },
@@ -107,7 +107,7 @@ describe("confirmation tokens", () => {
     const rejected = await rejectConfirmation(home, token.tokenId);
     expect(rejected.status).toBe("rejected");
     await expect(consumeConfirmation({
-      agentHostDir: home,
+      osseoDir: home,
       tokenId: token.tokenId,
       tool: "shell.run",
       args: { command: "echo", args: ["hi"] },
@@ -186,15 +186,15 @@ describe("shell control-plane protection", () => {
   it("blocks operator commands and control-plane paths but allows safe inspection", () => {
     const policy = getDefaultPolicy();
     const home = "/home/operator";
-    const context = { agentHostDir: path.join(home, ".agenthost") };
+    const context = { osseoDir: path.join(home, ".osseo") };
 
-    expect(classifyShellCommand("agenthost task approve task_1", policy, context)).toMatchObject({ blocked: true });
-    expect(classifyShellCommand("agenthost agent pause", policy, context)).toMatchObject({ blocked: true });
-    expect(classifyShellCommand("agenthost confirm conf_12345678", policy, context)).toMatchObject({ blocked: true });
-    expect(classifyShellCommand("agenthost policy add --action send --decision allow --apply", policy, context)).toMatchObject({ blocked: true });
-    expect(classifyShellCommand("agenthost policy remove 3 --apply", policy, context)).toMatchObject({ blocked: true });
-    expect(classifyShellCommand("echo x >> ~/.agenthost/policy.toml", policy, context)).toMatchObject({ blocked: true });
-    expect(classifyShellCommand("cat ~/.agenthost/config.json", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("osseo task approve task_1", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("osseo agent pause", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("osseo confirm conf_12345678", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("osseo policy add --action send --decision allow --apply", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("osseo policy remove 3 --apply", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("echo x >> ~/.osseo/policy.toml", policy, context)).toMatchObject({ blocked: true });
+    expect(classifyShellCommand("cat ~/.osseo/config.json", policy, context)).toMatchObject({ blocked: true });
     expect(classifyShellCommand("python3 -c 'print(1)'", policy, context)).toMatchObject({ riskLevel: "high" });
     expect(classifyShellCommand("cat /tmp/notes.txt", policy, context)).toMatchObject({ blocked: false });
   });

@@ -1,5 +1,5 @@
-import type { ToolCapability, ToolExecutionMetadata } from "@agenthost/core";
-import type { AnyAgentHostToolDefinition } from "./tool-runner.js";
+import type { ToolCapability, ToolExecutionMetadata } from "@osseo/core";
+import type { AnyOsseoToolDefinition } from "./tool-runner.js";
 
 const readOnly = (source: "base" | "optional_adapter" = "base"): ToolExecutionMetadata => ({ executionClass: "read_only", externalEffect: false, requiresDryRun: false, requiresConfirmationToken: false, requiresExactTarget: false, source, availability: "available", operationFamily: "observe", operation: "inspect", reversibility: "reversible", sensitivity: "normal", requiredBindings: [], confirmationLevel: "none", verificationKind: "none", cleanupKind: "none" });
 const diagnostic = (): ToolExecutionMetadata => ({ ...readOnly(), executionClass: "diagnostic" });
@@ -31,7 +31,7 @@ declare([
 declare(["file.delete"], confirmedStateChanging());
 declare(["browser.upload"], confirmedStateChanging());
 
-export function applyProductionExecutionMetadata(tools: AnyAgentHostToolDefinition[]): AnyAgentHostToolDefinition[] {
+export function applyProductionExecutionMetadata(tools: AnyOsseoToolDefinition[]): AnyOsseoToolDefinition[] {
   return tools.map((definition) => {
     const declared = TOOL_EXECUTION_DECLARATIONS[definition.name];
     if (declared === undefined) throw new Error(`Missing execution classification metadata for ${definition.name}`);
@@ -90,7 +90,7 @@ function normalizeEffectMetadata(metadata: ToolExecutionMetadata, toolName = "")
   };
 }
 
-export function materializeToolDefinitions(tools: AnyAgentHostToolDefinition[]): AnyAgentHostToolDefinition[] {
+export function materializeToolDefinitions(tools: AnyOsseoToolDefinition[]): AnyOsseoToolDefinition[] {
   const names = new Set<string>();
   return tools.map((definition) => {
     if (names.has(definition.name)) throw new Error(`Duplicate loaded tool: ${definition.name}`);
@@ -102,7 +102,7 @@ export function materializeToolDefinitions(tools: AnyAgentHostToolDefinition[]):
   });
 }
 
-export function toolCapabilities(tools: AnyAgentHostToolDefinition[]): ToolCapability[] {
+export function toolCapabilities(tools: AnyOsseoToolDefinition[]): ToolCapability[] {
   return tools.map((tool) => ({
     name: tool.name,
     riskLevel: tool.riskLevel,

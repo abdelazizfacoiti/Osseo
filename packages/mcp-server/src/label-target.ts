@@ -1,5 +1,5 @@
-import type { AccessibilityElementCandidate, DesktopWindowBounds, DesktopWindowContext } from "@agenthost/core";
-import type { AgentHostMcpContext } from "./context.js";
+import type { AccessibilityElementCandidate, DesktopWindowBounds, DesktopWindowContext } from "@osseo/core";
+import type { OsseoMcpContext } from "./context.js";
 import { findScreenTextMatches } from "./tools/vision.js";
 
 /**
@@ -79,14 +79,14 @@ function dedupe(items: LabelCandidate[]): LabelCandidate[] {
   });
 }
 
-async function windowBoundsOf(context: AgentHostMcpContext, activeWindow: DesktopWindowContext): Promise<DesktopWindowBounds | undefined> {
+async function windowBoundsOf(context: OsseoMcpContext, activeWindow: DesktopWindowContext): Promise<DesktopWindowBounds | undefined> {
   if (activeWindow.windowId === undefined) return undefined;
   const listed = await context.linux.listWindows({ limit: 200 }).catch(() => undefined);
   return listed?.windows.find((window) => window.windowId === activeWindow.windowId)?.bounds;
 }
 
 async function accessibilityItems(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   activeWindow: DesktopWindowContext,
   query: LabelQuery,
   bounds: DesktopWindowBounds | undefined
@@ -181,7 +181,7 @@ function fromChoice(choice: Choice, query: LabelQuery): LabelResolution | undefi
 
 /** Resolves one label to a screen point inside the active window, or says why it cannot. */
 export async function resolveLabelTarget(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   activeWindow: DesktopWindowContext,
   query: LabelQuery,
   options: LabelOptions = {}

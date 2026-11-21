@@ -1,4 +1,4 @@
-// Shared protocol logic for the AgentHost browser bridge: Chrome native messaging framing,
+// Shared protocol logic for the Osseo browser bridge: Chrome native messaging framing,
 // request validation, and the allowed-host check. Pure, no I/O.
 
 export const MAX_MESSAGE_BYTES = 1024 * 1024;

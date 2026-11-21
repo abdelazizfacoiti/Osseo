@@ -17,7 +17,7 @@ import {
   type DesktopWindowContext,
   type DesktopWindowSummary,
   type ToolResult
-} from "@agenthost/core";
+} from "@osseo/core";
 import { z } from "zod";
 import { resolveLabelTarget, type LabelResolution, type LabelTarget } from "../label-target.js";
 import { windowCaptureClean } from "./guide.js";
@@ -27,9 +27,9 @@ import { imagePointToScreen, recallScreen, rememberScreen, sameBounds } from "..
 import { readFile as readEffectBytes, rm as removeEffectFile } from "node:fs/promises";
 import { createHash, randomUUID as effectId } from "node:crypto";
 import { join as joinEffectPath } from "node:path";
-import { downscaleToJpeg, measureEffect, waitForSettled, type EffectResult } from "@agenthost/os-linux";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition, ToolPreviewEffect } from "../tool-runner.js";
+import { downscaleToJpeg, measureEffect, waitForSettled, type EffectResult } from "@osseo/os-linux";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition, ToolPreviewEffect } from "../tool-runner.js";
 import { safetyContext } from "../context.js";
 
 const nonEmptyString = z.string().trim().min(1).max(1000);
@@ -242,7 +242,7 @@ export function readbackVerdict(
 }
 
 /** Resolves a label inside the validated window, for previews of label-addressed actions. */
-function labelLocator(context: AgentHostMcpContext, input: { label?: string | undefined; role?: string | undefined }): PointLocator | undefined {
+function labelLocator(context: OsseoMcpContext, input: { label?: string | undefined; role?: string | undefined }): PointLocator | undefined {
   const label = input.label;
   if (label === undefined) return undefined;
   return async (activeWindow) => {
@@ -272,9 +272,9 @@ type FileDialogFound =
   | { ok: false; code: string; message: string; candidates: string[] };
 
 /** The file dialog to act on: by windowId (preferred), by title text, or the only strict match. */
-async function findFileDialog(context: AgentHostMcpContext, input: { windowId?: string | undefined; dialogTitle?: string | undefined }): Promise<FileDialogFound> {
+async function findFileDialog(context: OsseoMcpContext, input: { windowId?: string | undefined; dialogTitle?: string | undefined }): Promise<FileDialogFound> {
   const listed = await context.linux.listWindows({ limit: 100, includeTitles: true }).catch(() => undefined);
-  const windows = (listed?.windows ?? []).filter((item) => item.title === undefined || !item.title.startsWith("AgentHost "));
+  const windows = (listed?.windows ?? []).filter((item) => item.title === undefined || !item.title.startsWith("Osseo "));
   if (input.windowId !== undefined) {
     const match = windows.find((item) => item.windowId === input.windowId);
     return match === undefined
@@ -315,15 +315,15 @@ function dialogContext(window: DesktopWindowSummary): DesktopWindowContext {
  * the picture cannot be made, the action's result still stands.
  */
 export async function settledPicture(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   mode: "window" | "region",
   point?: ClickPoint
 ): Promise<{ inlineImage: { data: string; mimeType: "image/jpeg" }; inline: { width: number; height: number; scale: number; screenshotId: string } } | undefined> {
   const region = mode === "region" && point !== undefined
     ? { x: Math.max(0, point.x - 240), y: Math.max(0, point.y - 160), width: 480, height: 320 }
     : undefined;
-  const png = joinEffectPath(context.config.agentHostDir, "screenshots", `settled-${effectId()}.png`);
-  const scratch = joinEffectPath(context.config.agentHostDir, "screenshots", `settled-${effectId()}.jpg`);
+  const png = joinEffectPath(context.config.osseoDir, "screenshots", `settled-${effectId()}.png`);
+  const scratch = joinEffectPath(context.config.osseoDir, "screenshots", `settled-${effectId()}.jpg`);
   try {
     // A window picture starts at the window's origin; a region is absolute on the screen.
     const origin = region === undefined
@@ -339,7 +339,7 @@ export async function settledPicture(
     if (data.supported !== true || data.path === undefined || origin === undefined) return undefined;
     const size = await imageSize(png);
     if (size === undefined) return undefined;
-    if (!(await downscaleToJpeg(png, scratch, 1280, { agentHostDir: context.config.agentHostDir }))) return undefined;
+    if (!(await downscaleToJpeg(png, scratch, 1280, { osseoDir: context.config.osseoDir }))) return undefined;
     const small = await imageSize(scratch);
     if (small === undefined) return undefined;
     const active = await context.linux.getActiveWindow().catch(() => undefined);
@@ -408,15 +408,15 @@ function screenshotFormat(input: ScreenshotInput): "png" | "jpeg" {
   return /\.jpe?g$/i.test(input.filename ?? "") ? "jpeg" : "png";
 }
 
-function screenshotPath(input: ScreenshotInput, context: AgentHostMcpContext): string {
+function screenshotPath(input: ScreenshotInput, context: OsseoMcpContext): string {
   const outputDir =
     input.outputDir === undefined
-      ? path.join(context.config.agentHostDir, "screenshots")
-      : normalizePathForPolicy(input.outputDir, { agentHostDir: context.config.agentHostDir });
+      ? path.join(context.config.osseoDir, "screenshots")
+      : normalizePathForPolicy(input.outputDir, { osseoDir: context.config.osseoDir });
   const scope = input.includeActiveWindowOnly === true ? "window" : "screen";
   const extension = screenshotFormat(input) === "jpeg" ? "jpg" : "png";
   const filename = input.filename ?? `screenshot-${context.sessionId.replace(/[^A-Za-z0-9._-]/g, "_")}-${scope}.${extension}`;
-  return normalizePathForPolicy(path.join(outputDir, filename), { agentHostDir: context.config.agentHostDir });
+  return normalizePathForPolicy(path.join(outputDir, filename), { osseoDir: context.config.osseoDir });
 }
 
 async function imageSize(filePath: string): Promise<{ width: number; height: number } | undefined> {
@@ -511,7 +511,7 @@ function matchesActiveWindow(expected: DesktopWindowContext, actual: DesktopWind
 
 function initialGuiSafety(
   tool: string,
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   actionType: "gui_click" | "gui_type",
   activeWindow: DesktopWindowContext,
   dataSensitivity?: "none" | "low" | "sensitive" | "secret",
@@ -538,19 +538,19 @@ function initialGuiSafety(
  * shows the agent's own browser page (its title is in the window title). Without a name, or when
  * the page is not known, the classifier gets nothing extra and nothing changes.
  */
-async function namedClickSafety(context: AgentHostMcpContext, input: unknown, window: DesktopWindowContext): Promise<{ targetName?: string; url?: string; shopifyHint?: boolean } | undefined> {
+async function namedClickSafety(context: OsseoMcpContext, input: unknown, window: DesktopWindowContext): Promise<{ targetName?: string; url?: string; shopifyHint?: boolean } | undefined> {
   const targetName = (input as { targetName?: string }).targetName;
   if (targetName === undefined) return undefined;
   const page = await context.linux.browser?.state().catch(() => undefined);
   const windowTitle = window.title ?? "";
   const url = page !== undefined && page.title.trim().length > 0 && windowTitle.includes(page.title) ? (page.url.split("?")[0] ?? "") : undefined;
-  // The person's own browser shows no address to AgentHost. A window titled with Shopify gets the store-admin name rule as an
+  // The person's own browser shows no address to Osseo. A window titled with Shopify gets the store-admin name rule as an
   // ask-only hint: it can add a prompt, never remove one or block anything.
   const shopifyHint = (url === undefined || url === "") && /shopify/i.test(windowTitle);
   return { targetName, ...(url === undefined || url === "" ? {} : { url }), ...(shopifyHint ? { shopifyHint: true } : {}) };
 }
 
-async function validateActiveWindow(context: AgentHostMcpContext, expected: DesktopWindowContext): Promise<{
+async function validateActiveWindow(context: OsseoMcpContext, expected: DesktopWindowContext): Promise<{
   supported: boolean;
   backend?: string;
   reason?: string;
@@ -567,7 +567,7 @@ async function validateActiveWindow(context: AgentHostMcpContext, expected: Desk
   return { supported: true, backend: current.backend, activeWindow: current.activeWindow, matched: true };
 }
 
-async function resolveGuiWindow(context: AgentHostMcpContext, input: GuiContextInput): Promise<Awaited<ReturnType<typeof validateActiveWindow>>> {
+async function resolveGuiWindow(context: OsseoMcpContext, input: GuiContextInput): Promise<Awaited<ReturnType<typeof validateActiveWindow>>> {
   const requested = input.target ?? input.activeWindow!;
   if (input.target !== undefined) {
     const focused = await context.linux.focusWindow(plainWindowSelector(requested));
@@ -617,7 +617,7 @@ async function desktopPreview(
   tool: string,
   actionType: "gui_click" | "gui_type",
   input: GuiContextInput,
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   summary: (window: string, point?: ClickPoint) => string,
   target: (window: string, point?: ClickPoint) => string,
   data: Record<string, unknown>,
@@ -672,9 +672,9 @@ async function desktopPreview(
   };
 }
 
-/** The active window as PNG bytes, with AgentHost's own cards hidden so they never count as a change. */
-async function captureActiveWindow(context: AgentHostMcpContext): Promise<Buffer | undefined> {
-  const file = joinEffectPath(context.config.agentHostDir, "screenshots", `settle-${effectId()}.png`);
+/** The active window as PNG bytes, with Osseo's own cards hidden so they never count as a change. */
+async function captureActiveWindow(context: OsseoMcpContext): Promise<Buffer | undefined> {
+  const file = joinEffectPath(context.config.osseoDir, "screenshots", `settle-${effectId()}.png`);
   const run = async (): Promise<Buffer | undefined> => {
     try {
       // The cheap capture first; the full screenshot is the fallback (no scrot, rectangle off screen, other platforms).
@@ -697,7 +697,7 @@ export function batchedStep(context: { planStep?: { index: number; total: number
   return step !== undefined && step.index < step.total - 1 && step.checked !== true;
 }
 
-async function verifiedAction<T>(context: AgentHostMcpContext, enabled: boolean, act: () => Promise<T>, options: { prepare?: () => Promise<unknown> } = {}): Promise<{ value: T; effect?: EffectResult }> {
+async function verifiedAction<T>(context: OsseoMcpContext, enabled: boolean, act: () => Promise<T>, options: { prepare?: () => Promise<unknown> } = {}): Promise<{ value: T; effect?: EffectResult }> {
   if (!enabled || batchedStep(context)) return { value: await act() };
   const { value, effect } = await measureEffect({
     capture: () => captureActiveWindow(context),
@@ -710,7 +710,7 @@ async function verifiedAction<T>(context: AgentHostMcpContext, enabled: boolean,
  * After a clipboard paste the target may still be reading the clipboard. This waits until the
  * window stops changing, so the old clipboard comes back only after the paste has landed.
  */
-function pasteSettle(context: AgentHostMcpContext): () => Promise<unknown> {
+function pasteSettle(context: OsseoMcpContext): () => Promise<unknown> {
   return () => waitForSettled({ capture: () => captureActiveWindow(context) });
 }
 
@@ -744,7 +744,7 @@ function labelRefusal<T>(tool: string, resolution: Extract<LabelResolution, { ok
 
 /** Maps a point in a desktop.screenshot picture to the screen. Refuses an unknown, expired, or stale picture. */
 async function resolveScreenshotPoint(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   input: { screenshotId: string; imageX: number; imageY: number }
 ): Promise<{ ok: true; point: ClickPoint } | { ok: false; code: string; message: string }> {
   const screen = recallScreen(input.screenshotId);
@@ -768,7 +768,7 @@ async function resolveScreenshotPoint(
 }
 
 /** The preview's locator for a screenshot target: the same mapping and stale check the click uses. */
-function screenshotLocator(context: AgentHostMcpContext, input: { screenshotId: string; imageX?: number | undefined; imageY?: number | undefined }): PointLocator {
+function screenshotLocator(context: OsseoMcpContext, input: { screenshotId: string; imageX?: number | undefined; imageY?: number | undefined }): PointLocator {
   return async () => {
     const { screenshotId, imageX, imageY } = input;
     if (imageX === undefined || imageY === undefined) {
@@ -783,7 +783,7 @@ function screenshotLocator(context: AgentHostMcpContext, input: { screenshotId: 
 
 /** Turns a target (x and y, or a label) into a point. The failure result is typed for the calling tool. */
 async function locateClick<T = DesktopClickResult>(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   input: {
     x?: number | undefined; y?: number | undefined; label?: string | undefined; role?: string | undefined;
     screenshotId?: string | undefined; imageX?: number | undefined; imageY?: number | undefined;
@@ -816,8 +816,8 @@ async function locateClick<T = DesktopClickResult>(
   };
 }
 
-export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const screenshot: AgentHostToolDefinition<ScreenshotInput, DesktopScreenshotResult, AgentHostMcpContext> = {
+export function createDesktopTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const screenshot: OsseoToolDefinition<ScreenshotInput, DesktopScreenshotResult, OsseoMcpContext> = {
     name: "desktop.screenshot",
     description: "Captures a PNG/JPEG screenshot to an approved local folder with optional region, scale, and JPEG quality. Use includeActiveWindowOnly or a region for faster OCR.",
     riskLevel: "medium",
@@ -942,9 +942,9 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       // Inline JPEG: the picture comes back in the reply, so no second call is needed to read the file.
       let inlineScale: number | undefined;
       if (input.inline !== false && size !== undefined) {
-        const scratch = joinEffectPath(context.config.agentHostDir, "screenshots", `inline-${effectId()}.jpg`);
+        const scratch = joinEffectPath(context.config.osseoDir, "screenshots", `inline-${effectId()}.jpg`);
         try {
-          if (await downscaleToJpeg(outputPath, scratch, 1280, { agentHostDir: context.config.agentHostDir })) {
+          if (await downscaleToJpeg(outputPath, scratch, 1280, { osseoDir: context.config.osseoDir })) {
             const small = await imageSize(scratch);
             if (small !== undefined) {
               inlineScale = small.width / size.width;
@@ -985,7 +985,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
         strategy: "gui_control",
         data,
         observations: [
-          "Saved a screenshot locally under an approved AgentHost folder.",
+          "Saved a screenshot locally under an approved Osseo folder.",
           ...(inlineScale === undefined ? [] : ["The picture is attached inline (JPEG). The coordinates below apply to that picture."]),
           ...(origin === undefined ? [] : [`To click a pixel in this image use screen x = ${origin.x} + imageX / ${hintScale ?? inlineScale ?? input.scale ?? 1}, y = ${origin.y} + imageY / ${hintScale ?? inlineScale ?? input.scale ?? 1}. Easier: pass screenshotId, imageX, imageY to desktop.click.`])
         ]
@@ -993,7 +993,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
-  const hotkey: AgentHostToolDefinition<HotkeyInput, DesktopHotkeyResult, AgentHostMcpContext> = {
+  const hotkey: OsseoToolDefinition<HotkeyInput, DesktopHotkeyResult, OsseoMcpContext> = {
     name: "desktop.hotkey",
     description: "Sends a desktop hotkey when policy and active-window context allow it.",
     riskLevel: "medium",
@@ -1101,7 +1101,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
-  const typeText: AgentHostToolDefinition<TypeTextInput, DesktopTypeTextResult, AgentHostMcpContext> = {
+  const typeText: OsseoToolDefinition<TypeTextInput, DesktopTypeTextResult, OsseoMcpContext> = {
     name: "desktop.type_text",
     description: "Types text into the active window when policy and active-window context allow it.",
     riskLevel: "medium",
@@ -1182,7 +1182,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
-  const setField: AgentHostToolDefinition<SetFieldInput, DesktopSetFieldResult, AgentHostMcpContext> = {
+  const setField: OsseoToolDefinition<SetFieldInput, DesktopSetFieldResult, OsseoMcpContext> = {
     name: "desktop.set_field",
     description: "Sets a text field: focuses it (x and y, or a label), selects its text, pastes the new text, then reads the field back through AT-SPI. replace false appends at the end; empty text clears the field. confirmed is true only when the field reads back exactly, false is an error (readback_mismatch), and unknown means AT-SPI cannot read the field here. Refuses before typing when the click focuses no editable field, or when the field is a password.",
     riskLevel: "medium",
@@ -1399,7 +1399,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
-  const fileDialogSelect: AgentHostToolDefinition<FileDialogSelectInput, DesktopFileDialogSelectResult, AgentHostMcpContext> = {
+  const fileDialogSelect: OsseoToolDefinition<FileDialogSelectInput, DesktopFileDialogSelectResult, OsseoMcpContext> = {
     name: "desktop.file_dialog_select",
     description: "Picks a file in an open file dialog: focuses the dialog (by windowId, or by dialogTitle when it is the only match), types the path into its location bar (ctrl+L, pasted), presses Return, and checks that the dialog closed. The path must pass the file read policy. Refuses Save dialogs (they would write a file) and nothing is typed when no single dialog matches.",
     riskLevel: "medium",
@@ -1423,7 +1423,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
       resolveEffect: async (i, context): Promise<ToolPreviewEffect> => {
         const fileName = path.basename(i.path);
         const policy = evaluateSafety(
-          { tool: "desktop.file_dialog_select", actionType: "file_read", filePath: normalizePathForPolicy(i.path, { agentHostDir: context.config.agentHostDir }), strategy: "cli_or_script" },
+          { tool: "desktop.file_dialog_select", actionType: "file_read", filePath: normalizePathForPolicy(i.path, { osseoDir: context.config.osseoDir }), strategy: "cli_or_script" },
           context.policy,
           safetyContext(context)
         );
@@ -1454,7 +1454,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     async handler(input, context): Promise<ToolResult<DesktopFileDialogSelectResult>> {
       const tool = "desktop.file_dialog_select";
       const policy = evaluateSafety(
-        { tool, actionType: "file_read", filePath: normalizePathForPolicy(input.path, { agentHostDir: context.config.agentHostDir }), strategy: "cli_or_script" },
+        { tool, actionType: "file_read", filePath: normalizePathForPolicy(input.path, { osseoDir: context.config.osseoDir }), strategy: "cli_or_script" },
         context.policy,
         safetyContext(context)
       );
@@ -1511,7 +1511,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
-  const click: AgentHostToolDefinition<ClickInput, DesktopClickResult, AgentHostMcpContext> = {
+  const click: OsseoToolDefinition<ClickInput, DesktopClickResult, OsseoMcpContext> = {
     name: "desktop.click",
     description: "Clicks at absolute screen coordinates (x, y), at a point in a desktop.screenshot picture (screenshotId, imageX, imageY), or on a visible control named by label inside the active window. A label is resolved through AT-SPI, then OCR, and the preview shows the resolved point; a confirmed click is refused if that point moved. Disabled and ambiguous controls are refused, never clicked.",
     riskLevel: "medium",
@@ -1674,7 +1674,7 @@ export function createDesktopTools(): AnyAgentHostToolDefinition<AgentHostMcpCon
     }
   };
 
-  const pointer: AgentHostToolDefinition<PointerInput, DesktopPointerResult, AgentHostMcpContext> = {
+  const pointer: OsseoToolDefinition<PointerInput, DesktopPointerResult, OsseoMcpContext> = {
     name: "desktop.pointer",
     description: "Performs pointer actions when policy and active-window context allow it: move_mouse, scroll (direction + amount, at x,y when given), double_click and right_click (at x,y), drag (startX/startY to endX/endY). The action is inferred when omitted.",
     riskLevel: "medium",

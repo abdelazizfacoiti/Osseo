@@ -1,6 +1,6 @@
 # Code of Conduct
 
-AgentHost is a safety-sensitive local capability runtime. Contributors are
+Osseo is a safety-sensitive local capability runtime. Contributors are
 expected to communicate respectfully, protect one another's privacy, and keep
 changes aligned with the project's fail-closed design.
 

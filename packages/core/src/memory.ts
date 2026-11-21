@@ -28,19 +28,19 @@ export class MemoryError extends Error {
   }
 }
 
-function memoryPath(agentHostDir: string): string { return path.join(agentHostDir, "memory", "lessons.json"); }
+function memoryPath(osseoDir: string): string { return path.join(osseoDir, "memory", "lessons.json"); }
 
-export async function listMemory(agentHostDir: string): Promise<MemoryEntry[]> {
+export async function listMemory(osseoDir: string): Promise<MemoryEntry[]> {
   try {
-    const value = JSON.parse(stripBom(await readFile(memoryPath(agentHostDir), "utf8"))) as { entries?: MemoryEntry[] };
+    const value = JSON.parse(stripBom(await readFile(memoryPath(osseoDir), "utf8"))) as { entries?: MemoryEntry[] };
     return Array.isArray(value.entries) ? value.entries : [];
   } catch {
     return [];
   }
 }
 
-async function write(agentHostDir: string, entries: MemoryEntry[]): Promise<void> {
-  const target = memoryPath(agentHostDir);
+async function write(osseoDir: string, entries: MemoryEntry[]): Promise<void> {
+  const target = memoryPath(osseoDir);
   await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
   await chmod(path.dirname(target), 0o700);
   const temporary = `${target}.${randomUUID()}.tmp`;
@@ -49,37 +49,37 @@ async function write(agentHostDir: string, entries: MemoryEntry[]): Promise<void
   await chmod(target, 0o600);
 }
 
-export async function saveMemory(agentHostDir: string, input: { topic: string; lesson: string }): Promise<MemoryEntry> {
+export async function saveMemory(osseoDir: string, input: { topic: string; lesson: string }): Promise<MemoryEntry> {
   const topic = input.topic.trim().toLowerCase();
   const lesson = input.lesson.trim().replace(/\s+/g, " ");
   if (!TOPIC.test(topic)) throw new MemoryError("memory_invalid", "Topics are 2-60 characters of a-z, 0-9, . _ or -, such as an app name.");
   if (lesson.length < 5 || lesson.length > MAX_LESSON_CHARS) throw new MemoryError("memory_invalid", `A lesson is 5-${MAX_LESSON_CHARS} characters: how to work, not what the task contained.`);
   if (redactSensitiveText(lesson) !== lesson) throw new MemoryError("memory_invalid", "That looks like it contains a secret. Lessons must not hold secrets.");
-  const entries = await listMemory(agentHostDir);
+  const entries = await listMemory(osseoDir);
   const existing = entries.find((entry) => entry.topic === topic && entry.lesson.toLowerCase() === lesson.toLowerCase());
   if (existing !== undefined) return existing;
   if (entries.length >= MAX_MEMORY_ENTRIES) throw new MemoryError("memory_limit", `At most ${MAX_MEMORY_ENTRIES} lessons are kept. Delete one first.`);
   const entry: MemoryEntry = { id: `mem_${randomUUID().slice(0, 8)}`, topic, lesson, createdAt: new Date().toISOString() };
-  await write(agentHostDir, [...entries, entry]);
+  await write(osseoDir, [...entries, entry]);
   return entry;
 }
 
-export async function searchMemory(agentHostDir: string, input: { query?: string; topic?: string; limit?: number }): Promise<MemoryEntry[]> {
+export async function searchMemory(osseoDir: string, input: { query?: string; topic?: string; limit?: number }): Promise<MemoryEntry[]> {
   const words = (input.query ?? "").toLowerCase().split(/\s+/).filter((word) => word.length > 0);
   const topic = input.topic?.trim().toLowerCase();
-  return (await listMemory(agentHostDir))
+  return (await listMemory(osseoDir))
     .filter((entry) => topic === undefined || entry.topic === topic)
     .filter((entry) => words.length === 0 || words.some((word) => `${entry.topic} ${entry.lesson}`.toLowerCase().includes(word)))
     .reverse()
     .slice(0, Math.max(1, Math.min(50, input.limit ?? 20)));
 }
 
-export async function deleteMemory(agentHostDir: string, id: string): Promise<void> {
-  const entries = await listMemory(agentHostDir);
+export async function deleteMemory(osseoDir: string, id: string): Promise<void> {
+  const entries = await listMemory(osseoDir);
   if (!entries.some((entry) => entry.id === id)) throw new MemoryError("memory_not_found", `No lesson ${id.slice(0, 40)}.`);
-  await write(agentHostDir, entries.filter((entry) => entry.id !== id));
+  await write(osseoDir, entries.filter((entry) => entry.id !== id));
 }
 
-export async function clearMemory(agentHostDir: string): Promise<void> {
-  await rm(memoryPath(agentHostDir), { force: true });
+export async function clearMemory(osseoDir: string): Promise<void> {
+  await rm(memoryPath(osseoDir), { force: true });
 }

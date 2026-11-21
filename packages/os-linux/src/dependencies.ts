@@ -2,7 +2,7 @@ import { access, readdir, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { constants } from "node:fs";
-import type { DependencyCheckResult, DependencyKind } from "@agenthost/core";
+import type { DependencyCheckResult, DependencyKind } from "@osseo/core";
 
 export interface DesktopEntry {
   appId: string;

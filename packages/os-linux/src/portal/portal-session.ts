@@ -64,7 +64,7 @@ interface PendingRequest {
 /**
  * One portal session for this process. The helper (portal_helper.py) runs as a child process and holds the
  * DBus connection, because the portal closes a session when its caller disconnects. The first open asks the
- * person once. A refusal is kept for the rest of the process: AgentHost does not ask again.
+ * person once. A refusal is kept for the rest of the process: Osseo does not ask again.
  */
 export class PortalSession {
   readonly #python: string;
@@ -122,7 +122,7 @@ export class PortalSession {
   async open(input: { keyboard?: boolean; pointer?: boolean; screen?: boolean; timeoutMs?: number } = {}): Promise<PortalOpenResult> {
     if (this.#opened !== undefined) return this.#opened;
     if (this.#declined) {
-      throw new PortalError("consent_denied", "The person declined remote control earlier in this session. Restart AgentHost to ask again.");
+      throw new PortalError("consent_denied", "The person declined remote control earlier in this session. Restart Osseo to ask again.");
     }
     if (this.#opening === undefined) {
       this.#opening = this.#openOnce(input).finally(() => {

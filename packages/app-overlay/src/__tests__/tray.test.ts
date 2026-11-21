@@ -26,7 +26,7 @@ describe.skipIf(!hasGi)("tray.py actions", () => {
       "import tray",
       "calls = []",
       "def fake(args, **kw):",
-      "    calls.append({'args': args, 'shell': kw.get('shell'), 'home': kw['env']['AGENTHOST_HOME']})",
+      "    calls.append({'args': args, 'shell': kw.get('shell'), 'home': kw['env']['OSSEO_HOME']})",
       "for key in ['stop', 'pause', 'resume', 'viewer']:",
       "    assert tray.run_action(key, '/n/node', '/e/index.js', '/h', fake)",
       "try:",
@@ -80,7 +80,7 @@ describe.skipIf(!hasGi)("tray.py actions", () => {
   });
 
   it("derives the state from the run files", () => {
-    const agentHome = mkdtempSync(path.join(os.tmpdir(), "agenthost-tray-state-"));
+    const agentHome = mkdtempSync(path.join(os.tmpdir(), "osseo-tray-state-"));
     const script = [
       "import json, os, sys",
       `sys.path.insert(0, ${JSON.stringify(runtimeDir)})`,
@@ -179,14 +179,14 @@ def flag(file, text="x"):
 
 def tip(): return get(name, "ToolTip")[3]
 flag("pause.requested")
-out["pausedSeen"] = wait(lambda: tip() == "AgentHost: paused", 8)
+out["pausedSeen"] = wait(lambda: tip() == "Osseo: paused", 8)
 out["pausedIcon"] = get(name, "IconName")
 os.remove(os.path.join(run, "pause.requested"))
 flag("activity.json", json.dumps({"phase": "finished", "outcome": "approval_required"}))
 out["approvalSeen"] = wait(lambda: get(name, "Status") == "NeedsAttention", 8)
 out["approvalTip"] = tip()
 flag("stop.requested")
-out["stoppedSeen"] = wait(lambda: tip() == "AgentHost: stopped", 8)
+out["stoppedSeen"] = wait(lambda: tip() == "Osseo: stopped", 8)
 out["stoppedStatus"] = get(name, "Status")
 
 child.send_signal(signal.SIGTERM)
@@ -200,7 +200,7 @@ print("RESULT " + json.dumps(out))
 
 describe.skipIf(!hasSession || !hasGi)("tray.py on a private session bus", () => {
   it("registers with a fake watcher, follows the run state and unregisters on SIGTERM", () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "agenthost-tray-bus-"));
+    const dir = mkdtempSync(path.join(os.tmpdir(), "osseo-tray-bus-"));
     const driver = path.join(dir, "driver.py");
     writeFileSync(driver, DRIVER);
     const agentHome = path.join(dir, "home");
@@ -212,12 +212,12 @@ describe.skipIf(!hasSession || !hasGi)("tray.py on a private session bus", () =>
     const out = JSON.parse(line!.slice(7)) as Record<string, unknown> & { props: Record<string, string> };
     expect(out.registered).toBe(true);
     expect(String(out.registeredName)).toMatch(/^org\.kde\.StatusNotifierItem-\d+-1$/);
-    expect(out.props).toMatchObject({ Id: "agenthost", Category: "ApplicationStatus", Title: "AgentHost", Status: "Active", IconName: "dialog-information" });
-    expect(out.tooltipRunning).toBe("AgentHost: running");
+    expect(out.props).toMatchObject({ Id: "osseo", Category: "ApplicationStatus", Title: "Osseo", Status: "Active", IconName: "dialog-information" });
+    expect(out.tooltipRunning).toBe("Osseo: running");
     expect(out.pausedSeen).toBe(true);
     expect(out.pausedIcon).toBe("media-playback-pause");
     expect(out.approvalSeen).toBe(true);
-    expect(out.approvalTip).toBe("AgentHost: waiting for approval");
+    expect(out.approvalTip).toBe("Osseo: waiting for approval");
     expect(out.stoppedSeen).toBe(true);
     expect(out.stoppedStatus).toBe("Active");
     expect(out.exit).toBe(0);

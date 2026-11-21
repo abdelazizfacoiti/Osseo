@@ -1,6 +1,6 @@
-# Linux desktop packages used by AgentHost (Debian/Ubuntu apt names).
+# Linux desktop packages used by Osseo (Debian/Ubuntu apt names).
 # Install all:  sudo apt install $(grep -v '^#' requirements-linux.txt)
-# Or let AgentHost do it with a password prompt:  agenthost setup deps --apply
+# Or let Osseo do it with a password prompt:  osseo setup deps --apply
 xdotool
 wmctrl
 python3-gi

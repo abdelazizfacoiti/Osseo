@@ -18,7 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startPrivateBus } from "./private-bus.mjs";
 
-process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
+process.env.OSSEO_TOOLS_PROFILE ??= "full";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const args0 = process.argv.slice(2);
 const SERVER = args0.includes("--server") ? path.resolve(args0[args0.indexOf("--server") + 1]) : path.join(REPO, "packages/mcp-server/dist/index.js");
@@ -100,7 +100,7 @@ function numberOf(list, needle) {
 }
 
 function auditPhases(home) {
-  const file = path.join(home, "logs", "agenthost.jsonl");
+  const file = path.join(home, "logs", "osseo.jsonl");
   const rows = existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean).map((line) => { try { return JSON.parse(line); } catch { return undefined; } }).filter(Boolean) : [];
   const byTool = new Map();
   for (const row of rows) {
@@ -120,7 +120,7 @@ async function main() {
   for (const tool of ["Xephyr", "python3"]) {
     try { execFileSync("sh", ["-c", `command -v ${tool}`], { stdio: "ignore" }); } catch { console.log(`Missing ${tool}.`); process.exitCode = 2; return; }
   }
-  const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-bench-actions-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "osseo-bench-actions-"));
   const home = path.join(root, "home");
   mkdirSync(home, { recursive: true, mode: 0o700 });
   writeFileSync(path.join(home, "config.json"), JSON.stringify({ schemaVersion: 1, overlay: { mode: flag("overlay") ? "always" : "off" }, autoInstallDependencies: false }));
@@ -134,7 +134,7 @@ async function main() {
     for (let i = 0; i < 60 && !existsSync(`/tmp/.X11-unix/X${display.slice(1)}`); i += 1) await sleep(100);
     children.push(spawn("python3", ["-W", "ignore", probeScript], { env: { ...process.env, DISPLAY: display }, stdio: "ignore" }));
     await sleep(2500);
-    const server = spawn(process.execPath, [SERVER], { env: { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: path.join(home, "config.json"), DISPLAY: display, XDG_SESSION_TYPE: "x11" }, stdio: ["pipe", "pipe", "pipe"] });
+    const server = spawn(process.execPath, [SERVER], { env: { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: path.join(home, "config.json"), DISPLAY: display, XDG_SESSION_TYPE: "x11" }, stdio: ["pipe", "pipe", "pipe"] });
     children.push(server);
     const mcp = client(server);
     await mcp.initialize();

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { DesktopWindowSummary } from "@agenthost/core";
+import type { DesktopWindowSummary } from "@osseo/core";
 import { findCommandPath } from "./dependencies.js";
 import { focusLinuxWindow, getLinuxActiveWindow, listLinuxWindows, type LinuxDesktopContext } from "./desktop.js";
 import { runSafeLinuxCommand } from "./shell.js";

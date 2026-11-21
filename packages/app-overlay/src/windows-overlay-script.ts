@@ -4,7 +4,7 @@
  * state, events, close). It exits when its stdin closes, so the cards go with the server.
  *
  * The script is PowerShell only. The Win32 calls (the mouse hook, window styles, the dock's app bar) come from
- * NATIVE_PS in @agenthost/os-windows, which emits them in memory: nothing is compiled and no DLL is written, so it
+ * NATIVE_PS in @osseo/os-windows, which emits them in memory: nothing is compiled and no DLL is written, so it
  * runs where an antivirus or policy blocks run-time compiled assemblies.
  *
  * Control buttons act only on a real mouse press. A low-level mouse hook records whether each left-button event came
@@ -17,7 +17,7 @@
  * scriptswindows-dock-smoke.mjs (the dock strip).
  */
 
-import { NATIVE_PS } from "@agenthost/os-windows";
+import { NATIVE_PS } from "@osseo/os-windows";
 
 const POWERSHELL_HEAD = String.raw`
 $ErrorActionPreference = 'Stop'
@@ -50,7 +50,7 @@ $script:DockMinTimeline = 96.0
 $script:DockMinBottom = 64.0
 $script:DockBottomShare = 0.45
 $script:DockReleaseMs = 2000
-$script:TimelinePrefix = 'agenthost-timeline-'
+$script:TimelinePrefix = 'osseo-timeline-'
 $script:Commands = @('hello', 'capabilities', 'show', 'update', 'dismiss', 'clear', 'emergency_hide', 'state', 'events', 'close')
 $script:Placements = @('top_left', 'top_center', 'top_right', 'bottom_left', 'bottom_center', 'bottom_right')
 $script:Limitations = @(
@@ -543,7 +543,7 @@ function Remove-OvPressGuard {
 
 function New-OvWindow {
   $window = New-Object System.Windows.Window
-  $window.Title = 'AgentHost overlay'
+  $window.Title = 'Osseo overlay'
   $window.WindowStyle = [System.Windows.WindowStyle]::None
   $window.AllowsTransparency = $true
   $window.Background = [System.Windows.Media.Brushes]::Transparent
@@ -658,7 +658,7 @@ function Stop-Overlay {
 function Initialize-OvDockOwner {
   if ($null -ne $script:DockOwner) { return }
   $owner = New-Object System.Windows.Window
-  $owner.Title = 'AgentHost dock owner'
+  $owner.Title = 'Osseo dock owner'
   $owner.WindowStyle = [System.Windows.WindowStyle]::None
   $owner.ShowInTaskbar = $false
   $owner.ShowActivated = $false
@@ -671,7 +671,7 @@ function Initialize-OvDockOwner {
   $script:DockOwner = $owner
   $owner.Show()
   Set-OvWindowFlags $owner $false
-  $script:DockCallback = [AhNative.Native]::RegisterWindowMessageW('AgentHostDockCallback')
+  $script:DockCallback = [AhNative.Native]::RegisterWindowMessageW('OsseoDockCallback')
 }
 
 # Device pixels per WPF unit. A DPI-unaware process reports 1, and the shell virtualizes its coordinates too.
@@ -765,7 +765,7 @@ function Start-OvDock {
   }
   if ($null -eq $script:DockPanel) {
     $panel = New-Object System.Windows.Window
-    $panel.Title = 'AgentHost dock'
+    $panel.Title = 'Osseo dock'
     $panel.WindowStyle = [System.Windows.WindowStyle]::None
     $panel.ShowInTaskbar = $false
     $panel.ShowActivated = $false

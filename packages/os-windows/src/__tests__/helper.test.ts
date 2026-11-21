@@ -30,11 +30,11 @@ afterEach(async () => {
 });
 
 async function start(extra: { startTimeoutMs?: number } = {}) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-win-helper-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-win-helper-"));
   dirs.push(dir);
   const script = path.join(dir, "fake.cjs");
   await writeFile(script, FAKE);
-  const helper = new WindowsHelperProcess({ agentHostDir: dir, command: { program: process.execPath, args: [script] }, ...extra });
+  const helper = new WindowsHelperProcess({ osseoDir: dir, command: { program: process.execPath, args: [script] }, ...extra });
   helpers.push(helper);
   return helper;
 }
@@ -65,9 +65,9 @@ describe("WindowsHelperProcess", () => {
   });
 
   it("reports a helper that cannot start", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-win-helper-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-win-helper-"));
     dirs.push(dir);
-    const helper = new WindowsHelperProcess({ agentHostDir: dir, command: { program: path.join(dir, "no-such-program"), args: [] } });
+    const helper = new WindowsHelperProcess({ osseoDir: dir, command: { program: path.join(dir, "no-such-program"), args: [] } });
     helpers.push(helper);
     await expect(helper.request("ping")).rejects.toMatchObject({ code: "helper_unavailable" });
   });
@@ -134,7 +134,7 @@ describe("helper script", () => {
     await desktop.getDesktopCapabilities();
     await desktop.listWindows({});
     await desktop.focusWindow({ windowId: "1" });
-    await desktop.screenshot({ path: path.join(os.tmpdir(), "agenthost-recorder.png") });
+    await desktop.screenshot({ path: path.join(os.tmpdir(), "osseo-recorder.png") });
     await desktop.getScreenGeometry();
     await desktop.hotkey({ keys: ["ctrl", "a"], activeWindow: window });
     await desktop.typeText({ text: "a", activeWindow: window });

@@ -7,7 +7,7 @@ import { activityStatusPath, readActivityStatus, writeActivityStatus } from "../
 const roots: string[] = [];
 
 async function tempHome(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-activity-status-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "osseo-activity-status-"));
   roots.push(root);
   return root;
 }

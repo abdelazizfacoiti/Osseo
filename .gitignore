@@ -21,6 +21,9 @@ session-*.md
 *.ods
 .~lock.*
 
+.osseo/
+.osseo-git/
+# folders written by builds from before the rename
 .agenthost/
 .agenthost-git/
 skills-lock.json

@@ -1,4 +1,4 @@
-import type { AnyAgentHostToolDefinition } from "./tool-runner.js";
+import type { AnyOsseoToolDefinition } from "./tool-runner.js";
 
 /** The tools listed by default (profile "desktop"). Every other tool stays callable but is not listed. */
 export const DEFAULT_TOOL_NAMES = [
@@ -14,7 +14,7 @@ export function isDefaultTool(name: string): boolean {
 }
 
 /** The tools tools/list returns for a profile. */
-export function listedTools<T extends Pick<AnyAgentHostToolDefinition, "name">>(tools: T[], profile: ToolProfile): T[] {
+export function listedTools<T extends Pick<AnyOsseoToolDefinition, "name">>(tools: T[], profile: ToolProfile): T[] {
   return profile === "full" ? tools : tools.filter((tool) => DEFAULT_SET.has(tool.name));
 }
 

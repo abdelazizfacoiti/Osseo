@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 /*
  * The real portal_helper.py against fake_portal.py (RemoteDesktop and ScreenCast with the installed portal's
  * method signatures). Both run on a PRIVATE bus from `dbus-run-session`. driver.py refuses to run when its bus
- * address equals the caller's real one (AGENTHOST_REAL_BUS), so nothing here reaches the person's session.
+ * address equals the caller's real one (OSSEO_REAL_BUS), so nothing here reaches the person's session.
  */
 
 const driver = fileURLToPath(new URL("./portal/driver.py", import.meta.url));
@@ -20,7 +20,7 @@ describe.skipIf(!hasDbus || !hasGi)("portal helper against a fake portal on a pr
     const run = spawnSync("dbus-run-session", ["--", "python3", "-I", driver], {
       encoding: "utf8",
       timeout: 180_000,
-      env: { ...process.env, AGENTHOST_REAL_BUS: process.env.DBUS_SESSION_BUS_ADDRESS ?? "" }
+      env: { ...process.env, OSSEO_REAL_BUS: process.env.DBUS_SESSION_BUS_ADDRESS ?? "" }
     });
     expect(run.status, run.stderr).toBe(0);
     const result = JSON.parse(run.stdout.trim().split("\n").pop() ?? "{}") as Record<string, unknown>;

@@ -4,14 +4,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 /*
- * A soft chime that repeats while AgentHost waits for the person (an approval, or a hand-off such as a login).
+ * A soft chime that repeats while Osseo waits for the person (an approval, or a hand-off such as a login).
  * Two quiet sine notes with a slow fade, every `intervalMs`, until `stillWaiting()` says the wait is over, `stop()` is
  * called, or `maxMs` passes. It never blocks a tool call and fails silently when no player exists.
  */
 
 export interface AttentionChimeOptions {
-  agentHostDir: string;
-  /** Default true. `attention.sound: false` in config, or AGENTHOST_ATTENTION_SOUND=0, turns it off. */
+  osseoDir: string;
+  /** Default true. `attention.sound: false` in config, or OSSEO_ATTENTION_SOUND=0, turns it off. */
   enabled?: boolean;
   intervalMs?: number;
   maxMs?: number;
@@ -63,7 +63,7 @@ export function playerCommand(file: string, platform: NodeJS.Platform, exists: (
 }
 
 export function attentionSoundEnabled(config: { attention?: { sound?: boolean } }, env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.AGENTHOST_ATTENTION_SOUND === "0") return false;
+  if (env.OSSEO_ATTENTION_SOUND === "0") return false;
   return config.attention?.sound !== false;
 }
 
@@ -102,7 +102,7 @@ export class AttentionChime {
 
   async #play(): Promise<void> {
     if (this.#file === undefined) {
-      const dir = path.join(this.#options.agentHostDir, "run");
+      const dir = path.join(this.#options.osseoDir, "run");
       await mkdir(dir, { recursive: true, mode: 0o700 });
       this.#file = path.join(dir, "attention-chime.wav");
       await writeFile(this.#file, chimeWav(), { mode: 0o600 });

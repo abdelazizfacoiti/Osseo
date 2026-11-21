@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 
-const file = path.resolve(process.argv[2] ?? path.join(process.env.AGENTHOST_HOME ?? path.join(os.homedir(), ".agenthost"), "logs", "agenthost.jsonl"));
+const file = path.resolve(process.argv[2] ?? path.join(process.env.OSSEO_HOME ?? path.join(os.homedir(), ".osseo"), "logs", "osseo.jsonl"));
 if (!existsSync(file)) {
   console.error(`analyze-audit: audit log not found: ${file}`);
   process.exitCode = 1;

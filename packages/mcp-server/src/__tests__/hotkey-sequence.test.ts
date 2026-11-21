@@ -2,8 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getDefaultPolicy } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 import { applyProductionExecutionMetadata } from "../tool-metadata.js";
 import { createDesktopTools } from "../tools/desktop.js";
 import { runTool } from "../tool-runner.js";
@@ -14,12 +14,12 @@ const tool = applyProductionExecutionMetadata(createDesktopTools()).find((entry)
 const window = { windowId: "w1", title: "Blender", appName: "blender", pid: 7 };
 
 async function context(failAt?: number) {
-  const home = await mkdtemp(path.join(os.tmpdir(), "agenthost-seq-"));
+  const home = await mkdtemp(path.join(os.tmpdir(), "osseo-seq-"));
   dirs.push(home);
   const pressed: string[][] = [];
   const ctx = {
     sessionId: "seq",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async () => undefined },
     linux: {
@@ -30,7 +30,7 @@ async function context(failAt?: number) {
         return { supported: true, backend: "fake", sent, keys: input.keys, activeWindow: window, reason: sent ? "ok" : "key refused" };
       }
     }
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
   return { ctx, pressed };
 }
 

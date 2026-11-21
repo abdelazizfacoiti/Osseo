@@ -5,7 +5,7 @@ import type {
   SandboxBackendUnavailable,
   SandboxFeatureStatus,
   SandboxSupportProbeResult
-} from "@agenthost/core";
+} from "@osseo/core";
 import { findCommandPath, type LinuxLookupContext } from "./dependencies.js";
 
 export interface SandboxProbeContext extends LinuxLookupContext {
@@ -29,7 +29,7 @@ const BACKEND_CANDIDATES: BackendCandidate[] = [
     id: "bubblewrap",
     commandNames: ["bwrap", "bubblewrap"],
     usability: "candidate",
-    reason: "Bubblewrap can isolate AgentHost's fixed JSON runner when unprivileged user namespaces are enabled.",
+    reason: "Bubblewrap can isolate Osseo's fixed JSON runner when unprivileged user namespaces are enabled.",
     limitations: ["Only the fixed bounded JSON runner is supported; generated source code is never mounted or executed."]
   },
   {
@@ -44,7 +44,7 @@ const BACKEND_CANDIDATES: BackendCandidate[] = [
     commandNames: ["unshare"],
     usability: "limited",
     reason: "The util-linux namespace helper is present.",
-    limitations: ["Unshare alone is not an AgentHost sandbox policy or filesystem boundary."]
+    limitations: ["Unshare alone is not an Osseo sandbox policy or filesystem boundary."]
   },
   {
     id: "flatpak-spawn",
@@ -139,7 +139,7 @@ async function detectSeccomp(context: SandboxProbeContext): Promise<SandboxFeatu
   const filterCount = Number.parseInt(filters?.split(":")[1]?.trim() ?? "0", 10);
 
   return seccompMode > 0 || filterCount > 0
-    ? feature("available", "The current AgentHost process reports seccomp support or an active filter.")
+    ? feature("available", "The current Osseo process reports seccomp support or an active filter.")
     : feature("available", "The kernel exposes seccomp status for the current process.");
 }
 
@@ -225,7 +225,7 @@ export async function probeLinuxSandboxSupport(context: SandboxProbeContext = {}
   const onlyNamespaceBackends = availableBackends.every((backend) => backend.id === "bubblewrap" || backend.id === "unshare");
   const supported = availableBackends.length > 0 && !(onlyNamespaceBackends && userNamespaces.status === "unavailable");
 
-  const safeForAgentHostUse = availableBackends.some((backend) => backend.id === "bubblewrap") && userNamespaces.status === "available";
+  const safeForOsseoUse = availableBackends.some((backend) => backend.id === "bubblewrap") && userNamespaces.status === "available";
 
   return {
     platform: context.platform ?? process.platform,
@@ -246,7 +246,7 @@ export async function probeLinuxSandboxSupport(context: SandboxProbeContext = {}
     ],
     requiresInstall: availableBackends.length === 0,
     requiresSudo: false,
-    safeForAgentHostUse,
+    safeForOsseoUse,
     notes: [
       "Command detection resolves fixed executable names on PATH using filesystem checks only.",
       "No sudo, package manager, network, generated code, or system setting was used by this probe."

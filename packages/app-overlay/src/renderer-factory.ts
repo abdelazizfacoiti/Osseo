@@ -1,4 +1,4 @@
-import type { OverlayRendererMode } from "@agenthost/core";
+import type { OverlayRendererMode } from "@osseo/core";
 import { HeadlessOverlayRenderer } from "./headless-renderer.js";
 import { LinuxOverlayRenderer, type LinuxOverlayRendererOptions } from "./linux-renderer.js";
 import { DisabledOverlayRenderer } from "./disabled-renderer.js";

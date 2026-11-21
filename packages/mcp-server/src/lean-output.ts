@@ -1,4 +1,4 @@
-import type { ToolResult } from "@agenthost/core";
+import type { ToolResult } from "@osseo/core";
 
 /**
  * How a tool result is written to the agent.

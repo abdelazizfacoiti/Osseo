@@ -5,8 +5,8 @@ import { appendJsonl, summarizeForLog } from "./logging.js";
 
 /*
  * Development failure log: one JSONL line per tool call that failed for a reason worth fixing, written by the
- * server in every session next to the audit log (`~/.agenthost/logs/failures.jsonl`). It is for the people who
- * build AgentHost: read it with `agenthost failures`, then fix the most frequent reasons first.
+ * server in every session next to the audit log (`~/.osseo/logs/failures.jsonl`). It is for the people who
+ * build Osseo: read it with `osseo failures`, then fix the most frequent reasons first.
  *
  * Only redacted, allowlisted fields are stored: the audit input summary, the error code and message, the tool,
  * the build and the platform. Never typed text, screenshots, or file contents.

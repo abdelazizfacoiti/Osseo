@@ -1,4 +1,4 @@
-import type { OverlayWidgetComponent } from "@agenthost/core";
+import type { OverlayWidgetComponent } from "@osseo/core";
 
 /** Fixed renderer vocabulary. No HTML, CSS, script, URL, or dynamic component loading. */
 export const TRUSTED_VISUAL_COMPONENTS = [

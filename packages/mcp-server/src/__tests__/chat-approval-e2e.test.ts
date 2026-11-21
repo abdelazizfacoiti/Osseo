@@ -13,7 +13,7 @@ const SERVER = fileURLToPath(new URL("../../dist/index.js", import.meta.url));
 async function connect(home: string, answer: "approve" | "decline" | "none") {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) if (value !== undefined && key !== "DISPLAY" && key !== "WAYLAND_DISPLAY") env[key] = value;
-  env.AGENTHOST_HOME = home;
+  env.OSSEO_HOME = home;
   env.NODE_ENV = "test";
   const client = new Client({ name: "chat-approval-e2e", version: "1" }, { capabilities: answer === "none" ? {} : { elicitation: {} } });
   const prompts: string[] = [];
@@ -34,8 +34,8 @@ function textOf(result: unknown): string {
 describe("approval in chat (built server, headless)", () => {
   it("asks through elicitation, then the exact retry runs; a decline blocks it", async () => {
     expect(existsSync(SERVER), "Build first: npm run build").toBe(true);
-    const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-chat-e2e-"));
-    const work = mkdtempSync(path.join(os.tmpdir(), "agenthost-chat-e2e-files-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "osseo-chat-e2e-"));
+    const work = mkdtempSync(path.join(os.tmpdir(), "osseo-chat-e2e-files-"));
     try {
       const target = path.join(work, "report.txt");
       writeFileSync(target, "x");

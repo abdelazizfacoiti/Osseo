@@ -27,8 +27,8 @@ const STATUS_FILE = "activity.json";
 const MAX_FIELD = 200;
 const writeQueues = new Map<string, Promise<void>>();
 
-export function activityStatusPath(agentHostDir: string): string {
-  return path.join(agentHostDir, "run", STATUS_FILE);
+export function activityStatusPath(osseoDir: string): string {
+  return path.join(osseoDir, "run", STATUS_FILE);
 }
 
 function safeField(value: unknown): value is string {
@@ -62,9 +62,9 @@ export function isActivityStatusRecord(value: unknown): value is ActivityStatusR
     && Number.isFinite(Date.parse(record.updatedAt));
 }
 
-export async function writeActivityStatus(agentHostDir: string, record: ActivityStatusRecord): Promise<void> {
+export async function writeActivityStatus(osseoDir: string, record: ActivityStatusRecord): Promise<void> {
   if (!isActivityStatusRecord(record)) throw new Error("activity_status_invalid");
-  const target = activityStatusPath(agentHostDir);
+  const target = activityStatusPath(osseoDir);
   const previous = writeQueues.get(target) ?? Promise.resolve();
   const next = previous.catch(() => undefined).then(async () => {
     const directory = path.dirname(target);
@@ -84,9 +84,9 @@ export async function writeActivityStatus(agentHostDir: string, record: Activity
   }
 }
 
-export async function readActivityStatus(agentHostDir: string): Promise<ActivityStatusRecord | undefined> {
+export async function readActivityStatus(osseoDir: string): Promise<ActivityStatusRecord | undefined> {
   try {
-    const parsed = JSON.parse(await readFile(activityStatusPath(agentHostDir), "utf8")) as unknown;
+    const parsed = JSON.parse(await readFile(activityStatusPath(osseoDir), "utf8")) as unknown;
     return isActivityStatusRecord(parsed) ? parsed : undefined;
   } catch {
     return undefined;

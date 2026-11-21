@@ -17,8 +17,8 @@ if (!existsSync(SERVER)) {
 }
 
 function measure(profile) {
-  const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-measure-"));
-  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: path.join(home, "none.json"), AGENTHOST_TOOLS_PROFILE: profile, AGENTHOST_OVERLAY_MODE: "disabled", NODE_ENV: "test" };
+  const home = mkdtempSync(path.join(os.tmpdir(), "osseo-measure-"));
+  const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: path.join(home, "none.json"), OSSEO_TOOLS_PROFILE: profile, OSSEO_OVERLAY_MODE: "disabled", NODE_ENV: "test" };
   delete env.DISPLAY;
   delete env.WAYLAND_DISPLAY;
   return new Promise((resolve, reject) => {

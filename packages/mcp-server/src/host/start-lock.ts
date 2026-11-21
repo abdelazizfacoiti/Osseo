@@ -5,7 +5,7 @@ import path from "node:path";
  * Start lock: <home>/run/host.lock, created O_EXCL with "<pid> <epoch ms>".
  * Held by the process that is starting a host; removed once the host socket
  * is listening, or on failure. A lock older than 30 s whose pid is dead is
- * stale and is taken over. (The CLI keeps an equal copy in agenthost-cli/src/host.ts.)
+ * stale and is taken over. (The CLI keeps an equal copy in osseo-cli/src/host.ts.)
  */
 
 export const START_LOCK_STALE_MS = 30_000;

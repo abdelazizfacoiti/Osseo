@@ -3,8 +3,8 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getDefaultPolicy, invalidatePolicyCache, type AuditLogEntry, type ToolExecutionMetadata } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy, invalidatePolicyCache, type AuditLogEntry, type ToolExecutionMetadata } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 import { FrameDecoder, encodeFrame } from "../browser-extension-client.js";
 import { runTool } from "../tool-runner.js";
 import { createOwnBrowserTools } from "../tools/own-browser.js";
@@ -16,15 +16,15 @@ const tools = new Map(createOwnBrowserTools().map((t) => [t.name, { ...t, execut
 const tool = (name: string) => tools.get(name)!;
 
 const cleanup: Array<() => Promise<void> | void> = [];
-const saved = { socket: process.env.AGENTHOST_BROWSER_SOCKET, allowed: process.env.AGENTHOST_BROWSER_ALLOWED_HOSTS_FILE };
-beforeEach(() => { delete process.env.AGENTHOST_BROWSER_SOCKET; delete process.env.AGENTHOST_BROWSER_ALLOWED_HOSTS_FILE; invalidatePolicyCache(); });
+const saved = { socket: process.env.OSSEO_BROWSER_SOCKET, allowed: process.env.OSSEO_BROWSER_ALLOWED_HOSTS_FILE };
+beforeEach(() => { delete process.env.OSSEO_BROWSER_SOCKET; delete process.env.OSSEO_BROWSER_ALLOWED_HOSTS_FILE; invalidatePolicyCache(); });
 afterEach(async () => {
   for (const fn of cleanup.splice(0)) await fn();
-  if (saved.socket === undefined) delete process.env.AGENTHOST_BROWSER_SOCKET; else process.env.AGENTHOST_BROWSER_SOCKET = saved.socket;
-  if (saved.allowed === undefined) delete process.env.AGENTHOST_BROWSER_ALLOWED_HOSTS_FILE; else process.env.AGENTHOST_BROWSER_ALLOWED_HOSTS_FILE = saved.allowed;
+  if (saved.socket === undefined) delete process.env.OSSEO_BROWSER_SOCKET; else process.env.OSSEO_BROWSER_SOCKET = saved.socket;
+  if (saved.allowed === undefined) delete process.env.OSSEO_BROWSER_ALLOWED_HOSTS_FILE; else process.env.OSSEO_BROWSER_ALLOWED_HOSTS_FILE = saved.allowed;
 });
 
-interface Env { home: string; entries: AuditLogEntry[]; ctx: AgentHostMcpContext; received: Array<Record<string, unknown>> }
+interface Env { home: string; entries: AuditLogEntry[]; ctx: OsseoMcpContext; received: Array<Record<string, unknown>> }
 
 /** A temp agent home with a policy file and a fake native host on run/browser-extension.sock. */
 async function setup(policy: string, reply: (m: Record<string, unknown>) => Record<string, unknown> = () => ({ ok: true })): Promise<Env> {
@@ -49,11 +49,11 @@ async function setup(policy: string, reply: (m: Record<string, unknown>) => Reco
   const entries: AuditLogEntry[] = [];
   const ctx = {
     sessionId: "own-browser-test",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async (entry: AuditLogEntry) => { entries.push(entry); } },
     linux: {}
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
   return { home, entries, ctx, received };
 }
 
@@ -138,7 +138,7 @@ describe("own browser tools", () => {
 
   it("reports extension_not_running when the host has no socket", async () => {
     const env = await setup(allow("example.com"));
-    process.env.AGENTHOST_BROWSER_SOCKET = path.join(env.home, "run", "missing.sock");
+    process.env.OSSEO_BROWSER_SOCKET = path.join(env.home, "run", "missing.sock");
     const result = await snapshot(env);
     expect(result.error?.code).toBe("extension_not_running");
   });
@@ -189,7 +189,7 @@ describe("own browser tools", () => {
 
   it("returns extension_not_running when there is no socket", async () => {
     const env = await setup(allow("example.com"));
-    process.env.AGENTHOST_BROWSER_SOCKET = path.join(env.home, "run", "missing.sock");
+    process.env.OSSEO_BROWSER_SOCKET = path.join(env.home, "run", "missing.sock");
     const result = await runTool(tool("browser.own_tabs"), {}, env.ctx);
     expect(result.ok).toBe(false);
     expect(result.error?.code).toBe("extension_not_running");

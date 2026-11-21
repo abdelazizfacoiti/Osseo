@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { acceptConfirmation, getDefaultPolicy, type AuditLogEntry } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import { acceptConfirmation, getDefaultPolicy, type AuditLogEntry } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 import { runTool } from "../tool-runner.js";
 import { applyProductionExecutionMetadata } from "../tool-metadata.js";
 import { createClipboardTools } from "../tools/clipboard.js";
@@ -13,17 +13,17 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-async function makeContext(linux: Record<string, unknown>): Promise<{ context: AgentHostMcpContext; home: string }> {
-  const home = await mkdtemp(path.join(os.tmpdir(), "agenthost-clipboard-"));
+async function makeContext(linux: Record<string, unknown>): Promise<{ context: OsseoMcpContext; home: string }> {
+  const home = await mkdtemp(path.join(os.tmpdir(), "osseo-clipboard-"));
   roots.push(home);
   const logs: AuditLogEntry[] = [];
   const context = {
     sessionId: "clipboard",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async (entry: AuditLogEntry) => { logs.push(entry); } },
     linux
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
   return { context, home };
 }
 

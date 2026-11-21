@@ -1,5 +1,5 @@
 /*
- * What AgentHost can control on this machine, stated plainly. The desktop
+ * What Osseo can control on this machine, stated plainly. The desktop
  * layer is per-OS: `os-linux` implements the contract below today. A Windows
  * or macOS adapter would implement the same LinuxAutomation-shaped contract
  * (see docs/13_PLATFORMS.md) and report itself here.
@@ -47,7 +47,7 @@ export function describeDesktopPlatform(input: { platform?: NodeJS.Platform; env
         os: "linux", session: "xwayland", control: "x11-windows-only",
         guidance: [
           "Wayland session with XWayland: windows, input, screenshots, and cards work for X11 (XWayland) apps only. Native Wayland windows are invisible to them.",
-          "To control native Wayland apps, set execution.placement to background (needs Xephyr): AgentHost then starts the apps it works on inside a nested X display.",
+          "To control native Wayland apps, set execution.placement to background (needs Xephyr): Osseo then starts the apps it works on inside a nested X display.",
           "For full desktop control, log in to an X11 session."
         ]
       };

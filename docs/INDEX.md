@@ -1,6 +1,6 @@
-# AgentHost canonical documentation
+# Osseo canonical documentation
 
-AgentHost is a Linux-first, provider-agnostic local MCP runtime and visual
+Osseo is a Linux-first, provider-agnostic local MCP runtime and visual
 copilot. The current minimal-v2 tree exposes the tools documented in
 `docs/03_MCP_TOOLS_AND_ADAPTERS.md`; older milestone documents describe
 surfaces that are not registered in this tree.

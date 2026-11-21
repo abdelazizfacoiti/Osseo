@@ -41,7 +41,7 @@ describe.skipIf(!available)("effect measurement on a nested display", () => {
   let nested: Extract<Awaited<ReturnType<typeof startBackgroundDisplay>>, { ok: true }>;
 
   beforeAll(async () => {
-    home = await mkdtemp(path.join(os.tmpdir(), "agenthost-effect-"));
+    home = await mkdtemp(path.join(os.tmpdir(), "osseo-effect-"));
     const started = await startBackgroundDisplay({ width: 800, height: 600, firstDisplay: 110 });
     if (!started.ok) throw new Error(started.reason);
     nested = started;
@@ -56,7 +56,7 @@ describe.skipIf(!available)("effect measurement on a nested display", () => {
   });
 
   it("tells a click that did nothing apart from one that changed the window", async () => {
-    const context = { agentHostDir: home, env: nested.env };
+    const context = { osseoDir: home, env: nested.env };
     const listed = await listLinuxWindows({ includeTitles: true }, context);
     const win = listed.windows?.find((entry) => entry.title === "Effect probe");
     expect(win).toBeDefined();

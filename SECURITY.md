@@ -1,12 +1,12 @@
 # Security policy
 
-AgentHost lets an AI agent act on a real computer, so its safety rules are the product. Please report anything that
+Osseo lets an AI agent act on a real computer, so its safety rules are the product. Please report anything that
 weakens them.
 
 ## Reporting a vulnerability
 
 Do not open a public issue. Use GitHub's private reporting: **Security tab → Report a vulnerability** on this
-repository. Include the AgentHost version (`agenthost version`), your platform and session type, and the smallest
+repository. Include the Osseo version (`osseo version`), your platform and session type, and the smallest
 redacted reproduction.
 
 Never send passwords, API keys, confirmation tokens, cookies, screenshots, page content, OCR text, private messages or
@@ -29,11 +29,11 @@ Also in scope: the shared host's socket, the browser extension and its native ho
 
 ## Safety baseline (do not weaken in a fix)
 
-- The MCP server speaks stdio. The only other listeners are per-user Unix sockets under `~/.agenthost/run/` (mode
+- The MCP server speaks stdio. The only other listeners are per-user Unix sockets under `~/.osseo/run/` (mode
   0600): the optional shared host and the browser-extension host. There is no network listener.
 - Every tool call passes schema validation, the stop/takeover gate, an effect preview and, for consequential actions,
   an exact single-use confirmation token before it runs, and is written to a redacted audit log.
-- Rules live in `~/.agenthost/policy.toml`. Only the host process writes it; agent commands that edit it are blocked.
+- Rules live in `~/.osseo/policy.toml`. Only the host process writes it; agent commands that edit it are blocked.
 - Password, one-time-code and card fields are refused. Credential and security apps are blocked.
 
 ## Supported versions

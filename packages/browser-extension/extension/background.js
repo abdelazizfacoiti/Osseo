@@ -1,7 +1,7 @@
-// AgentHost background script. Talks to the native host and forwards requests to the content script.
+// Osseo background script. Talks to the native host and forwards requests to the content script.
 // The allowed-host list is read from storage on every request, so popup changes apply at once.
 
-const HOST_NAME = "dev.agenthost.browser";
+const HOST_NAME = "dev.osseo.browser";
 const REQUEST_TYPES = ["snapshot", "click", "type", "select", "navigate", "read", "tabs"];
 
 // BEGIN hostAllowed
@@ -115,7 +115,7 @@ async function handle(message, via) {
   }
   try {
     await chrome.scripting.executeScript({ target: { tabId: message.tabId }, files: ["content.js"] });
-    const result = await chrome.tabs.sendMessage(message.tabId, { agenthost: true, ...message });
+    const result = await chrome.tabs.sendMessage(message.tabId, { osseo: true, ...message });
     reply(id, result || { ok: false, reason: "no_response" });
   } catch (error) {
     reply(id, { ok: false, reason: "page_unavailable" });

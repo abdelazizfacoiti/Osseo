@@ -8,7 +8,7 @@ import { validateReleaseTree } from "./release-integrity.mjs";
 
 const root = path.resolve("release");
 const stage = (await readdir(root, { withFileTypes: true }))
-  .find((entry) => entry.isDirectory() && entry.name.startsWith("agenthost-v"));
+  .find((entry) => entry.isDirectory() && entry.name.startsWith("osseo-v"));
 if (!stage) throw new Error("release_stage_missing");
 const base = path.join(root, stage.name);
 const failures = [];
@@ -50,7 +50,7 @@ if (listing.status !== 0) {
   }
 }
 
-const temporary = await mkdtemp(path.join(os.tmpdir(), "agenthost-release-verify-"));
+const temporary = await mkdtemp(path.join(os.tmpdir(), "osseo-release-verify-"));
 try {
   if (!failures.some((failure) => failure.startsWith("archive:"))) {
     const extraction = spawnSync("tar", ["-xzf", archive, "-C", temporary], {

@@ -1,7 +1,7 @@
 import type { RuntimePolicy, RiskLevel, SafetyDecision, SafetyEvaluationContext } from "../types.js";
 import { evaluateApprovalRequirement, isApprovalSatisfied } from "./approval.js";
 import { classifyAppSensitivity } from "./app-sensitivity.js";
-import { classifyPath, isAgentHostControlPath } from "./path-policy.js";
+import { classifyPath, isOsseoControlPath } from "./path-policy.js";
 
 interface ShellRule {
   id: string;
@@ -96,16 +96,16 @@ const SHELL_RULES: ShellRule[] = [
     reason: "Inline interpreter code can perform arbitrary local actions and requires explicit approval."
   },
   {
-    id: "shell.agenthost_control_bypass",
-    pattern: /\b(?:agenthost(?:-cli)?|agenthost-mcp)\b[\s\S]*\b(?:task\s+(?:approve|stop)|policy\s+(?:add|remove)|confirm|deny|pause|resume|stop|takeover|overlay\s+hide|integrations[\s\S]*--apply)\b/i,
+    id: "shell.osseo_control_bypass",
+    pattern: /\b(?:osseo(?:-cli)?|osseo-mcp)\b[\s\S]*\b(?:task\s+(?:approve|stop)|policy\s+(?:add|remove)|confirm|deny|pause|resume|stop|takeover|overlay\s+hide|integrations[\s\S]*--apply)\b/i,
     riskLevel: "blocked",
-    reason: "AgentHost operator control commands cannot be run by the agent."
+    reason: "Osseo operator control commands cannot be run by the agent."
   },
   {
-    id: "shell.agenthost_control_path",
-    pattern: /\.agenthost[\\/](?:run|logs|setup|tasks[\\/]approvals)(?:[\\/]|\b)|\.agenthost[\\/]policy\.toml\b|\.agenthost[\\/]config\.json\b/i,
+    id: "shell.osseo_control_path",
+    pattern: /\.(?:osseo|agenthost)[\\/](?:run|logs|setup|tasks[\\/]approvals)(?:[\\/]|\b)|\.(?:osseo|agenthost)[\\/]policy\.toml\b|\.(?:osseo|agenthost)[\\/]config\.json\b/i,
     riskLevel: "blocked",
-    reason: "AgentHost control-plane files are operator-only."
+    reason: "Osseo control-plane files are operator-only."
   }
 ];
 
@@ -238,10 +238,10 @@ export function classifyShellCommand(
 
   // Each path-looking word is checked against the same policy as a file tool call.
   const considerPath = (candidate: string): void => {
-    if (isAgentHostControlPath(candidate, context)) {
+    if (isOsseoControlPath(candidate, context)) {
       riskLevel = "blocked";
-      reasons.push(`Command touches AgentHost control-plane path: ${candidate}.`);
-      matchedRules.push("shell.agenthost_control_path");
+      reasons.push(`Command touches Osseo control-plane path: ${candidate}.`);
+      matchedRules.push("shell.osseo_control_path");
       return;
     }
     const pathDecision = classifyPath(candidate, policy, { ...context, access: "read" });

@@ -45,12 +45,12 @@ export class FrameDecoder {
   }
 }
 
-export function extensionSocketPath(agentHostDir: string): string {
-  return process.env.AGENTHOST_BROWSER_SOCKET || path.join(agentHostDir, "run", "browser-extension.sock");
+export function extensionSocketPath(osseoDir: string): string {
+  return process.env.OSSEO_BROWSER_SOCKET || path.join(osseoDir, "run", "browser-extension.sock");
 }
 
-export function allowedHostsFilePath(agentHostDir: string): string {
-  return process.env.AGENTHOST_BROWSER_ALLOWED_HOSTS_FILE || path.join(agentHostDir, "browser-extension", "allowed-hosts.json");
+export function allowedHostsFilePath(osseoDir: string): string {
+  return process.env.OSSEO_BROWSER_ALLOWED_HOSTS_FILE || path.join(osseoDir, "browser-extension", "allowed-hosts.json");
 }
 
 export type ExtensionRequestType = "snapshot" | "click" | "type" | "select" | "navigate" | "read" | "tabs";

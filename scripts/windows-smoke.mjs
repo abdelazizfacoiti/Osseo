@@ -6,7 +6,7 @@
  *
  *   npm run build && node scripts/windows-smoke.mjs
  *
- * It uses a temporary AGENTHOST_HOME and removes it afterwards. It never types or clicks, and it
+ * It uses a temporary OSSEO_HOME and removes it afterwards. It never types or clicks, and it
  * never runs a command that needs approval: a command that asks first is reported, not run.
  */
 import { spawn } from "node:child_process";
@@ -16,7 +16,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 // These scripts list and count tools, so they run the full tool list.
-process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
+process.env.OSSEO_TOOLS_PROFILE ??= "full";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER = path.join(REPO, "packages", "mcp-server", "dist", "index.js");
@@ -94,17 +94,17 @@ async function main() {
     process.exitCode = 2;
     return;
   }
-  const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-smoke-"));
+  const home = mkdtempSync(path.join(os.tmpdir(), "osseo-smoke-"));
   const config = path.join(home, "config.json");
   writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
   // No display: the desktop tools are not part of W1, and a Linux display must not leak in.
-  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config };
+  const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: config };
   delete env.DISPLAY;
   delete env.WAYLAND_DISPLAY;
   const server = spawn(process.execPath, [SERVER], { env, stdio: ["pipe", "pipe", "pipe"] });
   let stderr = "";
   server.stderr.on("data", (chunk) => { stderr = (stderr + chunk).slice(-2000); });
-  console.log(`AgentHost headless check on ${process.platform} ${process.arch}, Node ${process.version}`);
+  console.log(`Osseo headless check on ${process.platform} ${process.arch}, Node ${process.version}`);
   try {
     const mcp = client(server);
     const init = await mcp.initialize();
@@ -127,12 +127,12 @@ async function main() {
     const write = await mcp.call("file.write", { path: written, content: "hello from the smoke check" });
     if (write.ok) {
       const read = await mcp.call("file.read", { path: written });
-      if (read.ok && String(read.data?.content ?? "").includes("hello from the smoke check")) record("PASS", "files: write and read back inside AgentHost home");
-      else record("FAIL", "files: write and read back inside AgentHost home", read.error?.code ?? "content differs");
+      if (read.ok && String(read.data?.content ?? "").includes("hello from the smoke check")) record("PASS", "files: write and read back inside Osseo home");
+      else record("FAIL", "files: write and read back inside Osseo home", read.error?.code ?? "content differs");
     } else if (write.error?.code === "approval_required") {
-      record("NOTE", "files: write inside AgentHost home asks for approval under this policy");
+      record("NOTE", "files: write inside Osseo home asks for approval under this policy");
     } else {
-      record("FAIL", "files: write inside AgentHost home", write.error?.code ?? "");
+      record("FAIL", "files: write inside Osseo home", write.error?.code ?? "");
     }
 
     const systemFile = WINDOWS

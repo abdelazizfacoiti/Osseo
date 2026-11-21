@@ -18,9 +18,9 @@ export interface ReplayTriggerOptions {
   exists?: (file: string) => boolean;
 }
 
-/** The CLI entry next to this package: packages/agenthost-cli/dist/index.js, in the monorepo and in a release. */
+/** The CLI entry next to this package: packages/osseo-cli/dist/index.js, in the monorepo and in a release. */
 export function cliEntryFor(serverDir: string): string {
-  return path.resolve(serverDir, "..", "..", "agenthost-cli", "dist", "index.js");
+  return path.resolve(serverDir, "..", "..", "osseo-cli", "dist", "index.js");
 }
 
 /** Starts one detached replay build for the task. Returns true when a child was started. Never throws. */

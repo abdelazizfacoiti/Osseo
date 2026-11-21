@@ -1,4 +1,4 @@
-import type { OverlayCapabilityReport, OverlayRendererMode, OverlayStateSnapshot, OverlayWidgetEvent } from "@agenthost/core";
+import type { OverlayCapabilityReport, OverlayRendererMode, OverlayStateSnapshot, OverlayWidgetEvent } from "@osseo/core";
 
 export interface OverlayRenderRecord { overlayId: string; type: string; payload: unknown; }
 export interface OverlayOperationResult {

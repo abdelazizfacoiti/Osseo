@@ -9,7 +9,7 @@ import { hostPaths, probeSocket } from "./socket.js";
 import { acquireStartLock } from "./start-lock.js";
 
 /*
- * The stdio process an MCP client spawns when AGENTHOST_HOST=1. It connects to
+ * The stdio process an MCP client spawns when OSSEO_HOST=1. It connects to
  * the host (starting one detached through the start lock if none is running) and forwards lines both
  * ways unchanged. If the host dies it answers the open requests with a
  * JSON-RPC error and exits. It never re-sends a request.
@@ -66,7 +66,7 @@ async function connectWithStart(options: ShimOptions): Promise<net.Socket> {
   } finally {
     await lock?.release();
   }
-  throw new Error("host_unavailable: the AgentHost host did not start within 10 s. Run agenthost doctor.");
+  throw new Error("host_unavailable: the Osseo host did not start within 10 s. Run osseo doctor.");
 }
 
 /** Returns the exit code. */
@@ -108,10 +108,10 @@ export async function runShim(options: ShimOptions): Promise<number> {
     const onClose = (): void => resolve({ ok: false, rest: "", message: "host_closed_during_handshake" });
     socket.on("data", onData);
     socket.once("close", onClose);
-    socket.write(encodeLine({ hello: { protocol: HOST_PROTOCOL, client: options.client ?? process.env.AGENTHOST_CLIENT ?? "mcp-client" } }));
+    socket.write(encodeLine({ hello: { protocol: HOST_PROTOCOL, client: options.client ?? process.env.OSSEO_CLIENT ?? "mcp-client" } }));
   });
   if (!welcome.ok) {
-    errors.write(`AgentHost host refused the connection: ${welcome.message}. Run agenthost doctor.\n`);
+    errors.write(`Osseo host refused the connection: ${welcome.message}. Run osseo doctor.\n`);
     socket.destroy();
     return options.unavailableCode ?? 1;
   }
@@ -145,7 +145,7 @@ export async function runShim(options: ShimOptions): Promise<number> {
         isRequest = id !== undefined && typeof message.method === "string";
       } catch { /* the host answers a malformed line */ }
       if (hostGone) {
-        if (isRequest) fail(id, "AgentHost host is not running; the call was not executed. Restart the client session.");
+        if (isRequest) fail(id, "Osseo host is not running; the call was not executed. Restart the client session.");
         return;
       }
       if (isRequest) open.add(id as string | number);
@@ -161,9 +161,9 @@ export async function runShim(options: ShimOptions): Promise<number> {
     socket.once("close", () => {
       if (finished) return;
       hostGone = true;
-      for (const id of open) fail(id, "AgentHost host stopped while this call was open; the call was not retried and its outcome is unknown. Check the screen before repeating it.");
+      for (const id of open) fail(id, "Osseo host stopped while this call was open; the call was not retried and its outcome is unknown. Check the screen before repeating it.");
       open.clear();
-      errors.write("AgentHost host disconnected.\n");
+      errors.write("Osseo host disconnected.\n");
       // Late requests still get the error, for a short grace period, then the shim exits.
       setTimeout(() => finish(1), options.deadGraceMs ?? 2000);
     });
@@ -171,9 +171,9 @@ export async function runShim(options: ShimOptions): Promise<number> {
 }
 
 export async function runShimFromEnv(): Promise<void> {
-  const agentHome = path.resolve(process.env.AGENTHOST_HOME ?? (await import("@agenthost/core")).defaultAgentHostHome(os.homedir()));
-  // AGENTHOST_HOST_AUTO=1 (set by `agenthost start`): if the host cannot be reached, run the in-process server instead.
-  const auto = process.env.AGENTHOST_HOST_AUTO === "1";
+  const agentHome = path.resolve(process.env.OSSEO_HOME ?? (await import("@osseo/core")).defaultOsseoHome(os.homedir()));
+  // OSSEO_HOST_AUTO=1 (set by `osseo start`): if the host cannot be reached, run the in-process server instead.
+  const auto = process.env.OSSEO_HOST_AUTO === "1";
   const code = await runShim({ agentHome, ...(auto ? { unavailableCode: 125 } : {}) });
   if (auto && code === 125) {
     const { startStdioServer } = await import("../server.js");

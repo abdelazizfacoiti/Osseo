@@ -32,7 +32,7 @@ describe("Linux sandbox support probe", () => {
       recommendedBackend: "bubblewrap",
       requiresInstall: false,
       requiresSudo: false,
-      safeForAgentHostUse: true,
+      safeForOsseoUse: true,
       kernelFeatures: {
         userNamespaces: { status: "available" },
         seccomp: { status: "available" },
@@ -75,7 +75,7 @@ describe("Linux sandbox support probe", () => {
       "limitations",
       "requiresInstall",
       "requiresSudo",
-      "safeForAgentHostUse",
+      "safeForOsseoUse",
       "notes"
     ]);
   });

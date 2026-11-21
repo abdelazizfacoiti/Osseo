@@ -10,12 +10,12 @@ function tsvFor(text: string): string {
 describe("OCR engine launch", () => {
   it("limits Tesseract to one thread unless told otherwise (its own threads slow it down on many cores)", async () => {
     clearVisionOcrCache();
-    const dir = await mkdtemp(join(tmpdir(), "agenthost-vision-omp-"));
+    const dir = await mkdtemp(join(tmpdir(), "osseo-vision-omp-"));
     const imagePath = join(dir, "c.png");
     await writeFile(imagePath, "x");
     const seen: Array<NodeJS.ProcessEnv> = [];
     const run = async (_command: string, _args: string[], env: NodeJS.ProcessEnv) => { seen.push(env); return { exitCode: 0, stdout: tsvFor("Ok"), timedOut: false, truncated: false }; };
-    const input = { imagePath, source: "agenthost_screenshot" as const, basename: "c.png", mode: "ocr" as const, maxItems: 2 };
+    const input = { imagePath, source: "osseo_screenshot" as const, basename: "c.png", mode: "ocr" as const, maxItems: 2 };
     await analyzeLinuxImage(input, { tesseractPath: "/usr/bin/tesseract", run, env: { PATH: "/usr/bin" } });
     expect(seen[0]?.OMP_THREAD_LIMIT).toBe("1");
     clearVisionOcrCache();
@@ -25,14 +25,14 @@ describe("OCR engine launch", () => {
 });
 describe("local vision", () => {
   it("parses TSV boxes, centers, and groups", () => { const parsed = parseTesseractTsv(tsv); expect(parsed.width).toBe(200); expect(parsed.items[0]).toMatchObject({ text: "Send", center: { x: 50, y: 35 } }); expect(parsed.groups).toHaveLength(1); });
-  it("returns clean unavailable result when tesseract is absent", async () => { await expect(analyzeLinuxImage({ imagePath: "/x.png", source: "agenthost_screenshot", basename: "x.png", mode: "ocr", maxItems: 2 }, { env: { PATH: "" } })).resolves.toMatchObject({ supported: false, reason: "ocr_backend_unavailable" }); });
+  it("returns clean unavailable result when tesseract is absent", async () => { await expect(analyzeLinuxImage({ imagePath: "/x.png", source: "osseo_screenshot", basename: "x.png", mode: "ocr", maxItems: 2 }, { env: { PATH: "" } })).resolves.toMatchObject({ supported: false, reason: "ocr_backend_unavailable" }); });
   it("reuses OCR only for the same file revision and query shape", async () => {
     clearVisionOcrCache();
-    const dir = await mkdtemp(join(tmpdir(), "agenthost-vision-"));
+    const dir = await mkdtemp(join(tmpdir(), "osseo-vision-"));
     const imagePath = join(dir, "capture.png");
     let calls = 0;
     const run = async () => ({ exitCode: 0, stdout: tsvFor(`Text${++calls}`), timedOut: false, truncated: false });
-    const input = { imagePath, source: "agenthost_screenshot" as const, basename: "capture.png", mode: "ocr" as const, maxItems: 2 };
+    const input = { imagePath, source: "osseo_screenshot" as const, basename: "capture.png", mode: "ocr" as const, maxItems: 2 };
     await writeFile(imagePath, "first revision");
     expect((await analyzeLinuxImage(input, { tesseractPath: "/usr/bin/tesseract", run })).textItems[0]?.text).toBe("Text1");
     expect((await analyzeLinuxImage(input, { tesseractPath: "/usr/bin/tesseract", run })).textItems[0]?.text).toBe("Text1");

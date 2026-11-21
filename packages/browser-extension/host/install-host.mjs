@@ -32,8 +32,8 @@ if (!dir) { console.error("Unknown browser: " + browser); process.exit(2); }
 if (browser !== "firefox" && !/^[a-p]{32}$/.test(extensionId)) { console.error("Chrome and Chromium need --extension-id (32 letters a-p, shown on chrome://extensions)."); process.exit(2); }
 
 const hostScript = path.join(here, "native-host.mjs");
-const binDir = path.join(home, ".agenthost", "browser-extension", "bin");
-const launcherPath = path.join(binDir, "agenthost-browser-host");
+const binDir = path.join(home, ".osseo", "browser-extension", "bin");
+const launcherPath = path.join(binDir, "osseo-browser-host");
 const hostPath = launcherPath;
 const template = JSON.parse(fs.readFileSync(path.join(here, "manifest-template.json"), "utf8"));
 const manifest = { ...template, path: hostPath };

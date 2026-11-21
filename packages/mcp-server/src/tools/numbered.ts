@@ -1,8 +1,8 @@
-import { HANDOFF_KINDS, toolFailure, toolSuccess, type ToolResult } from "@agenthost/core";
+import { HANDOFF_KINDS, toolFailure, toolSuccess, type ToolResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
+import type { OsseoMcpContext } from "../context.js";
 import { callGoverned } from "../nested.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { recordNumbered } from "../journal.js";
 import { observeStructure } from "../see-diff.js";
 import { lookupTarget, viewForWindow, type SeenView, type TargetLookup, type ViewTarget } from "../view-registry.js";
@@ -54,7 +54,7 @@ type Basis = { view?: SeenView | undefined; windowId?: string | undefined };
  * (`structure: "unavailable"`) and the pixel check from the nested tool stays as it was.
  * Only counts go to the audit (see `auditOutputSummary`); sentences and values never do.
  */
-async function settle(tool: string, result: ToolResult, context: AgentHostMcpContext, basis: Basis, note = true): Promise<ToolResult> {
+async function settle(tool: string, result: ToolResult, context: OsseoMcpContext, basis: Basis, note = true): Promise<ToolResult> {
   const done = finish(tool, result, note);
   if (!result.ok || result.preview === true) return done;
   // Inside a plan the control list is compared once, after the last step, not after every step.
@@ -88,7 +88,7 @@ function auditCounts(tool: string) {
   };
 }
 
-async function resolve(context: AgentHostMcpContext, input: { view?: string | undefined; n: number }): Promise<TargetLookup> {
+async function resolve(context: OsseoMcpContext, input: { view?: string | undefined; n: number }): Promise<TargetLookup> {
   return lookupTarget(input, async (view) => view.windowKey === "browser" ? undefined : currentWindowBounds(context, view.windowKey));
 }
 
@@ -97,7 +97,7 @@ function center(target: Extract<ViewTarget, { kind: "screen" }>): { x: number; y
 }
 
 /** The window for a bare-coordinate or no-number action: the active one. */
-async function activeWindowFor(context: AgentHostMcpContext): Promise<{ windowId?: string; appName?: string; title?: string; pid?: number } | undefined> {
+async function activeWindowFor(context: OsseoMcpContext): Promise<{ windowId?: string; appName?: string; title?: string; pid?: number } | undefined> {
   const active = (await context.linux.getActiveWindow().catch(() => undefined))?.activeWindow;
   if (active === undefined) return undefined;
   if (active.windowId !== undefined) return { windowId: active.windowId };
@@ -114,9 +114,9 @@ function define<I extends { dryRun?: boolean | undefined; confirmationToken?: st
   properties: Record<string, unknown>;
   required?: string[];
   summary: string;
-  handler: (input: I, context: AgentHostMcpContext) => Promise<ToolResult<unknown>>;
-}): AnyAgentHostToolDefinition<AgentHostMcpContext> {
-  const tool: AgentHostToolDefinition<I, unknown, AgentHostMcpContext> = {
+  handler: (input: I, context: OsseoMcpContext) => Promise<ToolResult<unknown>>;
+}): AnyOsseoToolDefinition<OsseoMcpContext> {
+  const tool: OsseoToolDefinition<I, unknown, OsseoMcpContext> = {
     name: spec.name,
     description: spec.description,
     riskLevel: spec.riskLevel,
@@ -133,7 +133,7 @@ function define<I extends { dryRun?: boolean | undefined; confirmationToken?: st
       return result;
     }
   };
-  return tool as AnyAgentHostToolDefinition<AgentHostMcpContext>;
+  return tool as AnyOsseoToolDefinition<OsseoMcpContext>;
 }
 
 const clickInput = z.object({
@@ -234,7 +234,7 @@ const statusInput = z.object({ ...exec }).strict();
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Whether text shows up as a window title or as a named element in the active window. */
-async function textPresent(context: AgentHostMcpContext, text: string): Promise<boolean> {
+async function textPresent(context: OsseoMcpContext, text: string): Promise<boolean> {
   const needle = text.toLowerCase();
   const listed = await context.linux.listWindows({ limit: 100, includeTitles: true }).catch(() => undefined);
   if (listed?.windows.some((window) => (window.title ?? "").toLowerCase().includes(needle)) === true) return true;
@@ -244,7 +244,7 @@ async function textPresent(context: AgentHostMcpContext, text: string): Promise<
   return found?.supported === true && found.candidates.length > 0;
 }
 
-export function createNumberedTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
+export function createNumberedTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
   const click = define({
     name: "click",
     description: "Clicks element n from see (or x,y). double and button right/middle are supported. Pass dryRun or confirmationToken as for any action.",

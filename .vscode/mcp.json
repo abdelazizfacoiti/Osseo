@@ -1,8 +1,8 @@
 {
   "servers": {
-    "agenthost": {
+    "osseo": {
       "type": "stdio",
-      "command": "agenthost",
+      "command": "osseo",
       "args": [
         "start"
       ]

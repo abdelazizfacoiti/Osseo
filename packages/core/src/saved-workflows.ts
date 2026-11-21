@@ -72,11 +72,11 @@ export function isValidWorkflowName(name: string): boolean {
   return WORKFLOW_NAME.test(name);
 }
 
-function workflowsDir(agentHostDir: string): string { return path.join(agentHostDir, "workflows"); }
+function workflowsDir(osseoDir: string): string { return path.join(osseoDir, "workflows"); }
 
-function workflowPath(agentHostDir: string, name: string): string {
+function workflowPath(osseoDir: string, name: string): string {
   if (!isValidWorkflowName(name)) throw new WorkflowError("workflow_invalid", "Workflow names are 2-49 characters of a-z, 0-9, _ or -.");
-  return path.join(workflowsDir(agentHostDir), `${name}.json`);
+  return path.join(workflowsDir(osseoDir), `${name}.json`);
 }
 
 function collectPlaceholders(value: unknown, found: Set<string>): void {
@@ -123,11 +123,11 @@ export function validateWorkflowDefinition(input: { name: string; parameters: Wo
   if (unused.length > 0) throw new WorkflowError("workflow_invalid", `Declared parameters never used: ${unused.join(", ")}.`);
 }
 
-async function write(agentHostDir: string, workflow: SavedWorkflow): Promise<void> {
-  const directory = workflowsDir(agentHostDir);
+async function write(osseoDir: string, workflow: SavedWorkflow): Promise<void> {
+  const directory = workflowsDir(osseoDir);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
-  const target = workflowPath(agentHostDir, workflow.name);
+  const target = workflowPath(osseoDir, workflow.name);
   const temporary = `${target}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(workflow, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   await chmod(temporary, 0o600);
@@ -135,9 +135,9 @@ async function write(agentHostDir: string, workflow: SavedWorkflow): Promise<voi
   await chmod(target, 0o600);
 }
 
-export async function loadWorkflow(agentHostDir: string, name: string): Promise<SavedWorkflow | undefined> {
+export async function loadWorkflow(osseoDir: string, name: string): Promise<SavedWorkflow | undefined> {
   try {
-    const value = JSON.parse(stripBom(await readFile(workflowPath(agentHostDir, name), "utf8"))) as SavedWorkflow;
+    const value = JSON.parse(stripBom(await readFile(workflowPath(osseoDir, name), "utf8"))) as SavedWorkflow;
     return value.version === 1 && value.name === name && Array.isArray(value.steps) ? value : undefined;
   } catch (error) {
     if (error instanceof WorkflowError) throw error;
@@ -145,21 +145,21 @@ export async function loadWorkflow(agentHostDir: string, name: string): Promise<
   }
 }
 
-export async function listWorkflows(agentHostDir: string): Promise<SavedWorkflow[]> {
+export async function listWorkflows(osseoDir: string): Promise<SavedWorkflow[]> {
   let files: string[] = [];
-  try { files = await readdir(workflowsDir(agentHostDir)); } catch { return []; }
+  try { files = await readdir(workflowsDir(osseoDir)); } catch { return []; }
   const result: SavedWorkflow[] = [];
   for (const file of files.filter((entry) => entry.endsWith(".json"))) {
-    const workflow = await loadWorkflow(agentHostDir, file.slice(0, -5)).catch(() => undefined);
+    const workflow = await loadWorkflow(osseoDir, file.slice(0, -5)).catch(() => undefined);
     if (workflow !== undefined) result.push(workflow);
   }
   return result.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 }
 
-export async function saveWorkflow(agentHostDir: string, input: { name: string; description: string; parameters: WorkflowParameter[]; steps: WorkflowStep[]; knownTools?: ReadonlySet<string> }): Promise<SavedWorkflow> {
+export async function saveWorkflow(osseoDir: string, input: { name: string; description: string; parameters: WorkflowParameter[]; steps: WorkflowStep[]; knownTools?: ReadonlySet<string> }): Promise<SavedWorkflow> {
   validateWorkflowDefinition(input);
-  const existing = await loadWorkflow(agentHostDir, input.name);
-  if (existing === undefined && (await listWorkflows(agentHostDir)).length >= MAX_WORKFLOWS) throw new WorkflowError("workflow_limit", `At most ${MAX_WORKFLOWS} workflows can be saved. Delete one first.`);
+  const existing = await loadWorkflow(osseoDir, input.name);
+  if (existing === undefined && (await listWorkflows(osseoDir)).length >= MAX_WORKFLOWS) throw new WorkflowError("workflow_limit", `At most ${MAX_WORKFLOWS} workflows can be saved. Delete one first.`);
   const now = new Date().toISOString();
   const workflow: SavedWorkflow = {
     version: 1,
@@ -172,14 +172,14 @@ export async function saveWorkflow(agentHostDir: string, input: { name: string; 
     uses: existing?.uses ?? 0,
     ...(existing?.lastUsedAt === undefined ? {} : { lastUsedAt: existing.lastUsedAt })
   };
-  await write(agentHostDir, workflow);
+  await write(osseoDir, workflow);
   return workflow;
 }
 
-export async function deleteWorkflow(agentHostDir: string, name: string): Promise<boolean> {
-  const existing = await loadWorkflow(agentHostDir, name);
+export async function deleteWorkflow(osseoDir: string, name: string): Promise<boolean> {
+  const existing = await loadWorkflow(osseoDir, name);
   if (existing === undefined) return false;
-  await rm(workflowPath(agentHostDir, name), { force: true });
+  await rm(workflowPath(osseoDir, name), { force: true });
   return true;
 }
 
@@ -194,8 +194,8 @@ export function expandWorkflow(workflow: SavedWorkflow, values: Record<string, s
   return workflow.steps.map((step) => ({ tool: step.tool, ...(step.input === undefined ? {} : { input: substitute(step.input, values) as Record<string, unknown> }), ...(step.expect === undefined ? {} : { expect: step.expect }) }));
 }
 
-export async function noteWorkflowUsed(agentHostDir: string, name: string): Promise<void> {
-  const workflow = await loadWorkflow(agentHostDir, name);
+export async function noteWorkflowUsed(osseoDir: string, name: string): Promise<void> {
+  const workflow = await loadWorkflow(osseoDir, name);
   if (workflow === undefined) return;
-  await write(agentHostDir, { ...workflow, uses: workflow.uses + 1, lastUsedAt: new Date().toISOString() });
+  await write(osseoDir, { ...workflow, uses: workflow.uses + 1, lastUsedAt: new Date().toISOString() });
 }

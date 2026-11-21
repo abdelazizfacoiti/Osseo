@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { toolFailure, toolSuccess, type OverlayPrimitive, type OverlayWidget } from "@agenthost/core";
-import type { OverlayManager } from "@agenthost/app-overlay";
+import { toolFailure, toolSuccess, type OverlayPrimitive, type OverlayWidget } from "@osseo/core";
+import type { OverlayManager } from "@osseo/app-overlay";
 import { ToolActionOverlay } from "../action-overlay.js";
 
 function fakeManager(capabilitiesVisible = true) {
@@ -52,7 +52,7 @@ describe("automatic action overlay", () => {
     expect(fake.shown).toHaveLength(1);
     expect(fake.shown[0]).toMatchObject({
       widgetId: "action-card",
-      title: "AgentHost · shell.run",
+      title: "Osseo · shell.run",
       sensitivity: "public",
       persistent: true,
       placement: "top_right"
@@ -250,7 +250,7 @@ describe("automatic action overlay", () => {
       riskLevel: "medium",
       step: { index: 1, total: 4 }
     });
-    expect(fake.shown[0]).toMatchObject({ title: "AgentHost · Step 2/4", placement: "top_center" });
+    expect(fake.shown[0]).toMatchObject({ title: "Osseo · Step 2/4", placement: "top_center" });
     expect(badge(fake.shown[0]!)).toBe("Running · MEDIUM");
     expect(fake.shown[0]!.components.some((entry) => entry.type === "key_value" && entry.key === "Risk")).toBe(false);
     await overlay.close();

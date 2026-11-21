@@ -1,4 +1,4 @@
-# AgentHost MCP Tools and Adapter Specification
+# Osseo MCP Tools and Adapter Specification
 
 ## Default tools and profiles
 
@@ -69,10 +69,10 @@ Profiles:
 | `full` | the 14 plus every tool in the reference below |
 
 Set it in `config.json` (`{"tools": {"profile": "full"}}`) or with
-`AGENTHOST_TOOLS_PROFILE`. In both profiles every old tool name stays callable, so saved
+`OSSEO_TOOLS_PROFILE`. In both profiles every old tool name stays callable, so saved
 workflows, `computer.run_steps` plans and older prompts keep working. In the `desktop`
 profile a direct call to a hidden tool succeeds and adds one note naming the tool to use.
-`agenthost://capabilities`, `agenthost://capabilities.md` and `agenthost capabilities
+`osseo://capabilities`, `osseo://capabilities.md` and `osseo capabilities
 --markdown` follow the profile. `node scripts/measure-tools.mjs` prints the tool count and
 `tools/list` size for each profile.
 
@@ -81,7 +81,7 @@ profile a direct call to a hidden tool succeeds and adds one note naming the too
 All callable tools return `ToolResult`. MCP transport is stdio. The current
 server loads 82 tools (the 14 default tools and the reference below). This number is generated from the
 loaded set at startup; treat `system.list_capabilities` and
-`agenthost://capabilities` as authoritative instead of hard-coding counts.
+`osseo://capabilities` as authoritative instead of hard-coding counts.
 
 Every loaded definition carries explicit execution metadata. Missing,
 contradictory, or duplicate declarations fail registration. MCP `tools/list`,
@@ -164,7 +164,7 @@ present before the call. Missing backend data is omitted rather than guessed.
 | `browser.wait_for` | observe | read_only |
 | `browser.screenshot` | low | read_only (inline JPEG) |
 
-These drive a separate Chrome/Chromium profile (`~/.agenthost/browser/profiles/agent`)
+These drive a separate Chrome/Chromium profile (`~/.osseo/browser/profiles/agent`)
 over the DevTools Protocol on a loopback port, never the person's own profile.
 Elements are addressed by ref from the latest `browser.snapshot`; a ref from an
 older snapshot fails with `stale_ref`. Safety evaluates the page's origin and
@@ -201,7 +201,7 @@ the URL instead of a fixed sleep.
 | `memory.delete` | low | metadata_only |
 
 Saved workflows are recalled plans, not a second way to execute. `workflow.save`
-stores up to 20 steps (max 100 workflows) under `~/.agenthost/workflows/` with
+stores up to 20 steps (max 100 workflows) under `~/.osseo/workflows/` with
 `{{param}}` placeholders; it rejects unknown tools, `agent.*`/`task.*`/
 `workflow.*`/`computer.run_steps` steps, undeclared or unused parameters, and
 anything that looks like a secret. `workflow.get` returns the steps with
@@ -262,24 +262,24 @@ For every tool call the central runner performs, in order:
 Operator commands:
 
 ```bash
-agenthost confirmations                 # list pending tokens
-agenthost confirm <tokenId>            # approve one exact preview
-agenthost deny <tokenId>               # reject one preview
-agenthost task approve <taskId> [--max-risk low|medium]
-agenthost task pause <taskId>
-agenthost task resume <taskId>
-agenthost agent status
-agenthost agent pause [--reason text]
-agenthost agent stop [--reason text]
-agenthost agent takeover-begin [--reason text]
-agenthost agent resume --stop|--takeover|--pause
+osseo confirmations                 # list pending tokens
+osseo confirm <tokenId>            # approve one exact preview
+osseo deny <tokenId>               # reject one preview
+osseo task approve <taskId> [--max-risk low|medium]
+osseo task pause <taskId>
+osseo task resume <taskId>
+osseo agent status
+osseo agent pause [--reason text]
+osseo agent stop [--reason text]
+osseo agent takeover-begin [--reason text]
+osseo agent resume --stop|--takeover|--pause
 ```
 
-`agenthost stop` kills an AgentHost-managed background process and writes the
-stop flag. `agenthost agent pause` holds state-changing tools until
-`agenthost agent resume --pause`. `agenthost task pause` marks an active task
+`osseo stop` kills an Osseo-managed background process and writes the
+stop flag. `osseo agent pause` holds state-changing tools until
+`osseo agent resume --pause`. `osseo task pause` marks an active task
 paused and requests the same run pause with a task-scoped reason;
-`task resume` clears only that reason. `agenthost agent stop` writes the run
+`task resume` clears only that reason. `osseo agent stop` writes the run
 flag and clears active task approval; it is the appropriate emergency stop when
 the MCP process is owned by the client.
 
@@ -302,10 +302,10 @@ and package/service changes are classified high or blocked. The handler
 rejects attempts to override `PATH`, `HOME`, `LD_PRELOAD`, `LD_LIBRARY_PATH`,
 `NODE_OPTIONS`, `PYTHONPATH`, `BASH_ENV`, or `ENV`.
 
-AgentHost control-plane paths (`run/`, `logs/`, `setup/`, `tasks/approvals/`,
+Osseo control-plane paths (`run/`, `logs/`, `setup/`, `tasks/approvals/`,
 `config.json`, and the configured config/log paths) are protected:
 reads are medium risk; writes and deletes are blocked. Shell commands that
-touch those paths or invoke mutating `agenthost` commands are blocked.
+touch those paths or invoke mutating `osseo` commands are blocked.
 
 ## Desktop and vision
 
@@ -379,7 +379,7 @@ shows the next step in the same turn. On timeout the marks stay and the result h
 `clicked: null` and `waitTimedOut: true`. If click detection is missing the result has
 `waitUnavailable: true`. `guide.clear` ends a wait (`cleared: true`). Stop removes the marks,
 ends a wait (`stopped: true`), and `guide.show` refuses to draw while the stop flag is set
-(`emergency_stop_requested`). Presses injected by AgentHost are ignored.
+(`emergency_stop_requested`). Presses injected by Osseo are ignored.
 
 ASCII text shorter than 512 characters uses a zero-delay `xdotool type`; longer
 or layout-unsafe text uses clipboard paste and fails explicitly when neither
@@ -398,7 +398,7 @@ verification rules.
 bounded, redacted suggestions. The screen variant captures a fresh full-screen
 image and returns absolute screen coordinates as suggestions only. They never
 click or type. `desktop.screenshot` writes under
-`~/.agenthost/screenshots/` unless `outputDir` is supplied, so it follows the
+`~/.osseo/screenshots/` unless `outputDir` is supplied, so it follows the
 routine direct-execution path; high-risk or consequential effects still use
 exact confirmation. Optional `format`, `quality`, `scale`, and `region` fields
 support JPEG OCR captures, downscaling, and native `scrot -a` region capture;
@@ -408,18 +408,18 @@ post-processing requires `ffmpeg`, and unsupported combinations fail explicitly.
 
 The server exposes exactly three resources:
 
-- `agenthost://capabilities` — live JSON inventory, families, and execution
+- `osseo://capabilities` — live JSON inventory, families, and execution
   class counts.
-- `agenthost://capabilities.md` — compact agent-facing brief generated from
+- `osseo://capabilities.md` — compact agent-facing brief generated from
   the same live inventory.
-- `agenthost://status` — live stop/takeover/pause flags and the active task
+- `osseo://status` — live stop/takeover/pause flags and the active task
   approval.
 
-There is no `agenthost://skills` resource. Portable skill files are installed
+There is no `osseo://skills` resource. Portable skill files are installed
 on disk by `npm run skill:install`; they are not served over MCP.
 
 For static config files (`AGENTS.md`, `CLAUDE.md`), paste
-`agenthost capabilities --markdown`.
+`osseo capabilities --markdown`.
 
 ## Removed product surfaces
 
@@ -427,7 +427,7 @@ Control Room, the Browser Bridge (paired browser extension), the extension-based
 browser DOM tools, the runtime-activity service, workflow/scheduler/Forge tool
 families, speech tools, and `task.execute_plan` are not registered in this
 minimal-v2 tree (saved plans via `workflow.*` are live; they only store data). The `ui.*` accessibility tools and the `browser.*` tools for
-AgentHost's own dedicated Chrome profile are live. Older
+Osseo's own dedicated Chrome profile are live. Older
 sections of documents that mention them are historical.
 
 ## Overlay lifecycle
@@ -453,7 +453,7 @@ for at least 400 ms without delaying the handler. Cards honor
 notification, and never fails the action. A failed Pause/Resume/Stop write is
 shown as a warning instead of a false state. New `confirmation_required` results raise the action
 card and send a best-effort desktop notification naming
-`agenthost confirmations`; token values are never shown. Local scripts use
+`osseo confirmations`; token values are never shown. Local scripts use
 `createOverlayRenderer`, `OverlayManager`, and `TaskProgressOverlay` from
 `packages/app-overlay`.
 
@@ -465,19 +465,19 @@ results. Without an explicit task, `always` mode shows an implicit
 `Computer activity` card that tracks the latest computer action; creating a
 real task replaces it, and a dismissed implicit card stays dismissed. Task
 cards are persistent by default and remain after terminal states until
-dismissed, `agenthost overlay hide` is run, or the process exits. Elapsed time
+dismissed, `osseo overlay hide` is run, or the process exits. Elapsed time
 freezes at terminal transition. Task-card Pause requests the scoped global
 pause and shows Paused with Resume immediately; Stop never kills an in-flight
-tool call. `agenthost overlay hide` writes a timestamped `run/overlay.hide`
+tool call. `osseo overlay hide` writes a timestamped `run/overlay.hide`
 marker that only managers already running at that time honor, and sweeps
-orphaned renderers. `agenthost overlay status`, `agenthost doctor`, and
-`agenthost://status.lastActivity` report the effective `overlay.mode`, renderer
+orphaned renderers. `osseo overlay status`, `osseo doctor`, and
+`osseo://status.lastActivity` report the effective `overlay.mode`, renderer
 mode, the last `run/activity.json` record (including `started`, `visible`,
 timeout, and error), plus the registered renderer, marker, and live renderer
 count, so a silent headless fallback is visible. Screenshot capture temporarily removes and restores all overlay
-surfaces so AgentHost UI is never embedded in a screenshot. `overlay.mode:
+surfaces so Osseo UI is never embedded in a screenshot. `overlay.mode:
 "off"` skips these automatic task/activity cards too; the explicit
-`agenthost task watch <id> --overlay` card remains opt-in.
+`osseo task watch <id> --overlay` card remains opt-in.
 
 Multiple cards share one manager. Call `pollEvents(overlayId)`; unmatched
 events stay buffered for the other card. Pause reasons are scoped so an

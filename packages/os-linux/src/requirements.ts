@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { LINUX_DESKTOP_REQUIREMENTS, aptPackagesFor, type LinuxDesktopRequirement } from "@agenthost/core";
+import { LINUX_DESKTOP_REQUIREMENTS, aptPackagesFor, type LinuxDesktopRequirement } from "@osseo/core";
 import { findCommandPath, type LinuxLookupContext } from "./dependencies.js";
 
 export interface RequirementStatus {

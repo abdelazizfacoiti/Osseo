@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const SERVER = fileURLToPath(new URL("../../dist/index.js", import.meta.url));
 
 function startServer(home: string): ChildProcessWithoutNullStreams {
-  const env: NodeJS.ProcessEnv = { ...process.env, AGENTHOST_HOME: home, NODE_ENV: "test" };
+  const env: NodeJS.ProcessEnv = { ...process.env, OSSEO_HOME: home, NODE_ENV: "test" };
   // Headless on purpose: no display means no overlay renderer, and the test never touches the desktop.
   delete env.DISPLAY;
   delete env.WAYLAND_DISPLAY;
@@ -44,7 +44,7 @@ function exitWithin(child: ChildProcessWithoutNullStreams, ms: number): Promise<
 describe("stdio server lifetime", () => {
   it("exits when the client closes stdin, so overlay cards cannot outlive the session", async () => {
     expect(existsSync(SERVER), "Build first: npm run build").toBe(true);
-    const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-stdio-exit-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "osseo-stdio-exit-"));
     const child = startServer(home);
     try {
       await initialized(child);
@@ -60,7 +60,7 @@ describe("stdio server lifetime", () => {
 
   it("exits on SIGHUP after cleanup, the way a closed terminal ends it", async () => {
     expect(existsSync(SERVER), "Build first: npm run build").toBe(true);
-    const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-stdio-hup-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "osseo-stdio-hup-"));
     const child = startServer(home);
     try {
       await initialized(child);

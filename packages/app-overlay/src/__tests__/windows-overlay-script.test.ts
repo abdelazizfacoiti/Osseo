@@ -52,7 +52,7 @@ describe("windows-overlay-script", () => {
   });
 
   it.skipIf(pwsh === undefined)("parses as PowerShell with no compile step", () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), "agenthost-win-overlay-parse-"));
+    const dir = mkdtempSync(path.join(os.tmpdir(), "osseo-win-overlay-parse-"));
     try {
       const file = path.join(dir, "overlay.ps1");
       writeFileSync(file, WINDOWS_OVERLAY_SCRIPT, "utf8");

@@ -5,8 +5,8 @@ import os from "node:os";
 import path from "node:path";
 import { startHost } from "../host/host.js";
 import { HOST_PROTOCOL } from "../host/protocol.js";
-import { HeadlessOverlayRenderer, OverlayManager } from "@agenthost/app-overlay";
-import type { OverlayWidgetEvent } from "@agenthost/core";
+import { HeadlessOverlayRenderer, OverlayManager } from "@osseo/app-overlay";
+import type { OverlayWidgetEvent } from "@osseo/core";
 import { SessionRendererProxy, SharedRendererHub } from "../host/shared-renderer.js";
 
 class CloseCounting extends HeadlessOverlayRenderer {
@@ -31,20 +31,20 @@ describe("shared history panel", () => {
     const dismissed: string[] = [];
     vi.spyOn(renderer, "dismiss").mockImplementation((id) => { dismissed.push(id); return { ok: true, reason: "ok" }; });
 
-    await a.show(rec("agenthost-timeline-h_a"));
-    await b.update(rec("agenthost-timeline-h_b"));
-    expect(calls).toEqual(["update agenthost-timeline-host", "show agenthost-timeline-host", "update agenthost-timeline-host"]);
+    await a.show(rec("osseo-timeline-h_a"));
+    await b.update(rec("osseo-timeline-h_b"));
+    expect(calls).toEqual(["update osseo-timeline-host", "show osseo-timeline-host", "update osseo-timeline-host"]);
 
-    renderer.pushEvent(event("agenthost-timeline-host"));
+    renderer.pushEvent(event("osseo-timeline-host"));
     await hub.drainNow();
-    expect(b.drainEvents().map((e) => e.overlayId)).toEqual(["agenthost-timeline-h_b"]);
+    expect(b.drainEvents().map((e) => e.overlayId)).toEqual(["osseo-timeline-h_b"]);
     expect(a.drainEvents()).toEqual([]);
 
     // The session that is not showing its panel cannot take it down; the one that is, can.
-    await a.dismiss("agenthost-timeline-h_a");
+    await a.dismiss("osseo-timeline-h_a");
     expect(dismissed).toEqual([]);
     await hub.release("h_b");
-    expect(dismissed).toEqual(["agenthost-timeline-host"]);
+    expect(dismissed).toEqual(["osseo-timeline-host"]);
   });
 });
 

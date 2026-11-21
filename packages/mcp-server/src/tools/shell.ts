@@ -1,7 +1,7 @@
-import { toolFailure, toolSuccess, evaluateSafety, normalizePathForPolicy, type ShellRunResult, type ToolResult } from "@agenthost/core";
+import { toolFailure, toolSuccess, evaluateSafety, normalizePathForPolicy, type ShellRunResult, type ToolResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { safetyContext } from "../context.js";
 
 const runInput = z.object({
@@ -25,9 +25,9 @@ function commandSummary(input: { command: string; args?: string[] | undefined })
   return `Run ${executable} with ${input.args?.length ?? 0} argument(s)`;
 }
 
-function safetyFor(input: { command: string; args?: string[] | undefined; cwd?: string | undefined }, context: AgentHostMcpContext) {
+function safetyFor(input: { command: string; args?: string[] | undefined; cwd?: string | undefined }, context: OsseoMcpContext) {
   const shellCommand = [input.command, ...(input.args ?? [])].join(" ");
-  const cwd = input.cwd === undefined ? undefined : normalizePathForPolicy(input.cwd, { agentHostDir: context.config.agentHostDir });
+  const cwd = input.cwd === undefined ? undefined : normalizePathForPolicy(input.cwd, { osseoDir: context.config.osseoDir });
   const classifiedCommand = cwd === undefined ? shellCommand : `${shellCommand} cwd=${cwd}`;
   const safety = evaluateSafety(
     { tool: "shell.run", actionType: "shell_command", strategy: "cli_or_script", shellCommand: classifiedCommand },
@@ -37,8 +37,8 @@ function safetyFor(input: { command: string; args?: string[] | undefined; cwd?: 
   return { shellCommand, cwd, safety };
 }
 
-export function createShellTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const run: AgentHostToolDefinition<z.infer<typeof runInput>, ShellRunResult, AgentHostMcpContext> = {
+export function createShellTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const run: OsseoToolDefinition<z.infer<typeof runInput>, ShellRunResult, OsseoMcpContext> = {
     name: "shell.run",
     description: "Runs a shell command with safety checks.",
     riskLevel: "high",

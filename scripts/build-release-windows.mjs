@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Builds the Windows release zip from the Linux release stage. Node only: no zip binary.
 //   npm run build && npm run release:build && npm run release:build:windows
-// Output in release/: agenthost-v<version>-win-x64.zip (+ .sha256) and the fixed-name copy
-// agenthost-win-x64.zip (+ .sha256) that scripts/install.ps1 downloads from the latest release.
+// Output in release/: osseo-v<version>-win-x64.zip (+ .sha256) and the fixed-name copy
+// osseo-win-x64.zip (+ .sha256) that scripts/install.ps1 downloads from the latest release.
 // release/SHA256SUMS is not touched: it belongs to the Linux archive that verify-release checks.
 import { cp, copyFile, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
@@ -15,22 +15,22 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const rootPackage = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
 const version = rootPackage.version;
 const releaseRoot = path.join(root, "release");
-const linuxStage = path.join(releaseRoot, `agenthost-v${version}-linux-x64`);
+const linuxStage = path.join(releaseRoot, `osseo-v${version}-linux-x64`);
 const manifestPath = path.join(linuxStage, "version.json");
 if (!(await stat(manifestPath).catch(() => undefined))) throw new Error("release_stage_missing: run npm run release:build first");
-const zipModule = path.join(root, "packages", "agenthost-cli", "dist", "zip.js");
+const zipModule = path.join(root, "packages", "osseo-cli", "dist", "zip.js");
 if (!(await stat(zipModule).catch(() => undefined))) throw new Error("build_missing: run npm run build first");
 const { writeZip, listZip, readZipEntry } = await import(pathToFileURL(zipModule).href);
 
 const linuxManifest = JSON.parse(await readFile(manifestPath, "utf8"));
 if (linuxManifest.version !== version) throw new Error("release_stage_version_mismatch");
 
-const top = `agenthost-v${version}-win-x64`;
-const work = await mkdtemp(path.join(os.tmpdir(), "agenthost-winrel-"));
+const top = `osseo-v${version}-win-x64`;
+const work = await mkdtemp(path.join(os.tmpdir(), "osseo-winrel-"));
 try {
   const stage = path.join(work, top);
   // Left out: Linux-only files (the GTK overlay runtime, the apt package list), .bin shims (symlinks), the manifest (rewritten below).
-  const skip = new Set(["version.json", "requirements-linux.txt", "packages/app-overlay/runtime", "packages/os-linux/runtime", "node_modules/@agenthost/app-overlay/runtime", "node_modules/@agenthost/os-linux/runtime", "node_modules/.bin"]);
+  const skip = new Set(["version.json", "requirements-linux.txt", "packages/app-overlay/runtime", "packages/os-linux/runtime", "node_modules/@osseo/app-overlay/runtime", "node_modules/@osseo/os-linux/runtime", "node_modules/.bin"]);
   await cp(linuxStage, stage, {
     recursive: true,
     dereference: true,
@@ -57,7 +57,7 @@ try {
     requires: { node: ">=20" },
     limitations: [
       "Checked on Windows 11 Pro (desktop helper, headless tools, browser, overlay guard and dock) only. Other Windows versions are not checked.",
-      "The visible overlay is opt-in (overlay.windows or AGENTHOST_WINDOWS_OVERLAY=1). The rail layout is not drawn on Windows.",
+      "The visible overlay is opt-in (overlay.windows or OSSEO_WINDOWS_OVERLAY=1). The rail layout is not drawn on Windows.",
       "The release is built from the platform-neutral stage (npm run release:build -- --stage-only); the Linux tarball is still built on Linux."
     ],
     files: inventory.files
@@ -72,7 +72,7 @@ try {
       const item = path.join(directory, entry.name);
       if (entry.isDirectory()) { await collect(item); continue; }
       const relative = path.relative(stage, item).split(path.sep).join("/");
-      entries.push({ name: `${top}/${relative}`, data: await readFile(item), mode: relative === "bin/agenthost.mjs" ? 0o755 : 0o644 });
+      entries.push({ name: `${top}/${relative}`, data: await readFile(item), mode: relative === "bin/osseo.mjs" ? 0o755 : 0o644 });
     }
   }
   await collect(stage);
@@ -85,7 +85,7 @@ try {
   if (listing.length !== entries.length) throw new Error("windows_zip_entry_count");
   const hash = createHash("sha256").update(zip).digest("hex");
   await writeFile(`${archive}.sha256`, `${hash}  ${path.basename(archive)}\n`);
-  const latest = path.join(releaseRoot, "agenthost-win-x64.zip");
+  const latest = path.join(releaseRoot, "osseo-win-x64.zip");
   await copyFile(archive, latest);
   await writeFile(`${latest}.sha256`, `${hash}  ${path.basename(latest)}\n`);
   console.log(JSON.stringify({ archive, version, fileCount: entries.length, sha256: hash }, null, 2));

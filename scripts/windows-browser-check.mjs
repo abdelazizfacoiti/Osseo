@@ -51,7 +51,7 @@ const server = http.createServer((request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
-const session = new BrowserSession({ agentHostDir: path.join(os.homedir(), ".agenthost") });
+const session = new BrowserSession({ osseoDir: path.join(os.homedir(), ".osseo") });
 let exitCode = 1;
 try {
   const started = Date.now();

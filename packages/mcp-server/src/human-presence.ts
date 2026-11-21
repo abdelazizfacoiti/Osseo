@@ -2,11 +2,11 @@ import { stat } from "node:fs/promises";
 import { inputGuardPath } from "./input-guard.js";
 
 /*
- * Yield to the human. Before AgentHost injects input it checks whether the
+ * Yield to the human. Before Osseo injects input it checks whether the
  * person is using the keyboard or mouse right now and, if so, waits for them
  * to pause instead of fighting over the cursor.
  *
- * X idle time also resets on AgentHost's own injected input, so the last
+ * X idle time also resets on Osseo's own injected input, so the last
  * injection (the `run/input-active` marker the runner already keeps) is
  * subtracted: input only counts as human when it is more recent than the
  * marker. The signal is a heuristic and only ever delays or defers an action;
@@ -14,7 +14,7 @@ import { inputGuardPath } from "./input-guard.js";
  */
 
 export interface YieldOptions {
-  agentHostDir: string;
+  osseoDir: string;
   readIdleMs: () => Promise<number | undefined>;
   /** Input younger than this counts as the human being active. */
   quietMs?: number;
@@ -31,18 +31,18 @@ export interface YieldOutcome {
   waitedMs: number;
 }
 
-async function lastAgentInputAt(agentHostDir: string): Promise<number | undefined> {
+async function lastAgentInputAt(osseoDir: string): Promise<number | undefined> {
   try {
-    return (await stat(inputGuardPath(agentHostDir))).mtimeMs;
+    return (await stat(inputGuardPath(osseoDir))).mtimeMs;
   } catch {
     return undefined;
   }
 }
 
-export async function humanActiveNow(options: Pick<YieldOptions, "agentHostDir" | "readIdleMs" | "quietMs" | "now">): Promise<boolean> {
+export async function humanActiveNow(options: Pick<YieldOptions, "osseoDir" | "readIdleMs" | "quietMs" | "now">): Promise<boolean> {
   const idle = await options.readIdleMs();
   if (idle === undefined || idle >= (options.quietMs ?? 1_200)) return false;
-  const agentAt = await lastAgentInputAt(options.agentHostDir);
+  const agentAt = await lastAgentInputAt(options.osseoDir);
   if (agentAt === undefined) return true;
   const sinceAgent = (options.now ?? Date.now)() - agentAt;
   // The last input event was ours when the idle time reaches back no further than our injection.

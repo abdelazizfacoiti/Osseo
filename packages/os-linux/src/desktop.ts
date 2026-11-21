@@ -21,14 +21,14 @@ import {
   type DesktopWindowSummary,
   type WindowFocusResult,
   type WindowListResult
-} from "@agenthost/core";
+} from "@osseo/core";
 import { detectLinuxAccessibilitySupport, type LinuxAccessibilityContext } from "./accessibility.js";
 import { findCommandPath, type LinuxLookupContext } from "./dependencies.js";
 import { leaseGtkClipboard, readGtkClipboard, restoreGtkClipboard } from "./gtk-clipboard.js";
 import { runSafeLinuxCommand } from "./shell.js";
 
 export interface LinuxDesktopContext extends LinuxLookupContext {
-  agentHostDir?: string;
+  osseoDir?: string;
 }
 
 export interface LinuxDesktopScreenshotInput {
@@ -218,8 +218,8 @@ async function runDesktopCommand(
     maxOutputBytes: 128 * 1024
   };
 
-  if (context.agentHostDir !== undefined) {
-    input.cwd = context.agentHostDir;
+  if (context.osseoDir !== undefined) {
+    input.cwd = context.osseoDir;
   }
 
   // Without this a nested display would silently act on the person's real
@@ -428,7 +428,7 @@ function capabilitiesCacheKey(context: LinuxDesktopContext): string {
     env.WAYLAND_DISPLAY ?? "",
     env.PATH ?? "",
     context.homeDir ?? "",
-    context.agentHostDir ?? ""
+    context.osseoDir ?? ""
   ].join("\0");
 }
 
@@ -560,7 +560,7 @@ export async function getLinuxActiveWindowBounds(context: LinuxDesktopContext = 
  * cannot (no scrot, no active window, rectangle off screen) so the caller falls back to the full screenshot.
  */
 export async function captureLinuxWindowFast(input: { path: string }, context: LinuxDesktopContext = {}): Promise<boolean> {
-  if (process.env.AGENTHOST_NO_FAST_CAPTURE === "1") return false;
+  if (process.env.OSSEO_NO_FAST_CAPTURE === "1") return false;
   const [xdotool, scrot] = await Promise.all([findCommandPath("xdotool", context), findCommandPath("scrot", context)]);
   if (xdotool === undefined || scrot === undefined) return false;
   let rect = await runDesktopCommand(xdotool, ["getactivewindow", "getwindowgeometry", "--shell"], context);
@@ -649,7 +649,7 @@ export async function captureLinuxScreenshot(
 ): Promise<DesktopScreenshotResult> {
   const outputPath = normalizePathForPolicy(
     input.path,
-    context.agentHostDir === undefined ? {} : { agentHostDir: context.agentHostDir }
+    context.osseoDir === undefined ? {} : { osseoDir: context.osseoDir }
   );
   const format = input.format ?? (/\.jpe?g$/i.test(outputPath) ? "jpeg" : "png");
   const invalid = validateScreenshotOptions(input, format);
@@ -673,7 +673,7 @@ export async function captureLinuxScreenshot(
   const trimNeeded = input.trim !== undefined && input.trim.left + input.trim.top + input.trim.right + input.trim.bottom > 0;
   const transformNeeded = format === "jpeg" || input.scale !== undefined || trimNeeded || (input.region !== undefined && !nativeRegion);
   const tempPath = transformNeeded
-    ? path.join(path.dirname(outputPath), `.agenthost-capture-${randomUUID()}.png`)
+    ? path.join(path.dirname(outputPath), `.osseo-capture-${randomUUID()}.png`)
     : outputPath;
   const capturePath = transformNeeded ? tempPath : outputPath;
   const ffmpeg = transformNeeded ? await findCommandPath("ffmpeg", context) : undefined;

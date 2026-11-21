@@ -1,5 +1,5 @@
-import { clearAttention, readAttention, writeAttention, type DesktopWindowSummary } from "@agenthost/core";
-import { findHostWindow, focusLinuxWindow, getLinuxActiveWindow, raiseLinuxWindow } from "@agenthost/os-linux";
+import { clearAttention, readAttention, writeAttention, type DesktopWindowSummary } from "@osseo/core";
+import { findHostWindow, focusLinuxWindow, getLinuxActiveWindow, raiseLinuxWindow } from "@osseo/os-linux";
 
 export interface HostAttentionDeps {
   findHost(): Promise<DesktopWindowSummary | undefined>;
@@ -16,7 +16,7 @@ const linuxDeps: HostAttentionDeps = {
 };
 
 /**
- * Pulls the user to the agent's terminal when AgentHost needs a confirmation,
+ * Pulls the user to the agent's terminal when Osseo needs a confirmation,
  * and hands focus back to the work window once the agent continues with the
  * approved token. Everything here is best effort: it must never fail a call.
  */
@@ -24,7 +24,7 @@ export class HostAttention {
   #host: DesktopWindowSummary | undefined;
   #hostResolved = false;
 
-  constructor(private readonly agentHostDir: string, private readonly deps: HostAttentionDeps = linuxDeps) {}
+  constructor(private readonly osseoDir: string, private readonly deps: HostAttentionDeps = linuxDeps) {}
 
   async #hostWindow(): Promise<DesktopWindowSummary | undefined> {
     if (!this.#hostResolved) {
@@ -36,11 +36,11 @@ export class HostAttention {
 
   async requestConfirmation(): Promise<{ raised: boolean }> {
     try {
-      const [host, activeId, previous] = await Promise.all([this.#hostWindow(), this.deps.activeWindowId().catch(() => undefined), readAttention(this.agentHostDir)]);
+      const [host, activeId, previous] = await Promise.all([this.#hostWindow(), this.deps.activeWindowId().catch(() => undefined), readAttention(this.osseoDir)]);
       const returnWindowId = previous?.returnWindowId ?? (activeId !== undefined && activeId !== host?.windowId ? activeId : undefined);
-      await writeAttention(this.agentHostDir, {
+      await writeAttention(this.osseoDir, {
         schemaVersion: 1,
-        source: "agenthost",
+        source: "osseo",
         reason: "confirmation",
         requestedAt: new Date().toISOString(),
         ...(host === undefined ? {} : { hostWindowId: host.windowId }),
@@ -68,9 +68,9 @@ export class HostAttention {
   /** Called when a call arrives carrying a confirmation token: the user has answered. */
   async resolveConfirmation(): Promise<{ restored: boolean }> {
     try {
-      const record = await readAttention(this.agentHostDir);
-      if (record === undefined || record.source !== "agenthost") return { restored: false };
-      await clearAttention(this.agentHostDir);
+      const record = await readAttention(this.osseoDir);
+      if (record === undefined || record.source !== "osseo") return { restored: false };
+      await clearAttention(this.osseoDir);
       if (record.returnWindowId === undefined) return { restored: false };
       const activeId = await this.deps.activeWindowId().catch(() => undefined);
       // Respect a user who already switched elsewhere; only undo our own raise.

@@ -30,7 +30,7 @@ import {
   type DesktopWindowSummary,
   type WindowFocusResult,
   type WindowListResult
-} from "@agenthost/core";
+} from "@osseo/core";
 import { HelperError, type HelperTransport } from "./helper.js";
 import { parseHotkey } from "./keys.js";
 

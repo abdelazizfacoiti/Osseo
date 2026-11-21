@@ -3,8 +3,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LINUX_DESKTOP_REQUIREMENTS, aptPackagesFor } from "@agenthost/core";
-import type { RequirementStatus } from "@agenthost/os-linux";
+import { LINUX_DESKTOP_REQUIREMENTS, aptPackagesFor } from "@osseo/core";
+import type { RequirementStatus } from "@osseo/os-linux";
 import { bootstrapRequirements, type RequirementsBootstrapDeps } from "../requirements-bootstrap.js";
 
 const roots: string[] = [];
@@ -27,7 +27,7 @@ function fakeDeps(missing: { current: string[] }, plan = true): RequirementsBoot
 
 describe("requirements bootstrap", () => {
   it("offers one password-prompted install per missing set", async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), "agenthost-reqs-"));
+    const home = await mkdtemp(path.join(os.tmpdir(), "osseo-reqs-"));
     roots.push(home);
     const missing = { current: ["tesseract", "xclip"] };
     const deps = fakeDeps(missing);
@@ -41,7 +41,7 @@ describe("requirements bootstrap", () => {
   });
 
   it("does nothing when complete or disabled, and only advises without an elevation helper", async () => {
-    const home = await mkdtemp(path.join(os.tmpdir(), "agenthost-reqs-"));
+    const home = await mkdtemp(path.join(os.tmpdir(), "osseo-reqs-"));
     roots.push(home);
     expect((await bootstrapRequirements(home, true, fakeDeps({ current: [] }))).action).toBe("none");
     const disabled = fakeDeps({ current: ["xclip"] });
@@ -49,7 +49,7 @@ describe("requirements bootstrap", () => {
     expect(disabled.launch).not.toHaveBeenCalled();
     const advice = fakeDeps({ current: ["xclip"] }, false);
     expect((await bootstrapRequirements(home, true, advice)).action).toBe("advice_only");
-    expect(advice.notify).toHaveBeenCalledWith("AgentHost needs desktop packages", "Install with: sudo apt install xclip");
+    expect(advice.notify).toHaveBeenCalledWith("Osseo needs desktop packages", "Install with: sudo apt install xclip");
   });
 
   it("keeps requirements-linux.txt in sync with the requirement list", async () => {

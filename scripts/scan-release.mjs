@@ -3,7 +3,7 @@ import { readFile, readdir, readlink, stat } from "node:fs/promises";
 import path from "node:path";
 import { validateReleaseTree } from "./release-integrity.mjs";
 const root = path.resolve("release");
-const stage = (await readdir(root, { withFileTypes: true })).find((entry) => entry.isDirectory() && entry.name.startsWith("agenthost-v"));
+const stage = (await readdir(root, { withFileTypes: true })).find((entry) => entry.isDirectory() && entry.name.startsWith("osseo-v"));
 if (!stage) throw new Error("release_stage_missing");
 const base = path.join(root, stage.name);
 const currentUser = process.env.USER ?? "";

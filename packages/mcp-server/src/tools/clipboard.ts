@@ -1,8 +1,8 @@
-import { toolFailure, toolSuccess, type ToolResult } from "@agenthost/core";
-import type { LinuxClipboardResult } from "@agenthost/os-linux";
+import { toolFailure, toolSuccess, type ToolResult } from "@osseo/core";
+import type { LinuxClipboardResult } from "@osseo/os-linux";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 
 const setInput = z.object({
   text: z.string().max(100_000),
@@ -10,8 +10,8 @@ const setInput = z.object({
 }).strict();
 const getInput = z.object({}).strict();
 
-export function createClipboardTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const set: AgentHostToolDefinition<z.infer<typeof setInput>, LinuxClipboardResult, AgentHostMcpContext> = {
+export function createClipboardTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const set: OsseoToolDefinition<z.infer<typeof setInput>, LinuxClipboardResult, OsseoMcpContext> = {
     name: "clipboard.set",
     description: "Places text on the system clipboard (for a later Ctrl+V or to hand the user a value). desktop.type_text already pastes on its own; use this when the paste happens later or in another app.",
     riskLevel: "low",
@@ -28,7 +28,7 @@ export function createClipboardTools(): AnyAgentHostToolDefinition<AgentHostMcpC
     }
   };
 
-  const get: AgentHostToolDefinition<z.infer<typeof getInput>, LinuxClipboardResult, AgentHostMcpContext> = {
+  const get: OsseoToolDefinition<z.infer<typeof getInput>, LinuxClipboardResult, OsseoMcpContext> = {
     name: "clipboard.get",
     description: "Reads the system clipboard text. The clipboard may hold anything the user copied (including secrets), so each read needs an exact operator confirmation.",
     riskLevel: "medium",

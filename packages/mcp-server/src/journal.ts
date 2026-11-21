@@ -1,8 +1,8 @@
 import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { redactSensitiveText } from "@agenthost/core";
-import type { AgentHostMcpContext } from "./context.js";
+import { redactSensitiveText } from "@osseo/core";
+import type { OsseoMcpContext } from "./context.js";
 import { recallView } from "./view-registry.js";
 
 /*
@@ -132,8 +132,8 @@ function looksSensitive(step: StepInput): boolean {
 }
 
 /** Appends one step to this session's journal. Throws on a write failure: callers must catch. */
-export async function recordStep(context: Pick<AgentHostMcpContext, "sessionId" | "config">, step: StepInput, now = new Date()): Promise<{ recorded: boolean }> {
-  const agentHome = context.config.agentHostDir;
+export async function recordStep(context: Pick<OsseoMcpContext, "sessionId" | "config">, step: StepInput, now = new Date()): Promise<{ recorded: boolean }> {
+  const agentHome = context.config.osseoDir;
   const sessionId = context.sessionId;
   const existing = await readJournal(agentHome, sessionId);
   const iso = now.toISOString();
@@ -178,7 +178,7 @@ export async function recordStep(context: Pick<AgentHostMcpContext, "sessionId" 
  * Called by the numbered actions after a call. Records only a real, successful click, type or key
  * (not a preview or a refusal), reading the element's role and name from the stored view.
  */
-export async function recordNumbered(context: AgentHostMcpContext, tool: string, input: Record<string, unknown>, result: { ok: boolean; preview?: boolean | undefined }): Promise<void> {
+export async function recordNumbered(context: OsseoMcpContext, tool: string, input: Record<string, unknown>, result: { ok: boolean; preview?: boolean | undefined }): Promise<void> {
   if (!result.ok || result.preview === true || input.dryRun === true) return;
   if (tool !== "click" && tool !== "type" && tool !== "key") return;
   if (tool === "key") {

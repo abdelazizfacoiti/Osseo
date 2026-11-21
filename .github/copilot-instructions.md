@@ -1,13 +1,13 @@
-<!-- agenthost-skill:start (managed by scripts/install-agenthost-skill.mjs) -->
-# AgentHost — permissioned laptop control
+<!-- osseo-skill:start (managed by scripts/install-osseo-skill.mjs) -->
+# Osseo — permissioned laptop control
 
-AgentHost is a local MCP server exposing computer-use tools. When a task needs the
-real machine, use AgentHost tools — never raw `pyautogui`/`xdotool` scripts, never
+Osseo is a local MCP server exposing computer-use tools. When a task needs the
+real machine, use Osseo tools — never raw `pyautogui`/`xdotool` scripts, never
 silent GUI actions.
 
 ## When this applies
 
-Use AgentHost when the request needs any of:
+Use Osseo when the request needs any of:
 
 - operate a GUI app, click, type, drag, press keys, scroll
 - take or inspect screenshots, find a visual target
@@ -32,16 +32,16 @@ coding tools directly.
    per-step confirmation. External sends/uploads, destructive delete,
    private-data reads, financial effects, and high-risk actions need an exact
    preview: call with `dryRun: true`, surface the returned token command, wait
-   for the operator to run `agenthost confirm <tokenId>` (or `deny`), then
+   for the operator to run `osseo confirm <tokenId>` (or `deny`), then
    retry the exact same call with `confirmationToken: "<tokenId>"`. If a tool
    returns `confirmation_required`, do the same. Never bypass a blocked
    action. For repeated low/medium work, the operator can run
-   `agenthost task approve <activeTaskId> [--max-risk low|medium]`; that does
+   `osseo task approve <activeTaskId> [--max-risk low|medium]`; that does
    not cover high-risk or consequential effects.
 4. **Respect stop.** If output contains `emergency_stop_requested` or
    `human_takeover_active`, halt state-changing work immediately. `agent.stop`
    and `agent.takeover_begin` request those gates; only the operator can clear
-   them with `agenthost agent resume --stop` or `--takeover`.
+   them with `osseo agent resume --stop` or `--takeover`.
 5. **No secrets through the GUI.** Never type passwords, API keys, tokens, or
    payment data. Ask the operator to enter them.
 6. **Track work with a definition of done.** For multi-step jobs use
@@ -76,8 +76,8 @@ coding tools directly.
 | Tasks / progress | `task.create`, `task.status`, `task.update`, `task.add_event`, `task.list` |
 | Safety / system | `system.get_info`, `system.list_capabilities`, `system.check_dependency` |
 
-MCP clients may prefix tool names (for example `mcp__agenthost__desktop_click` or
-`agenthost_desktop_click`). Match on the suffix (`desktop.click` → `desktop_click`).
+MCP clients may prefix tool names (for example `mcp__osseo__desktop_click` or
+`osseo_desktop_click`). Match on the suffix (`desktop.click` → `desktop_click`).
 
 ## Fast-path recipes
 
@@ -110,7 +110,7 @@ There is one autonomous policy. Do the task; do not ask for routine clicks.
 **Send, upload, submit, purchase, or delete**
 
 1. Call the exact action with `dryRun: true`.
-2. Show the summary and `agenthost confirm <tokenId>` command to the operator.
+2. Show the summary and `osseo confirm <tokenId>` command to the operator.
 3. Wait; on approval, retry the identical call with
    `confirmationToken: "<tokenId>"`. On denial, stop.
 4. Never type credentials or payment secrets; ask the operator.
@@ -119,13 +119,13 @@ There is one autonomous policy. Do the task; do not ask for routine clicks.
 
 The human can always intervene outside the chat:
 
-- `agenthost status` — server and run-flag summary
-- `agenthost confirmations` — list pending exact-preview tokens
-- `agenthost confirm <tokenId>` / `deny <tokenId>` — resolve one preview
-- `agenthost task approve <taskId> [--max-risk low|medium]` — 30-minute
+- `osseo status` — server and run-flag summary
+- `osseo confirmations` — list pending exact-preview tokens
+- `osseo confirm <tokenId>` / `deny <tokenId>` — resolve one preview
+- `osseo task approve <taskId> [--max-risk low|medium]` — 30-minute
   approval for an active task's low/medium effects
-- `agenthost task pause <taskId>` / `task resume <taskId>` — task lifecycle
-- `agenthost task watch <taskId> --overlay [--follow]` — optional standalone
+- `osseo task pause <taskId>` / `task resume <taskId>` — task lifecycle
+- `osseo task watch <taskId> --overlay [--follow]` — optional standalone
   progress card
 - The MCP server automatically shows a persistent current-task card while a
   task is active or paused: goal, phase/current action, checklist, and
@@ -133,40 +133,40 @@ The human can always intervene outside the chat:
   task.
 - Every state-changing tool automatically shows a small action card; it never
   replaces confirmation or stop controls
-- `agenthost overlay hide` — hide persistent cards immediately
-- `agenthost overlay status` — renderer and hide-marker state
-- `agenthost agent pause [--reason text]` — hold state-changing tools
-- `agenthost agent stop` — runtime stop when the client owns the MCP process
-- `agenthost agent resume --stop|--takeover|--pause` — operator-only gate clear
+- `osseo overlay hide` — hide persistent cards immediately
+- `osseo overlay status` — renderer and hide-marker state
+- `osseo agent pause [--reason text]` — hold state-changing tools
+- `osseo agent stop` — runtime stop when the client owns the MCP process
+- `osseo agent resume --stop|--takeover|--pause` — operator-only gate clear
 - The action card exposes Pause/Resume/Stop and a close button; approval waits
   stay visible, are raised above other windows, and send a desktop
-  notification. The notification names `agenthost confirmations`, never the
+  notification. The notification names `osseo confirmations`, never the
   token. The close button still works after the MCP server exits.
 
 Progress cards persist until explicitly dismissed, so a finished task remains
 visible until the operator closes it.
 
-## If AgentHost is not available
+## If Osseo is not available
 
-Resources: pull `agenthost://capabilities.md` for the compact tool brief and
-`agenthost://status` for live stop/takeover/approval state. There is no
-`agenthost://skills` MCP resource.
+Resources: pull `osseo://capabilities.md` for the compact tool brief and
+`osseo://status` for live stop/takeover/approval state. There is no
+`osseo://skills` MCP resource.
 
-If no AgentHost MCP tools are exposed, the client has not registered the
+If no Osseo MCP tools are exposed, the client has not registered the
 server. Register it for the client you are running in, then ask the operator
 to reload or restart the session so the client spawns it:
 
-- opencode: `agenthost integrations opencode add --apply`
-- Claude Code: `agenthost integrations claude add --apply`
-- Codex: `agenthost integrations codex add --apply`
-- Copilot / VS Code: `agenthost integrations copilot add --apply`
-- Copilot CLI: `agenthost integrations copilot-cli add --apply`
-- Cursor: `agenthost integrations cursor add --apply`
+- opencode: `osseo integrations opencode add --apply`
+- Claude Code: `osseo integrations claude add --apply`
+- Codex: `osseo integrations codex add --apply`
+- Copilot / VS Code: `osseo integrations copilot add --apply`
+- Copilot CLI: `osseo integrations copilot-cli add --apply`
+- Cursor: `osseo integrations cursor add --apply`
 - Source checkout: `npm run skill:install -- --target <client> --project <cwd>`
 
-AgentHost is a stdio MCP server: the client must launch `agenthost start`.
-Running `agenthost start` yourself does not attach tools to the session. Do not
+Osseo is a stdio MCP server: the client must launch `osseo start`.
+Running `osseo start` yourself does not attach tools to the session. Do not
 substitute pyautogui, xdotool, or another automation library; that bypasses
 approvals and audit logging.
-<!-- agenthost-skill:end -->
+<!-- osseo-skill:end -->
 

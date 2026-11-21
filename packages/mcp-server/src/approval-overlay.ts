@@ -1,29 +1,29 @@
 import { createHash } from "node:crypto";
-import type { OverlayManager } from "@agenthost/app-overlay";
-import { acceptConfirmation, alwaysAllowFromConfirmation, listConfirmations, redactSensitiveText, rejectConfirmation, type ConfirmationRecord, type OverlayWidget } from "@agenthost/core";
+import type { OverlayManager } from "@osseo/app-overlay";
+import { acceptConfirmation, alwaysAllowFromConfirmation, listConfirmations, redactSensitiveText, rejectConfirmation, type ConfirmationRecord, type OverlayWidget } from "@osseo/core";
 
 /*
  * Approve or deny a pending confirmation from the screen, the same decision
- * `agenthost confirm|deny <tokenId>` makes. One card is shown per pending
+ * `osseo confirm|deny <tokenId>` makes. One card is shown per pending
  * token, oldest first, and each card is bound to its own token through the
  * widget id, so a press can only ever resolve the preview the person is
  * looking at. The token itself is never shown.
  *
  * The renderer accepts Approve/Deny only from a real pointer: keyboard,
- * accessibility "click" actions, AgentHost's own input injection and synthetic
+ * accessibility "click" actions, Osseo's own input injection and synthetic
  * XTEST clicks are all ignored. Approving only lets the agent retry that one
  * exact action once; it does not run anything by itself.
  */
 
 export interface ApprovalOverlayOptions {
-  agentHostDir: string;
+  osseoDir: string;
   /** Only confirmations created by this server session are shown. */
   sessionId: string;
   pollMs?: number;
 }
 
 function cardId(sessionId: string, tokenId: string): string {
-  return `agenthost-approval-${createHash("sha256").update(`${sessionId}:${tokenId}`).digest("hex").slice(0, 24)}`;
+  return `osseo-approval-${createHash("sha256").update(`${sessionId}:${tokenId}`).digest("hex").slice(0, 24)}`;
 }
 
 function describeRisk(record: ConfirmationRecord): string {
@@ -76,7 +76,7 @@ export class ApprovalOverlay {
     if (this.#closed || this.#busy) return;
     this.#busy = true;
     try {
-      const pending = (await listConfirmations(this.#options.agentHostDir))
+      const pending = (await listConfirmations(this.#options.osseoDir))
         .filter((record) => record.status === "pending" && record.sessionId === this.#options.sessionId)
         .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
       const shown = this.#shown;
@@ -92,15 +92,15 @@ export class ApprovalOverlay {
             if (decision.event === "always") {
               // The renderer treats `always` like `accepted`: only a physical press gets here.
               // Approve this one action first; the rule is written only after that succeeds.
-              const accepted = await acceptConfirmation(this.#options.agentHostDir, shown.tokenId).catch(() => undefined);
+              const accepted = await acceptConfirmation(this.#options.osseoDir, shown.tokenId).catch(() => undefined);
               await this.#hide();
               if (accepted !== undefined) {
-                const policy = await alwaysAllowFromConfirmation(this.#options.agentHostDir, accepted);
-                await this.#notice(policy.written ? `Always allowed. Rule ${policy.index} was added to policy.toml. Remove it with agenthost policy remove.` : policy.message);
+                const policy = await alwaysAllowFromConfirmation(this.#options.osseoDir, accepted);
+                await this.#notice(policy.written ? `Always allowed. Rule ${policy.index} was added to policy.toml. Remove it with osseo policy remove.` : policy.message);
               }
               return;
             }
-            await (decision.event === "accepted" ? acceptConfirmation : rejectConfirmation)(this.#options.agentHostDir, shown.tokenId).catch(() => undefined);
+            await (decision.event === "accepted" ? acceptConfirmation : rejectConfirmation)(this.#options.osseoDir, shown.tokenId).catch(() => undefined);
             await this.#hide();
             return;
           }

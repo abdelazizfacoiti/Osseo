@@ -1,8 +1,8 @@
-import { appendTaskEvent, createTask, listTasks, loadTask, TaskError, transitionTask, updateTask, type AgentTask } from "@agenthost/core";
-import { toolFailure, toolSuccess, type ToolResult } from "@agenthost/core";
+import { appendTaskEvent, createTask, listTasks, loadTask, TaskError, transitionTask, updateTask, type AgentTask } from "@osseo/core";
+import { toolFailure, toolSuccess, type ToolResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 
 const createInput = z.object({
   goal: z.string().trim().min(1).max(2000),
@@ -40,8 +40,8 @@ function taskNotFound(tool: string): ToolResult<never> {
   return toolFailure({ tool, riskLevel: "low", error: { code: "task_not_found", message: "Task was not found." } });
 }
 
-export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const create: AgentHostToolDefinition<z.infer<typeof createInput>, AgentTask, AgentHostMcpContext> = {
+export function createTaskTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const create: OsseoToolDefinition<z.infer<typeof createInput>, AgentTask, OsseoMcpContext> = {
     name: "task.create",
     description: "Creates a persistent task with a user goal and observable definition-of-done criteria. Starting a new task clears any active task approval.",
     riskLevel: "low",
@@ -55,7 +55,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     safety: { actionType: "inspect" },
     async handler(input, context): Promise<ToolResult<AgentTask>> {
       try {
-        const task = await createTask(context.config.agentHostDir, input.goal, input.definitionOfDone);
+        const task = await createTask(context.config.osseoDir, input.goal, input.definitionOfDone);
         return toolSuccess({
           tool: "task.create",
           riskLevel: "low",
@@ -72,7 +72,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const get: AgentHostToolDefinition<z.infer<typeof idInput>, AgentTask, AgentHostMcpContext> = {
+  const get: OsseoToolDefinition<z.infer<typeof idInput>, AgentTask, OsseoMcpContext> = {
     name: "task.status",
     description: "Returns task state: goal, status, phase, current action, and recent events.",
     riskLevel: "observe",
@@ -82,7 +82,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     safety: { actionType: "observe" },
     async handler(input, context): Promise<ToolResult<AgentTask>> {
       try {
-        const task = await loadTask(context.config.agentHostDir, input.taskId);
+        const task = await loadTask(context.config.osseoDir, input.taskId);
         return task === undefined
           ? taskNotFound("task.status")
           : toolSuccess({ tool: "task.status", riskLevel: "observe", data: task });
@@ -92,7 +92,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const update: AgentHostToolDefinition<z.infer<typeof updateInput>, AgentTask, AgentHostMcpContext> = {
+  const update: OsseoToolDefinition<z.infer<typeof updateInput>, AgentTask, OsseoMcpContext> = {
     name: "task.update",
     description: "Updates an active task's phase and current action.",
     riskLevel: "low",
@@ -102,7 +102,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     safety: { actionType: "inspect" },
     async handler(input, context): Promise<ToolResult<AgentTask>> {
       try {
-        const task = await updateTask(context.config.agentHostDir, input.taskId, {
+        const task = await updateTask(context.config.osseoDir, input.taskId, {
           ...(input.phase === undefined ? {} : { phase: input.phase }),
           ...(input.currentAction === undefined ? {} : { currentAction: input.currentAction })
         });
@@ -113,7 +113,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const setStatus: AgentHostToolDefinition<z.infer<typeof statusInput>, AgentTask, AgentHostMcpContext> = {
+  const setStatus: OsseoToolDefinition<z.infer<typeof statusInput>, AgentTask, OsseoMcpContext> = {
     name: "task.update_status",
     description: "Pauses, resumes, completes, or cancels a task. Completing a task with definition-of-done criteria requires verifiedCriteria covering every criterion. Terminal tasks cannot change state.",
     riskLevel: "low",
@@ -127,7 +127,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     safety: { actionType: "inspect" },
     async handler(input, context): Promise<ToolResult<AgentTask>> {
       try {
-        const existing = await loadTask(context.config.agentHostDir, input.taskId);
+        const existing = await loadTask(context.config.osseoDir, input.taskId);
         if (existing === undefined) return taskNotFound("task.update_status");
         const criteria = existing.definitionOfDone ?? [];
         if (input.status === "completed" && existing.status !== "completed") {
@@ -151,11 +151,11 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
               });
             }
             for (const criterion of criteria) {
-              await appendTaskEvent(context.config.agentHostDir, input.taskId, "verification", `Definition of done met: ${criterion}`);
+              await appendTaskEvent(context.config.osseoDir, input.taskId, "verification", `Definition of done met: ${criterion}`);
             }
           }
         }
-        const task = await transitionTask(context.config.agentHostDir, input.taskId, input.status);
+        const task = await transitionTask(context.config.osseoDir, input.taskId, input.status);
         return toolSuccess({
           tool: "task.update_status",
           riskLevel: "low",
@@ -172,7 +172,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const addEvent: AgentHostToolDefinition<z.infer<typeof eventInput>, AgentTask, AgentHostMcpContext> = {
+  const addEvent: OsseoToolDefinition<z.infer<typeof eventInput>, AgentTask, OsseoMcpContext> = {
     name: "task.add_event",
     description: "Adds a progress, observation, error, recovery, verification, or note event to a task log.",
     riskLevel: "low",
@@ -182,7 +182,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     safety: { actionType: "inspect" },
     async handler(input, context): Promise<ToolResult<AgentTask>> {
       try {
-        const task = await appendTaskEvent(context.config.agentHostDir, input.taskId, input.kind, input.summary);
+        const task = await appendTaskEvent(context.config.osseoDir, input.taskId, input.kind, input.summary);
         return toolSuccess({ tool: "task.add_event", riskLevel: "low", data: task });
       } catch (error) {
         return taskFailure("task.add_event", error);
@@ -190,7 +190,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const list: AgentHostToolDefinition<z.infer<typeof listInput>, { tasks: AgentTask[] }, AgentHostMcpContext> = {
+  const list: OsseoToolDefinition<z.infer<typeof listInput>, { tasks: AgentTask[] }, OsseoMcpContext> = {
     name: "task.list",
     description: "Lists persistent tasks, most recently updated first.",
     riskLevel: "observe",
@@ -200,7 +200,7 @@ export function createTaskTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     safety: { actionType: "observe" },
     async handler(_input, context): Promise<ToolResult<{ tasks: AgentTask[] }>> {
       try {
-        const tasks = await listTasks(context.config.agentHostDir);
+        const tasks = await listTasks(context.config.osseoDir);
         return toolSuccess({ tool: "task.list", riskLevel: "observe", data: { tasks }, observations: [tasks.length === 0 ? "No tasks found." : `Found ${tasks.length} task(s).`] });
       } catch (error) {
         return taskFailure("task.list", error);

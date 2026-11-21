@@ -1,5 +1,5 @@
 /*
- * Linux desktop packages AgentHost uses, ordered by how much an agent loses
+ * Linux desktop packages Osseo uses, ordered by how much an agent loses
  * without them. `requirements-linux.txt` at the repository root mirrors the
  * apt package names (kept in sync by a test) for people installing by hand.
  */

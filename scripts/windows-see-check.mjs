@@ -6,7 +6,7 @@
  *
  *   npm run build && node scripts\windows-see-check.mjs
  *
- * It uses a temporary AGENTHOST_HOME, so the agent profile it opens is a throwaway one, not the person's. It does
+ * It uses a temporary OSSEO_HOME, so the agent profile it opens is a throwaway one, not the person's. It does
  * not touch the person's own Chrome. Each step prints PASS or FAIL; exit 0 only when every step passes.
  */
 import { spawn } from "node:child_process";
@@ -46,10 +46,10 @@ const server = http.createServer((request, response) => {
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const url = `http://127.0.0.1:${server.address().port}/`;
 
-const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-see-check-"));
+const home = mkdtempSync(path.join(os.tmpdir(), "osseo-see-check-"));
 const config = path.join(home, "config.json");
 writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
-const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config };
+const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: config };
 const child = spawn(process.execPath, [SERVER], { env, stdio: ["pipe", "pipe", "pipe"] });
 const replies = new Map();
 let buffer = "";

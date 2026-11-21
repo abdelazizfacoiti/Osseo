@@ -1,6 +1,6 @@
 # Privacy, support, and verification boundary
 
-AgentHost is local-first. The MCP server, overlay renderer, OCR backend, task
+Osseo is local-first. The MCP server, overlay renderer, OCR backend, task
 store, confirmations, and audit logs are local components. There is no public
 listener, cloud OCR, credential extraction, telemetry upload, or remote bridge.
 
@@ -24,15 +24,15 @@ Release support is documented in `SUPPORT.md`; security reports belong in
 
 The safe fallback order is CLI/script, local OCR/vision, governed
 desktop input, then guide mode. Missing GTK/PyGObject, X11 support, or OCR
-produce explicit diagnostics; AgentHost does not silently
+produce explicit diagnostics; Osseo does not silently
 switch to an unsafe route.
 
 ## Manual checks before a public release
 
-1. Run `agenthost doctor --json` and confirm no credential-like output.
+1. Run `osseo doctor --json` and confirm no credential-like output.
 2. On X11, run a state-changing tool with `dryRun: true`; confirm one visible,
    click-through action card appears and clears or persists as configured.
-3. Run `agenthost overlay status` and `agenthost overlay hide`; confirm no
+3. Run `osseo overlay status` and `osseo overlay hide`; confirm no
    orphaned renderers remain.
 4. Run `npm run release:scan` and confirm no raw private values, absolute
    checkout paths, or runtime artifacts are included.

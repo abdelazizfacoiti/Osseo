@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// AgentHost native messaging host. The browser starts it and talks over stdin/stdout with Chrome's framing
-// (4-byte little-endian length + JSON). Requests from the AgentHost process arrive on a private unix socket,
+// Osseo native messaging host. The browser starts it and talks over stdin/stdout with Chrome's framing
+// (4-byte little-endian length + JSON). Requests from the Osseo process arrive on a private unix socket,
 // are checked here (type, fields, allowed host: defence in depth) and then forwarded to the extension.
 // Nothing but frames is ever written to stdout; logs go to stderr.
 import fs from "node:fs";
@@ -13,7 +13,7 @@ import { FrameDecoder, encodeFrame, checkRequest, filterTabsForAllowedHosts, val
 const log = (...args) => process.stderr.write(args.join(" ") + "\n");
 
 export function defaultAllowedHostsFile(home = os.homedir()) {
-  return process.env.AGENTHOST_BROWSER_ALLOWED_HOSTS_FILE || path.join(home, ".agenthost", "browser-extension", "allowed-hosts.json");
+  return process.env.OSSEO_BROWSER_ALLOWED_HOSTS_FILE || path.join(home, ".osseo", "browser-extension", "allowed-hosts.json");
 }
 
 /** Read on every request so changes apply without a restart. A missing or bad file allows nothing. */
@@ -90,8 +90,8 @@ export async function claimSocket(socketPath, timeoutMs = 500) {
 async function main() {
   const home = os.homedir();
   const allowedFile = defaultAllowedHostsFile(home);
-  const runDir = path.join(home, ".agenthost", "run");
-  const socketPath = process.env.AGENTHOST_BROWSER_SOCKET || path.join(runDir, "browser-extension.sock");
+  const runDir = path.join(home, ".osseo", "run");
+  const socketPath = process.env.OSSEO_BROWSER_SOCKET || path.join(runDir, "browser-extension.sock");
   const { owner } = await claimSocket(socketPath);
 
   const relay = createRelay({

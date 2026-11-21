@@ -39,7 +39,7 @@ if (archiveRoot.endsWith(".tar.gz")) {
   checksumVerified = Boolean(await verifyArchiveChecksum(archiveRoot));
   const listing = spawnSync("tar", ["-tzf", archiveRoot], { encoding: "utf8" });
   if (listing.status !== 0 || listing.stdout.split("\n").some((item) => item.startsWith("/") || item.includes("../"))) throw new Error("release_archive_invalid");
-  const extraction = await mkdtemp(path.join(os.tmpdir(), "agenthost-release-"));
+  const extraction = await mkdtemp(path.join(os.tmpdir(), "osseo-release-"));
   const extracted = spawnSync("tar", ["-xzf", archiveRoot, "-C", extraction], { stdio: "ignore" });
   if (extracted.status !== 0) throw new Error("release_archive_extract_failed");
   const entries = (await (await import("node:fs/promises")).readdir(extraction, { withFileTypes: true })).filter((entry) => entry.isDirectory());
@@ -50,7 +50,7 @@ if (!archiveRoot || !(await readFile(path.join(archiveRoot, "version.json")).cat
 if (process.platform !== "linux" || process.arch !== "x64") throw new Error("release_target_requires_linux_x64");
 const manifest = await verifyManifest(archiveRoot);
 const version = manifest.version;
-const installRoot = path.join(os.homedir(), ".local", "share", "agenthost", "releases", version); const current = path.join(os.homedir(), ".local", "share", "agenthost", "current"); const bin = path.join(os.homedir(), ".local", "bin");
+const installRoot = path.join(os.homedir(), ".local", "share", "osseo", "releases", version); const current = path.join(os.homedir(), ".local", "share", "osseo", "current"); const bin = path.join(os.homedir(), ".local", "bin");
 const previous = `${current}.previous`;
 await mkdir(path.dirname(installRoot), { recursive: true, mode: 0o700 });
 await rm(installRoot, { recursive: true, force: true });
@@ -65,4 +65,4 @@ try {
   await rename(previous, current).catch(() => undefined);
   throw error;
 }
-await mkdir(bin, { recursive: true, mode: 0o700 }); const wrapper = `#!/usr/bin/env node\nprocess.env.AGENTHOST_RELEASE_ROOT=${JSON.stringify(current)};\nawait import(${JSON.stringify(path.join(current, "bin", "agenthost.mjs"))});\n`; await writeFile(path.join(bin, "agenthost"), wrapper, { mode: 0o700 }); await chmod(path.join(bin, "agenthost"), 0o700); console.log(JSON.stringify({ installed: true, version, checksumVerified, root: "[agenthost-install]", executable: "[agenthost-bin]" }, null, 2));
+await mkdir(bin, { recursive: true, mode: 0o700 }); const wrapper = `#!/usr/bin/env node\nprocess.env.OSSEO_RELEASE_ROOT=${JSON.stringify(current)};\nawait import(${JSON.stringify(path.join(current, "bin", "osseo.mjs"))});\n`; await writeFile(path.join(bin, "osseo"), wrapper, { mode: 0o700 }); await chmod(path.join(bin, "osseo"), 0o700); console.log(JSON.stringify({ installed: true, version, checksumVerified, root: "[osseo-install]", executable: "[osseo-bin]" }, null, 2));

@@ -1,9 +1,9 @@
 import path from "node:path";
 import { readFile, writeFile, mkdir, rm, readdir, stat, copyFile, rename } from "node:fs/promises";
-import { toolFailure, toolSuccess, normalizePathForPolicy, evaluateSafety, isAgentHostControlPath, type ToolResult, type FileExistsResult } from "@agenthost/core";
+import { toolFailure, toolSuccess, normalizePathForPolicy, evaluateSafety, isOsseoControlPath, type ToolResult, type FileExistsResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { safetyContext } from "../context.js";
 
 const baseSchema = z.object({
@@ -66,11 +66,11 @@ const moveInput = z.object({
 
 const deleteInput = baseSchema.extend(executionFields).strict();
 
-function resolvedPath(inputPath: string, context: AgentHostMcpContext): string {
-  return normalizePathForPolicy(inputPath, { agentHostDir: context.config.agentHostDir });
+function resolvedPath(inputPath: string, context: OsseoMcpContext): string {
+  return normalizePathForPolicy(inputPath, { osseoDir: context.config.osseoDir });
 }
 
-function safetyCheck(tool: string, actionType: "file_read" | "file_write" | "file_delete", filePath: string, context: AgentHostMcpContext) {
+function safetyCheck(tool: string, actionType: "file_read" | "file_write" | "file_delete", filePath: string, context: OsseoMcpContext) {
   return evaluateSafety(
     { tool, actionType, filePath, strategy: "cli_or_script" },
     context.policy,
@@ -83,7 +83,7 @@ function combinedRisk(left: ReturnType<typeof evaluateSafety>, right: ReturnType
   return order.indexOf(left.riskLevel) >= order.indexOf(right.riskLevel) ? left : right;
 }
 
-function sourceCheck(tool: string, filePath: string, context: AgentHostMcpContext) {
+function sourceCheck(tool: string, filePath: string, context: OsseoMcpContext) {
   return evaluateSafety(
     { tool, actionType: "file_read", filePath, strategy: "cli_or_script" },
     context.policy,
@@ -92,9 +92,9 @@ function sourceCheck(tool: string, filePath: string, context: AgentHostMcpContex
 }
 
 /** A move removes its source, so a control-plane source (config, policy.toml, run state) is checked as a write, not a read. */
-function moveSourceCheck(tool: string, filePath: string, context: AgentHostMcpContext) {
+function moveSourceCheck(tool: string, filePath: string, context: OsseoMcpContext) {
   const platform = safetyContext(context);
-  return isAgentHostControlPath(filePath, platform) ? safetyCheck(tool, "file_write", filePath, context) : sourceCheck(tool, filePath, context);
+  return isOsseoControlPath(filePath, platform) ? safetyCheck(tool, "file_write", filePath, context) : sourceCheck(tool, filePath, context);
 }
 
 function failure(tool: string, safety: ReturnType<typeof evaluateSafety>): ToolResult<never> {
@@ -133,8 +133,8 @@ const executionMcpProperties = {
   confirmationToken: { type: "string", minLength: 8, maxLength: 120 }
 };
 
-export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const read: AgentHostToolDefinition<z.infer<typeof readInput>, unknown, AgentHostMcpContext> = {
+export function createFileTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const read: OsseoToolDefinition<z.infer<typeof readInput>, unknown, OsseoMcpContext> = {
     name: "file.read",
     description: "Reads a file from an approved path.",
     riskLevel: "low",
@@ -163,7 +163,7 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const readMany: AgentHostToolDefinition<z.infer<typeof readManyInput>, unknown, AgentHostMcpContext> = {
+  const readMany: OsseoToolDefinition<z.infer<typeof readManyInput>, unknown, OsseoMcpContext> = {
     name: "file.read_many",
     description: "Reads a bounded batch of approved files without requiring one tool call per file.",
     riskLevel: "low",
@@ -194,7 +194,7 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const write: AgentHostToolDefinition<z.infer<typeof writeInput>, unknown, AgentHostMcpContext> = {
+  const write: OsseoToolDefinition<z.infer<typeof writeInput>, unknown, OsseoMcpContext> = {
     name: "file.write",
     description: "Writes a file to an approved path.",
     riskLevel: "medium",
@@ -241,7 +241,7 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const list: AgentHostToolDefinition<z.infer<typeof listInput>, unknown, AgentHostMcpContext> = {
+  const list: OsseoToolDefinition<z.infer<typeof listInput>, unknown, OsseoMcpContext> = {
     name: "file.list",
     description: "Lists files in a directory.",
     riskLevel: "low",
@@ -268,7 +268,7 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const search: AgentHostToolDefinition<z.infer<typeof searchInput>, unknown, AgentHostMcpContext> = {
+  const search: OsseoToolDefinition<z.infer<typeof searchInput>, unknown, OsseoMcpContext> = {
     name: "file.search",
     description: "Searches bounded local text files under an approved directory; returns paths and line numbers only.",
     riskLevel: "low",
@@ -304,7 +304,7 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const exists: AgentHostToolDefinition<z.infer<typeof existsInput>, FileExistsResult, AgentHostMcpContext> = {
+  const exists: OsseoToolDefinition<z.infer<typeof existsInput>, FileExistsResult, OsseoMcpContext> = {
     name: "file.exists",
     description: "Checks if a path exists.",
     riskLevel: "observe",
@@ -325,7 +325,7 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const ensureDir: AgentHostToolDefinition<z.infer<typeof ensureDirInput>, unknown, AgentHostMcpContext> = {
+  const ensureDir: OsseoToolDefinition<z.infer<typeof ensureDirInput>, unknown, OsseoMcpContext> = {
     name: "file.ensure_dir",
     description: "Ensures a directory exists.",
     riskLevel: "medium",
@@ -354,7 +354,7 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const copy: AgentHostToolDefinition<z.infer<typeof copyInput>, unknown, AgentHostMcpContext> = {
+  const copy: OsseoToolDefinition<z.infer<typeof copyInput>, unknown, OsseoMcpContext> = {
     name: "file.copy",
     description: "Copies a file.",
     riskLevel: "medium",
@@ -385,7 +385,7 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const move: AgentHostToolDefinition<z.infer<typeof moveInput>, unknown, AgentHostMcpContext> = {
+  const move: OsseoToolDefinition<z.infer<typeof moveInput>, unknown, OsseoMcpContext> = {
     name: "file.move",
     description: "Moves a file.",
     riskLevel: "medium",
@@ -416,7 +416,7 @@ export function createFileTools(): AnyAgentHostToolDefinition<AgentHostMcpContex
     }
   };
 
-  const delete_: AgentHostToolDefinition<z.infer<typeof deleteInput>, unknown, AgentHostMcpContext> = {
+  const delete_: OsseoToolDefinition<z.infer<typeof deleteInput>, unknown, OsseoMcpContext> = {
     name: "file.delete",
     description: "Deletes a single file. Directory deletion is not exposed over MCP.",
     riskLevel: "high",

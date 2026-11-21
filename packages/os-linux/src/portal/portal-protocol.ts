@@ -7,7 +7,7 @@
 /** Linux input event codes for the pointer buttons (linux/input-event-codes.h). */
 export const BUTTON_CODES = { left: 0x110, right: 0x111, middle: 0x112 } as const;
 
-/** X11 keysyms (keysymdef.h) for the keys AgentHost names in hotkeys. */
+/** X11 keysyms (keysymdef.h) for the keys Osseo names in hotkeys. */
 const NAMED_KEYSYMS = new Map<string, number>([
   ["ctrl", 0xffe3],
   ["control", 0xffe3],
@@ -92,9 +92,9 @@ export function isWaylandSession(env: NodeJS.ProcessEnv): boolean {
   return sessionType === "wayland" || Boolean((env.WAYLAND_DISPLAY ?? "").trim());
 }
 
-/** The opt-in switch: AGENTHOST_WAYLAND_PORTAL=1 in the environment of the MCP server. */
+/** The opt-in switch: OSSEO_WAYLAND_PORTAL=1 in the environment of the MCP server. */
 export function portalRequested(env: NodeJS.ProcessEnv): boolean {
-  return env.AGENTHOST_WAYLAND_PORTAL === "1";
+  return env.OSSEO_WAYLAND_PORTAL === "1";
 }
 
 /** The portal path is used only when it was requested and the session is Wayland. */

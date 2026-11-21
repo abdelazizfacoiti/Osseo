@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""AgentHost background viewer: a small window that shows the agent's display.
+"""Osseo background viewer: a small window that shows the agent's display.
 
 It reads a picture file written by the frame source and the run-state files
 under the agent home. It never captures the screen and never writes into the
-agent home. Pause, Resume and Stop run the same `agenthost agent ...` commands
+agent home. Pause, Resume and Stop run the same `osseo agent ...` commands
 the terminal uses, only on a real click.
 """
 import argparse
@@ -21,7 +21,7 @@ gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk  # noqa: E402
 
 REFRESH_MS = 500
-TITLE = "AgentHost background view"
+TITLE = "Osseo background view"
 
 # Same commands as the CLI: agent pause / agent resume --pause / agent stop.
 ACTIONS = {
@@ -185,7 +185,7 @@ class ViewerWindow(Gtk.Window):
     def run_action(self, key):
         arguments = ACTIONS[key]
         env = dict(os.environ)
-        env["AGENTHOST_HOME"] = self.agent_home
+        env["OSSEO_HOME"] = self.agent_home
         try:
             subprocess.Popen(self.cli + arguments, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except OSError:
@@ -200,7 +200,7 @@ def main():
     parser.add_argument("--entry", default=None)
     parser.add_argument("--selftest", action="store_true")
     options = parser.parse_args()
-    cli = [options.node, options.entry] if options.node and options.entry else ["agenthost"]
+    cli = [options.node, options.entry] if options.node and options.entry else ["osseo"]
     window = ViewerWindow(options.frame, options.agent_home, cli)
     if options.selftest:
         print(json.dumps({"title": window.get_title(), "status": window.status.get_text(), "buttons": sorted(window.buttons), "hasFrame": window.pixbuf is not None}))

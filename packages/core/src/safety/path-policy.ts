@@ -118,34 +118,34 @@ export function resolveAllowedWriteRoots(
 ): string[] {
   const roots = policy.allowFileWriteRoots.map((root) => normalizePathForPolicy(root, context));
 
-  if (context.agentHostDir !== undefined) {
-    roots.push(normalizePathForPolicy(context.agentHostDir, context));
+  if (context.osseoDir !== undefined) {
+    roots.push(normalizePathForPolicy(context.osseoDir, context));
   }
 
   return unique(roots);
 }
 
-function controlPlaneRoots(agentHostDir: string | undefined, protectedPaths: string[] | undefined, api: PathApi): string[] {
+function controlPlaneRoots(osseoDir: string | undefined, protectedPaths: string[] | undefined, api: PathApi): string[] {
   const roots = [
-    ...(agentHostDir === undefined
+    ...(osseoDir === undefined
       ? []
       : [
-          api.join(agentHostDir, "run"),
-          api.join(agentHostDir, "tasks", "approvals"),
-          api.join(agentHostDir, "logs"),
-          api.join(agentHostDir, "setup"),
-          api.join(agentHostDir, "config.json"),
-          api.join(agentHostDir, "policy.toml")
+          api.join(osseoDir, "run"),
+          api.join(osseoDir, "tasks", "approvals"),
+          api.join(osseoDir, "logs"),
+          api.join(osseoDir, "setup"),
+          api.join(osseoDir, "config.json"),
+          api.join(osseoDir, "policy.toml")
         ]),
     ...(protectedPaths ?? [])
   ];
   return unique(roots.map((root) => api.resolve(root)));
 }
 
-export function isAgentHostControlPath(inputPath: string, context: SafetyEvaluationContext = {}): boolean {
+export function isOsseoControlPath(inputPath: string, context: SafetyEvaluationContext = {}): boolean {
   const api = pathApi(context.platform ?? process.platform);
   const normalized = normalizePathForPolicy(inputPath, context);
-  return controlPlaneRoots(context.agentHostDir, context.protectedPaths, api).some((root) => isInsideOrEqual(normalized, root, api));
+  return controlPlaneRoots(context.osseoDir, context.protectedPaths, api).some((root) => isInsideOrEqual(normalized, root, api));
 }
 
 function protectionForPath(
@@ -161,8 +161,8 @@ function protectionForPath(
     return "root";
   }
 
-  if (controlPlaneRoots(context.agentHostDir, protectedPaths, api).some((root) => isInsideOrEqual(normalizedPath, root, api))) {
-    return "agenthost_control";
+  if (controlPlaneRoots(context.osseoDir, protectedPaths, api).some((root) => isInsideOrEqual(normalizedPath, root, api))) {
+    return "osseo_control";
   }
 
   const rootsFrom = (templates: string[]): string[] => templates.map((template) => normalizePathForPolicy(template, { ...context, platform, homeDir }));
@@ -198,7 +198,7 @@ function pathRisk(
     return "blocked";
   }
 
-  if (protectionKind === "agenthost_control") {
+  if (protectionKind === "osseo_control") {
     return access === "read" ? "medium" : "blocked";
   }
 

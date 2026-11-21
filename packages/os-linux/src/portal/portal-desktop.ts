@@ -10,7 +10,7 @@ import type {
   DesktopWindowContext,
   WindowFocusResult,
   WindowListResult
-} from "@agenthost/core";
+} from "@osseo/core";
 import { BUTTON_CODES, PORTAL_SCREEN_WINDOW_ID, keysymForKeyName, keysymsForText } from "./portal-protocol.js";
 import { PortalError, type PortalSession, type PortalStream } from "./portal-session.js";
 
@@ -27,7 +27,7 @@ export interface PortalDesktopOptions {
 
 const DEFAULT_SETTLE_MS = 40;
 const MAX_REPEAT = 20;
-const DECLINED_REASON = "consent_denied: The person declined remote control earlier in this session. Restart AgentHost to ask again.";
+const DECLINED_REASON = "consent_denied: The person declined remote control earlier in this session. Restart Osseo to ask again.";
 
 type Bounds = { x: number; y: number; width: number; height: number };
 
@@ -248,9 +248,9 @@ export function createPortalDesktop(session: PortalSession, options: PortalDeskt
       };
     },
 
-    /** AgentHost cannot see pointer presses on Wayland, so Teach-mode waits report unavailable. */
+    /** Osseo cannot see pointer presses on Wayland, so Teach-mode waits report unavailable. */
     async waitForPointerPress(_input: unknown): Promise<{ pressed: false; reason: "unavailable"; detail: string }> {
-      return { pressed: false, reason: "unavailable", detail: "AgentHost cannot see pointer presses on Wayland yet." };
+      return { pressed: false, reason: "unavailable", detail: "Osseo cannot see pointer presses on Wayland yet." };
     },
 
     async getDesktopCapabilities(): Promise<DesktopCapabilitiesResult> {

@@ -1,16 +1,16 @@
-import type { OverlayManager } from "@agenthost/app-overlay";
-import { endHandoff, readHandoff, type HandoffKind, type HandoffState, type OverlayWidget } from "@agenthost/core";
+import type { OverlayManager } from "@osseo/app-overlay";
+import { endHandoff, readHandoff, type HandoffKind, type HandoffState, type OverlayWidget } from "@osseo/core";
 
 /*
  * The "Your turn" card. While a handoff is active (login, MFA, CAPTCHA,
  * payment) it tells the human what to do and offers one Continue button. The
  * agent cannot press it: the renderer accepts control presses only from a real
- * pointer outside AgentHost's own input injection. `agenthost agent resume
+ * pointer outside Osseo's own input injection. `osseo agent resume
  * --takeover` ends the handoff too, and the card then disappears by itself.
  */
 
 export interface HandoffOverlayOptions {
-  agentHostDir: string;
+  osseoDir: string;
   sessionId: string;
   pollMs?: number;
   /** Best-effort desktop notification, sent once per handoff. */
@@ -37,7 +37,7 @@ export class HandoffOverlay {
   constructor(manager: OverlayManager, options: HandoffOverlayOptions) {
     this.#manager = manager;
     this.#options = options;
-    this.#widgetId = `agenthost-handoff-${options.sessionId}`.slice(0, 120);
+    this.#widgetId = `osseo-handoff-${options.sessionId}`.slice(0, 120);
     this.#timer = setInterval(() => { void this.tick(); }, options.pollMs ?? 700);
     (this.#timer as unknown as { unref?: () => void }).unref?.();
   }
@@ -68,7 +68,7 @@ export class HandoffOverlay {
     if (this.#closed || this.#busy) return;
     this.#busy = true;
     try {
-      const handoff = await readHandoff(this.#options.agentHostDir);
+      const handoff = await readHandoff(this.#options.osseoDir);
       if (!handoff.active) {
         await this.#hide();
         return;
@@ -79,13 +79,13 @@ export class HandoffOverlay {
         const result = await this.#manager.showWidget(this.widget(handoff));
         if (result.ok) {
           this.#shownAt = handoff.at ?? "";
-          this.#options.notify?.("AgentHost needs you", handoff.message ?? "Finish the step, then press Continue on the card.");
+          this.#options.notify?.("Osseo needs you", handoff.message ?? "Finish the step, then press Continue on the card.");
         }
         return;
       }
       const events = await this.#manager.pollEvents(this.#widgetId);
       if (events.some((event) => event.event === "continue")) {
-        await endHandoff(this.#options.agentHostDir);
+        await endHandoff(this.#options.osseoDir);
         await this.#hide();
       }
     } catch {

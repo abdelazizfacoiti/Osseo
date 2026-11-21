@@ -14,12 +14,12 @@ describe.skipIf(chrome === undefined)("BrowserSession sharing one profile", () =
   let pageUrl: string;
 
   beforeAll(async () => {
-    home = await mkdtemp(path.join(os.tmpdir(), "agenthost-browser-shared-"));
+    home = await mkdtemp(path.join(os.tmpdir(), "osseo-browser-shared-"));
     const file = path.join(home, "page.html");
     await writeFile(file, "<!doctype html><title>Shared probe</title><h1>hello</h1>");
     pageUrl = pathToFileURL(file).toString();
-    first = new BrowserSession({ agentHostDir: home });
-    second = new BrowserSession({ agentHostDir: home });
+    first = new BrowserSession({ osseoDir: home });
+    second = new BrowserSession({ osseoDir: home });
   });
   afterAll(async () => {
     await second.close();

@@ -1,4 +1,4 @@
-import type { OverlayActivityMode, ToolExecutionClass } from "@agenthost/core";
+import type { OverlayActivityMode, ToolExecutionClass } from "@osseo/core";
 
 export const COMPUTER_ACTION_FAMILIES = [
   "browser",

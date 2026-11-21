@@ -151,7 +151,7 @@ describe("Windows desktop adapter", () => {
   });
 
   it("writes the screenshot file and reports its geometry and origin", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-win-shot-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-win-shot-"));
     try {
       const file = path.join(dir, "shots", "a.png");
       const { helper, calls } = fakeHelper({

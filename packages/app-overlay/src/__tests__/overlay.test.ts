@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { redactOverlayText, validateOverlayAnimation, validateOverlayWidget, type OverlayTargetBinding, type OverlayWidget } from "@agenthost/core";
+import { redactOverlayText, validateOverlayAnimation, validateOverlayWidget, type OverlayTargetBinding, type OverlayWidget } from "@osseo/core";
 import { HeadlessOverlayRenderer } from "../headless-renderer.js";
 import { OverlayManager } from "../manager.js";
 import type { OverlayRenderRecord } from "../renderer.js";

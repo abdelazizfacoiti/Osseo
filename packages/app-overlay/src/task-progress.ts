@@ -1,4 +1,4 @@
-import type { OverlayPlacement, OverlayWidget, OverlayWidgetComponent, OverlayWidgetEvent } from "@agenthost/core";
+import type { OverlayPlacement, OverlayWidget, OverlayWidgetComponent, OverlayWidgetEvent } from "@osseo/core";
 import type { OverlayManager } from "./manager.js";
 
 export type TaskProgressStatus = "running" | "pause_requested" | "paused" | "stopping" | "waiting_approval" | "done" | "error" | "stopped";
@@ -260,7 +260,7 @@ export class TaskProgressOverlay {
       components.push({ type: "checklist", items: this.#steps.map((step) => ({ label: step.label, checked: step.state === "done", state: step.state ?? "pending" })) });
     }
     if (this.#detail !== undefined && this.#detail.length > 0) components.push({ type: "text", text: this.#detail });
-    if (this.#waitingCommand !== undefined) components.push({ type: "warning", text: `Approval needed. Run: agenthost task approve ${this.#waitingCommand}` });
+    if (this.#waitingCommand !== undefined) components.push({ type: "warning", text: `Approval needed. Run: osseo task approve ${this.#waitingCommand}` });
     components.push({ type: "key_value", key: "Elapsed", value: elapsedLabel(this.snapshot().elapsedMs) });
     if (this.#runningTaskCount > 1) components.push({ type: "key_value", key: "Tasks", value: `${this.#runningTaskCount} running` });
     for (const [label, event] of this.#buttons()) components.push({ type: "button", label, event });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getDefaultPolicy } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 
 const calls: Array<{ name: string; input: Record<string, unknown> }> = [];
 const screenshot = { ok: true as boolean };
@@ -23,7 +23,7 @@ vi.mock("../tools/vision.js", () => ({ findScreenTextMatches: (context: unknown,
 import { createSeeTool, formatLine } from "../tools/see.js";
 import { forgetViews, recallView } from "../view-registry.js";
 
-const see = createSeeTool() as unknown as { inputSchema: { parse(v: unknown): unknown }; handler(input: unknown, context: AgentHostMcpContext): Promise<{ ok: boolean; data: any; error: { code: string } | null; observations: string[] }> };
+const see = createSeeTool() as unknown as { inputSchema: { parse(v: unknown): unknown }; handler(input: unknown, context: OsseoMcpContext): Promise<{ ok: boolean; data: any; error: { code: string } | null; observations: string[] }> };
 
 const WIN = { x: 100, y: 50, width: 600, height: 400 };
 const at = (y: number) => ({ x: 120, y, width: 100, height: 20 });
@@ -43,7 +43,7 @@ const tree = {
 
 function fake(options: { tree?: unknown; browser?: unknown; active?: boolean; app?: string; windows?: unknown[] } = {}) {
   return {
-    config: { agentHostDir: "/tmp/agenthost-see-test" },
+    config: { osseoDir: "/tmp/osseo-see-test" },
     policy: getDefaultPolicy(),
     linux: {
       browser: options.browser,
@@ -52,10 +52,10 @@ function fake(options: { tree?: unknown; browser?: unknown; active?: boolean; ap
       listWindows: async () => ({ supported: true, backend: "t", truncated: false, reason: "ok", windows: options.windows ?? [{ windowId: "w1", title: "Form - App", appName: "App", pid: 7, bounds: WIN }] }),
       getAccessibilityTree: async () => options.tree === undefined ? { supported: true, backend: "t", root: tree, nodeCount: 9, truncated: false, redacted: false, reason: "ok" } : options.tree
     }
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
-const run = (context: AgentHostMcpContext, input: unknown = {}) => see.handler(see.inputSchema.parse(input), context);
+const run = (context: OsseoMcpContext, input: unknown = {}) => see.handler(see.inputSchema.parse(input), context);
 
 beforeEach(() => { calls.length = 0; screenshot.ok = true; drawMarks.mockClear(); ocr.mockClear(); });
 afterEach(() => forgetViews());

@@ -28,8 +28,8 @@ import {
   type ToolResult,
   type ToolStateSnapshot,
   type ToolTracePhase
-} from "@agenthost/core";
-import type { AgentHostMcpContext } from "./context.js";
+} from "@osseo/core";
+import type { OsseoMcpContext } from "./context.js";
 import type { ToolActionHandle, ToolActionTarget } from "./action-overlay.js";
 import { shouldShowActionCard } from "./activity.js";
 import { safetyContext } from "./context.js";
@@ -57,7 +57,7 @@ export interface ToolPreviewEffect {
 /** Tools that read what is on screen or the clipboard; refused while a human handoff is active. */
 const HANDOFF_BLOCKED_TOOLS = new Set(["see", "desktop.screenshot", "vision.find_text_on_screen", "ui.tree", "ui.find", "clipboard.get", "computer.wait_for", "computer.observe_state", "browser.snapshot", "browser.screenshot", "browser.own_snapshot", "browser.own_read"]);
 
-export interface AgentHostToolDefinition<Input, Output, Context = AgentHostMcpContext> {
+export interface OsseoToolDefinition<Input, Output, Context = OsseoMcpContext> {
   name: string;
   description: string;
   riskLevel: RiskLevel;
@@ -81,7 +81,7 @@ export interface AgentHostToolDefinition<Input, Output, Context = AgentHostMcpCo
   delegatesExecutionArgs?: boolean;
 }
 
-export type AnyAgentHostToolDefinition<Context = AgentHostMcpContext> = AgentHostToolDefinition<any, any, Context>;
+export type AnyOsseoToolDefinition<Context = OsseoMcpContext> = OsseoToolDefinition<any, any, Context>;
 
 interface ExecutionTimings {
   overlayWait: number;
@@ -110,7 +110,7 @@ function elapsedSince(startedAt: number): number {
 }
 
 async function traceEvent(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   tool: string,
   phase: ToolTracePhase,
   startedAt: number,
@@ -153,7 +153,7 @@ function confirmationInfo(
   };
 }
 
-function inputSummaryForAudit(tool: AnyAgentHostToolDefinition, input: unknown): string {
+function inputSummaryForAudit(tool: AnyOsseoToolDefinition, input: unknown): string {
   try {
     const summary = tool.auditInputSummary?.(input)
       ?? (typeof tool.inputSummary === "function" ? tool.inputSummary(input) : tool.inputSummary);
@@ -171,7 +171,7 @@ function sameWindow(requested: Record<string, unknown>, active: { windowId?: str
   return false;
 }
 
-async function actionTargetFor(toolName: string, input: unknown, context: AgentHostMcpContext): Promise<ToolActionTarget | undefined> {
+async function actionTargetFor(toolName: string, input: unknown, context: OsseoMcpContext): Promise<ToolActionTarget | undefined> {
   if (input === null || typeof input !== "object") return undefined;
   const value = input as Record<string, unknown>;
   const point = (x: unknown, y: unknown): ToolActionTarget | undefined => (
@@ -228,8 +228,8 @@ async function actionTargetFor(toolName: string, input: unknown, context: AgentH
 
 // Families whose state-changing results report the windows that appeared during the call.
 const STATE_RESULT_FAMILIES = new Set(["app", "computer", "desktop", "file", "shell", "ui", "window"]);
-// AgentHost's own card windows (see gtk3-renderer.py). They must never count as new windows.
-const AGENTHOST_WINDOW_TITLES = new Set(["AgentHost Overlay", "AgentHost Sidebar"]);
+// Osseo's own card windows (see gtk3-renderer.py). They must never count as new windows.
+const OSSEO_WINDOW_TITLES = new Set(["Osseo Overlay", "Osseo Sidebar"]);
 type CapturedToolState = Omit<ToolStateSnapshot, "newlyAppearedWindows"> & {
   windows?: NonNullable<ToolStateSnapshot["newlyAppearedWindows"]>;
 };
@@ -237,11 +237,11 @@ type CapturedToolState = Omit<ToolStateSnapshot, "newlyAppearedWindows"> & {
 /** The window list taken before a plan's first step, kept for its last step to compare against. */
 const PLAN_STATE = new Map<string, CapturedToolState>();
 
-function needsStateResult(tool: AnyAgentHostToolDefinition): boolean {
+function needsStateResult(tool: AnyOsseoToolDefinition): boolean {
   return tool.execution?.executionClass === "state_changing" && STATE_RESULT_FAMILIES.has(tool.name.split(".", 1)[0] ?? "");
 }
 
-async function captureToolState(context: AgentHostMcpContext): Promise<CapturedToolState> {
+async function captureToolState(context: OsseoMcpContext): Promise<CapturedToolState> {
   const [active, windows] = await Promise.all([
     context.linux.getActiveWindow().catch(() => undefined),
     context.linux.listWindows({ limit: 50, includeTitles: true }).catch(() => undefined),
@@ -267,7 +267,7 @@ function attachStateDelta(result: ToolResult, before: CapturedToolState | undefi
   const newlyAppearedWindows = before.windows === undefined
     ? []
     : (afterWindows ?? [])
-      .filter((window) => window.title === undefined || !AGENTHOST_WINDOW_TITLES.has(window.title))
+      .filter((window) => window.title === undefined || !OSSEO_WINDOW_TITLES.has(window.title))
       .filter((window) => !before.windows!.some((prior) => prior.windowId === window.windowId))
       .slice(0, 8);
   result.state = {
@@ -289,7 +289,7 @@ function resolveRisk(effect: ToolPreviewEffect | undefined, fallback: RiskLevel)
   return effect?.riskLevel ?? fallback;
 }
 
-function inputPassesSchema(tool: AnyAgentHostToolDefinition, input: unknown): boolean {
+function inputPassesSchema(tool: AnyOsseoToolDefinition, input: unknown): boolean {
   if (tool.inputSchema === undefined || typeof tool.inputSchema.safeParse !== "function") return true;
   try {
     return tool.inputSchema.safeParse(input).success === true;
@@ -312,16 +312,16 @@ function parseRoutineTaskMetadata(value: unknown): { metadata?: RoutineTaskMetad
   return { metadata: { ...(phase === undefined ? {} : { phase: phase.trim() }), ...(currentAction === undefined ? {} : { currentAction: currentAction.trim() }) } };
 }
 
-async function recordRoutineTaskMetadata(context: AgentHostMcpContext, metadata: RoutineTaskMetadata | undefined, tool: string, result: ToolResult): Promise<void> {
+async function recordRoutineTaskMetadata(context: OsseoMcpContext, metadata: RoutineTaskMetadata | undefined, tool: string, result: ToolResult): Promise<void> {
   if (metadata === undefined) return;
   try {
-    const active = (await listTasks(context.config.agentHostDir)).find((task) => task.status === "active");
+    const active = (await listTasks(context.config.osseoDir)).find((task) => task.status === "active");
     if (active === undefined) return;
-    await updateTask(context.config.agentHostDir, active.taskId, metadata);
+    await updateTask(context.config.osseoDir, active.taskId, metadata);
     const summary = result.ok
       ? `${tool} completed${result.observations?.[0] === undefined ? "." : `: ${summarizeForLog(result.observations[0])}`}`
       : `${tool} failed: ${summarizeForLog(result.error?.message ?? result.error?.code ?? "tool_failed")}`;
-    await appendTaskEvent(context.config.agentHostDir, active.taskId, result.ok ? "observation" : "error", summary);
+    await appendTaskEvent(context.config.osseoDir, active.taskId, result.ok ? "observation" : "error", summary);
   } catch {
     /* Routine bookkeeping must never change the governed tool result. */
   }
@@ -341,9 +341,9 @@ function targetFingerprint(value: string | undefined): string | undefined {
 }
 
 function safetyEffect(
-  tool: AnyAgentHostToolDefinition,
+  tool: AnyOsseoToolDefinition,
   input: unknown,
-  context: AgentHostMcpContext
+  context: OsseoMcpContext
 ): ToolPreviewEffect {
   const summary = inputSummaryForAudit(tool, input);
   if (tool.safety.getInput === undefined) return { summary };
@@ -372,9 +372,9 @@ function safetyEffect(
 }
 
 async function previewEffect(
-  tool: AnyAgentHostToolDefinition,
+  tool: AnyOsseoToolDefinition,
   input: unknown,
-  context: AgentHostMcpContext
+  context: OsseoMcpContext
 ): Promise<ToolPreviewEffect> {
   if (tool.preview?.resolveEffect === undefined) {
     return safetyEffect(tool, input, context);
@@ -387,16 +387,16 @@ async function previewEffect(
 }
 
 async function prepareForTool(input: {
-  tool: AnyAgentHostToolDefinition;
+  tool: AnyOsseoToolDefinition;
   parsedInput: unknown;
-  context: AgentHostMcpContext;
+  context: OsseoMcpContext;
   riskLevel: RiskLevel;
   effect: ToolPreviewEffect;
   policyTarget?: ConfirmationPolicyTarget | undefined;
 }): Promise<{ tokenId: string; expiresAt: string }> {
   const effectTarget = targetFingerprint(input.effect.targetFingerprint);
   const record = await prepareConfirmation({
-    agentHostDir: input.context.config.agentHostDir,
+    osseoDir: input.context.config.osseoDir,
     tool: input.tool.name,
     riskLevel: input.riskLevel,
     args: input.parsedInput,
@@ -409,9 +409,9 @@ async function prepareForTool(input: {
 }
 
 async function executeGoverned(
-  tool: AnyAgentHostToolDefinition,
+  tool: AnyOsseoToolDefinition,
   rawInput: unknown,
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   audit: AuditMeta,
   startedAt: number,
   previewOnly: boolean
@@ -468,7 +468,7 @@ async function executeGoverned(
 
   audit.inputSummary = inputSummaryForAudit(tool, parsedInput);
   if (stateChanging) {
-    const gate = evaluateRunStateGate(await readRunState(context.config.agentHostDir));
+    const gate = evaluateRunStateGate(await readRunState(context.config.osseoDir));
     if (!gate.allowed) {
       await traceEvent(context, tool.name, "safety", startedAt, { riskLevel: tool.riskLevel, ok: false, code: gate.code ?? "emergency_stop_requested" });
       return toolFailure({
@@ -488,7 +488,7 @@ async function executeGoverned(
     return toolFailure({ tool: tool.name, riskLevel: tool.riskLevel, error: { code: "unsupported_in_background", message }, observations: ["No action was executed."] });
   }
   if (HANDOFF_BLOCKED_TOOLS.has(tool.name)) {
-    const handoff = await readHandoff(context.config.agentHostDir);
+    const handoff = await readHandoff(context.config.osseoDir);
     if (handoff.active) {
       const message = "A human handoff is active, so screen contents are off limits until the human presses Continue.";
       await traceEvent(context, tool.name, "safety", startedAt, { riskLevel: tool.riskLevel, ok: false, code: "handoff_active" });
@@ -583,7 +583,7 @@ async function executeGoverned(
       },
       observations: [
         "No action was executed.",
-        ...(confirmation?.tokenId === undefined ? [] : [`Operator approval: agenthost confirm ${confirmation.tokenId}`]),
+        ...(confirmation?.tokenId === undefined ? [] : [`Operator approval: osseo confirm ${confirmation.tokenId}`]),
         ...(effect.reasons ?? [])
       ]
     });
@@ -604,8 +604,8 @@ async function executeGoverned(
     await traceEvent(context, tool.name, "confirmation", startedAt, { riskLevel, ok: true, code: "plan_approval" });
   } else if (requiresConfirmation) {
     const tokenId = providedToken;
-    const activeApproval = await readActiveTaskApproval(context.config.agentHostDir);
-    const activeTask = activeApproval === undefined ? undefined : await loadTask(context.config.agentHostDir, activeApproval.taskId);
+    const activeApproval = await readActiveTaskApproval(context.config.osseoDir);
+    const activeTask = activeApproval === undefined ? undefined : await loadTask(context.config.osseoDir, activeApproval.taskId);
     const exactConfirmationRequired = effect.requiresConfirmation === true || riskLevel === "high";
     const allowPending = !exactConfirmationRequired
       && activeApprovalCoversRisk(activeApproval, riskLevel)
@@ -635,7 +635,7 @@ async function executeGoverned(
           observations: [
             "No action was executed.",
             `Preview: ${effect.summary ?? audit.inputSummary}`,
-            `Operator approval: agenthost confirm ${pending.tokenId}`
+            `Operator approval: osseo confirm ${pending.tokenId}`
           ]
         });
         result.data = {
@@ -649,7 +649,7 @@ async function executeGoverned(
       const effectTarget = targetFingerprint(effect.targetFingerprint);
       const prepared = await prepareForTool({ tool, parsedInput, context, riskLevel, effect, policyTarget });
       await consumeConfirmation({
-        agentHostDir: context.config.agentHostDir,
+        osseoDir: context.config.osseoDir,
         tokenId: prepared.tokenId,
         tool: tool.name,
         args: parsedInput,
@@ -667,7 +667,7 @@ async function executeGoverned(
     } else {
       const effectTarget = targetFingerprint(effect.targetFingerprint);
       await consumeConfirmation({
-        agentHostDir: context.config.agentHostDir,
+        osseoDir: context.config.osseoDir,
         tokenId,
         tool: tool.name,
         args: parsedInput,
@@ -697,7 +697,7 @@ async function executeGoverned(
   advancePhase("handler");
   const runHandler = async (): Promise<ToolResult> => {
     if (stateChanging) {
-      const gate = evaluateRunStateGate(await readRunState(context.config.agentHostDir));
+      const gate = evaluateRunStateGate(await readRunState(context.config.osseoDir));
       if (!gate.allowed) {
         return toolFailure({
           tool: tool.name,
@@ -738,17 +738,17 @@ interface RepeatEntry {
 /** Identical calls only count as a loop when they happen close together. */
 const REPEAT_WINDOW_MS = 60_000;
 const MODIFIER_KEYS = new Set(["ctrl", "control", "alt", "shift", "super", "meta"]);
-const TASK_BUDGETS = new WeakMap<AgentHostMcpContext, number>();
-const TASK_PHASES = new WeakMap<AgentHostMcpContext, string>();
-const OVERLAY_NOTED = new WeakSet<AgentHostMcpContext>();
+const TASK_BUDGETS = new WeakMap<OsseoMcpContext, number>();
+const TASK_PHASES = new WeakMap<OsseoMcpContext, string>();
+const OVERLAY_NOTED = new WeakSet<OsseoMcpContext>();
 
 /** Tools whose results carry text written by someone else (a web page, document, or clipboard). */
 const UNTRUSTED_CONTENT_TOOLS = new Set(["see", "vision.analyze_image", "vision.find_text", "vision.find_target", "vision.find_text_on_screen", "ui.tree", "ui.find", "file.read", "file.read_many", "clipboard.get", "browser.snapshot", "browser.screenshot", "browser.own_snapshot", "browser.own_read", "memory.search"]);
 /** Tool families that need a desktop adapter for the host OS. */
 const DESKTOP_FAMILIES = new Set(["desktop", "window", "app", "ui", "clipboard"]);
-const ACTION_COUNTS = new WeakMap<AgentHostMcpContext, number>();
+const ACTION_COUNTS = new WeakMap<OsseoMcpContext, number>();
 const LOOP_GUARD_REPEATS = 10;
-const REPEAT_TRACKER = new WeakMap<AgentHostMcpContext, Map<string, RepeatEntry>>();
+const REPEAT_TRACKER = new WeakMap<OsseoMcpContext, Map<string, RepeatEntry>>();
 const REPEAT_EXEMPT = /^(?:task|agent|system|adapter|policy)\./;
 const REPEAT_EXEMPT_TOOLS = new Set(["see", "desktop.screenshot", "computer.wait", "computer.wait_for", "computer.observe_state", "desktop.scroll"]);
 const NAVIGATION_KEYS = new Set([
@@ -771,7 +771,7 @@ function isRepeatExempt(toolName: string, input: unknown): boolean {
 }
 
 /** True when this call shows the task moved forward. Repeating the same phase does not count. */
-function progressSignal(context: AgentHostMcpContext, toolName: string, input: unknown): boolean {
+function progressSignal(context: OsseoMcpContext, toolName: string, input: unknown): boolean {
   const record = input !== null && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
   if (toolName === "task.add_event") return record.kind === "verification";
   if (toolName === "task.update_status") return Array.isArray(record.verifiedCriteria) && record.verifiedCriteria.length > 0;
@@ -806,7 +806,7 @@ function stableKey(value: unknown): string {
   return JSON.stringify(value) ?? "null";
 }
 
-function noteRepeatedCall(context: AgentHostMcpContext, toolName: string, input: unknown, stateKey?: string, changedScreen = false): number {
+function noteRepeatedCall(context: OsseoMcpContext, toolName: string, input: unknown, stateKey?: string, changedScreen = false): number {
   if (isRepeatExempt(toolName, input)) return 0;
   const comparable = input !== null && typeof input === "object" && !Array.isArray(input)
     ? Object.fromEntries(Object.entries(input as Record<string, unknown>).filter(([key]) => key !== "dryRun" && key !== "confirmationToken"))
@@ -836,9 +836,9 @@ function noteRepeatedCall(context: AgentHostMcpContext, toolName: string, input:
 }
 
 export async function runTool<Input>(
-  tool: AnyAgentHostToolDefinition<AgentHostMcpContext>,
+  tool: AnyOsseoToolDefinition<OsseoMcpContext>,
   input: Input,
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   options: { previewOnly?: boolean } = {}
 ): Promise<ToolResult> {
   const startedAt = Date.now();
@@ -894,13 +894,13 @@ export async function runTool<Input>(
   const guardInput = injectsInput(tool.name) && options.previewOnly !== true;
   let userBusy: ToolResult | undefined;
   if (guardInput && context.linux?.userIdleMs !== undefined) {
-    const yielded = await waitForHumanToPause({ agentHostDir: context.config.agentHostDir, readIdleMs: () => context.linux!.userIdleMs!() }).catch(() => ({ busy: false, waitedMs: 0 }));
+    const yielded = await waitForHumanToPause({ osseoDir: context.config.osseoDir, readIdleMs: () => context.linux!.userIdleMs!() }).catch(() => ({ busy: false, waitedMs: 0 }));
     if (yielded.busy) {
       const message = "The user is using the keyboard or mouse right now, so nothing was sent. Retry in a few seconds.";
       userBusy = toolFailure({ tool: tool.name, riskLevel: tool.riskLevel, error: { code: "user_active", message, details: { waitedMs: yielded.waitedMs } }, observations: ["No action was executed.", message] });
     }
   }
-  if (guardInput && userBusy === undefined) await markAgentInput(context.config.agentHostDir);
+  if (guardInput && userBusy === undefined) await markAgentInput(context.config.osseoDir);
   try {
     result = userBusy ?? await executeGoverned(tool, input, context, audit, startedAt, options.previewOnly === true);
   } catch (error) {
@@ -931,7 +931,7 @@ export async function runTool<Input>(
     }
   }
 
-  if (guardInput && userBusy === undefined) await markAgentInput(context.config.agentHostDir);
+  if (guardInput && userBusy === undefined) await markAgentInput(context.config.osseoDir);
   if (needsStateResult(tool)) {
     if (lastOfPlan) {
       context.linux?.invalidateWindowCache?.();
@@ -991,11 +991,11 @@ export async function runTool<Input>(
     const budgetTripped = budget > 0 && actions > 0 && actions % budget === 0;
     if (loopTripped || budgetTripped) {
       const reason = loopTripped
-        ? `The same ${tool.name} call ran ${repeats} times in a minute with no visible change. Press Resume on the card, or run: agenthost agent resume`
-        : `${actions} actions ran since the last progress update. Press Resume on the card, or run: agenthost agent resume`;
+        ? `The same ${tool.name} call ran ${repeats} times in a minute with no visible change. Press Resume on the card, or run: osseo agent resume`
+        : `${actions} actions ran since the last progress update. Press Resume on the card, or run: osseo agent resume`;
       try {
-        await requestPause(context.config.agentHostDir, `${ACTION_CARD_PAUSE_PREFIX}: ${reason}`);
-        result.observations = [...(result.observations ?? []), `AgentHost paused itself: ${reason} Tell the user what you are doing and that they can resume. Call task.update with the new phase as you make progress so the budget resets.`];
+        await requestPause(context.config.osseoDir, `${ACTION_CARD_PAUSE_PREFIX}: ${reason}`);
+        result.observations = [...(result.observations ?? []), `Osseo paused itself: ${reason} Tell the user what you are doing and that they can resume. Call task.update with the new phase as you make progress so the budget resets.`];
         await context.actionOverlay?.notePaused?.().catch(() => undefined);
         try { context.notifySelfPause?.(reason); } catch { /* Notification is best effort. */ }
       } catch {
@@ -1075,4 +1075,4 @@ export async function runTool<Input>(
   return result;
 }
 
-export type { AgentHostMcpContext } from "./context.js";
+export type { OsseoMcpContext } from "./context.js";

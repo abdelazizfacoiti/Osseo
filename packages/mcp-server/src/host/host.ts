@@ -5,13 +5,13 @@ import { HOST_PROTOCOL, LineReader, encodeLine, jsonRpcError, parseHello } from 
 import { DEFAULT_LEASE_WAIT_MS, HostLease } from "./lease.js";
 import { SocketTransport } from "./session-transport.js";
 import { SharedRendererHub } from "./shared-renderer.js";
-import type { OverlayRenderer } from "@agenthost/app-overlay";
+import type { OverlayRenderer } from "@osseo/app-overlay";
 import { listenOnHostSocket, removeHostFiles } from "./socket.js";
 
 /*
  * The host process: one MCP server session per accepted connection, exactly
  * as startStdioServer builds one, over the socket instead of stdio. Opt-in
- * (AGENTHOST_HOST=1 on the MCP entry); the in-process server stays the default.
+ * (OSSEO_HOST=1 on the MCP entry); the in-process server stays the default.
  */
 
 export interface HostSession {
@@ -58,13 +58,13 @@ export const DEFAULT_IDLE_EXIT_MS = 10 * 60_000;
 
 async function defaultCreateRenderer(): Promise<OverlayRenderer> {
   // Same renderer options as the per-session path in server.ts, built once for the host.
-  const { loadAgentHostConfig } = await import("@agenthost/core");
-  const { createOverlayRenderer } = await import("@agenthost/app-overlay");
+  const { loadOsseoConfig } = await import("@osseo/core");
+  const { createOverlayRenderer } = await import("@osseo/app-overlay");
   const { inputGuardPath } = await import("../input-guard.js");
-  const config = await loadAgentHostConfig();
+  const config = await loadOsseoConfig();
   return createOverlayRenderer(config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto", {
     sessionId: `host_${process.pid}`,
-    inputGuardPath: inputGuardPath(config.agentHostDir),
+    inputGuardPath: inputGuardPath(config.osseoDir),
     visual: {
       layout: config.overlay?.layout ?? "dock",
       dockSide: config.overlay?.dockSide ?? "right",
@@ -77,8 +77,8 @@ async function defaultCreateRenderer(): Promise<OverlayRenderer> {
 }
 
 async function defaultCreateSession(transport: SocketTransport, info: HostSessionInfo): Promise<HostSession> {
-  const { createAgentHostMcpServer } = await import("../server.js");
-  const { server, context, closeResources } = await createAgentHostMcpServer({
+  const { createOsseoMcpServer } = await import("../server.js");
+  const { server, context, closeResources } = await createOsseoMcpServer({
     sessionId: info.sessionId,
     ...(info.overlayRenderer === undefined ? {} : { overlayRenderer: info.overlayRenderer })
   });
@@ -95,7 +95,7 @@ async function defaultCreateSession(transport: SocketTransport, info: HostSessio
 
 async function defaultHasRunningTask(agentHome: string): Promise<boolean> {
   try {
-    const { listTasks } = await import("@agenthost/core");
+    const { listTasks } = await import("@osseo/core");
     return (await listTasks(agentHome)).some((task) => task.status === "active");
   } catch {
     return false;

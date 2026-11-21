@@ -1,0 +1,836 @@
+#!/usr/bin/env node
+import { chmod, cp, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { closeSync, constants, existsSync, openSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { OSSEO_CONFIG_SCHEMA_VERSION, OSSEO_VERSION, describeDesktopPlatform, acceptConfirmation, alwaysAllowFromConfirmation, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultOsseoHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadOsseoConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, stripBom, transitionTask } from "@osseo/core";
+import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
+import { COMMAND_USAGE, TOP_USAGE, wantsHelp } from "./help.js";
+import { attentionCli } from "./attention.js";
+import { parseFlags } from "./flags.js";
+import { policyCommand } from "./policy.js";
+import { replayCommand } from "./replay.js";
+import { viewerCommand } from "./viewer.js";
+import { trayCommand } from "./tray.js";
+import { portalCommand } from "./portal.js";
+import { journalCommand } from "./journal-cli.js";
+import { failuresCommand } from "./failures-cli.js";
+import { runGuide, type GuideClient } from "./guide.js";
+import { hostCommand, hostDoctorLine } from "./host.js";
+import { shortcutCommand } from "./shortcut.js";
+import { selftestCommand } from "./selftest.js";
+import { pressCheck } from "./press-check.js";
+import { buildScheduleUnits, exitCodeFor, parseParams, parseSchedule, runSavedWorkflow, scheduleUnitName } from "./workflow.js";
+import { checkLinuxRequirements, missingAptPackages, planAptInstall } from "@osseo/os-linux";
+import { claudeAllowAdd, claudeAllowRemove, claudeHooksAdd, claudeHooksRemove, claudeHooksStatus, type AllowLevel } from "./hooks.js";
+import { installLayout } from "./install-layout.js";
+import { rollbackJunctionRelease } from "./junction-release.js";
+import { updateFromZip } from "./update-zip.js";
+import { windowsScheduleAdd, windowsScheduleList, windowsScheduleRemove, type SchtasksRunner } from "./windows-schedule.js";
+import { INTEGRATION_TARGETS, commandOnPath, integrationAdd, integrationRemove, integrationStatus, publicIntegrationReport, type IntegrationAction, type IntegrationPaths, type IntegrationTarget } from "./integrations.js";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const home = os.homedir();
+const agentHome = path.resolve(process.env.OSSEO_HOME ?? defaultOsseoHome(home));
+const publicConfig = path.resolve(process.env.OSSEO_CONFIG ?? defaultPublicConfigPath(home));
+const lockPath = path.join(agentHome, "run", "osseo.lock.json");
+const layout = installLayout({ platform: process.platform, home, env: process.env });
+
+type Json = Record<string, unknown>;
+type Output = { ok: boolean; command: string; data?: unknown; error?: string; warnings?: string[] };
+
+async function print(value: Output, json = false): Promise<void> {
+  const output = json ? `${JSON.stringify(value)}\n` : value.data === undefined ? "" : typeof value.data === "string" ? `${value.data}\n` : `${JSON.stringify(value.data, null, 2)}\n`;
+  if (value.ok && output) process.stdout.write(output);
+  if (!value.ok) process.stderr.write(`osseo ${value.command}: ${value.error ?? "failed"}\n`);
+  for (const warning of value.warnings ?? []) process.stderr.write(`warning: ${warning}\n`);
+}
+function fail(command: string, error: string): Output { return { ok: false, command, error }; }
+async function safeMkdir(directory: string): Promise<void> { await mkdir(directory, { recursive: true, mode: 0o700 }); await chmod(directory, 0o700); }
+async function safeWrite(file: string, content: string): Promise<void> { await safeMkdir(path.dirname(file)); const temporary = `${file}.tmp-${process.pid}-${Date.now()}`; await writeFile(temporary, content, { encoding: "utf8", mode: 0o600 }); await chmod(temporary, 0o600); await rename(temporary, file); await chmod(file, 0o600); }
+async function readJson(file: string): Promise<Json | undefined> { try { return JSON.parse(stripBom(await readFile(file, "utf8"))) as Json; } catch { return undefined; } }
+function redact(value: unknown): unknown {
+  if (typeof value === "string") {
+    if (/token|secret|password|credential|api.?key|cookie/i.test(value)) return "[redacted]";
+    return value.replaceAll(home, "[home]").replaceAll(/(Bearer\s+)[^\s]+/gi, "$1[redacted]");
+  }
+  if (Array.isArray(value)) return value.map(redact);
+  if (value !== null && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, /token|secret|password|credential|api.?key/i.test(key) ? "[redacted]" : redact(item)]));
+  return value;
+}
+/** Looks the program up on PATH without starting it (some clients open a window even for --version). */
+function onPath(command: string): boolean { return commandOnPath(command); }
+function commandExists(command: string): boolean { return spawnSync(command, ["--version"], { stdio: "ignore" }).status === 0; }
+function pythonModuleExists(expression: string): boolean { return spawnSync("python3", ["-c", expression], { stdio: "ignore" }).status === 0; }
+async function probeMcp(entry: string): Promise<{ started: boolean; handshake: boolean; reason?: string }> {
+  if (!existsSync(entry)) return { started: false, handshake: false, reason: "mcp_runtime_missing" };
+  const isolatedHome = await mkdtemp(path.join(os.tmpdir(), "osseo-doctor-")).catch(() => undefined);
+  return await new Promise((resolve) => {
+    const probeHome = isolatedHome ?? path.join(os.tmpdir(), "osseo-doctor-fallback");
+    const outputFile = path.join(probeHome, "mcp-output.jsonl"); const inputFile = path.join(probeHome, "mcp-input.jsonl");
+    writeFileSync(inputFile, JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: { name: "osseo-doctor", version: OSSEO_VERSION } } }) + "\n");
+    const inputFd = openSync(inputFile, "r"); const outputFd = openSync(outputFile, "w");
+    const child = spawn(process.execPath, [entry], { stdio: [inputFd, outputFd, "ignore"], env: { ...process.env, OSSEO_HOME: probeHome, OSSEO_CONFIG: path.join(probeHome, "config.json"), OSSEO_STDIO_EXIT_ON_STDIN_END: "1" } });
+    let settled = false;
+    const finish = (value: { started: boolean; handshake: boolean; reason?: string }): void => { if (settled) return; settled = true; clearTimeout(timer); child.kill("SIGTERM"); closeSync(inputFd); closeSync(outputFd); if (isolatedHome) void rm(isolatedHome, { recursive: true, force: true }); resolve(value); };
+    const readHandshake = async (): Promise<boolean> => (await readFile(outputFile, "utf8").catch(() => "")).split("\n").some((line) => { try { const message = JSON.parse(line) as { id?: unknown; result?: unknown }; return message.id === 1 && message.result !== undefined; } catch { return false; } });
+    const timer = setTimeout(async () => { const handshake = await readHandshake(); finish({ started: true, handshake, ...(handshake ? {} : { reason: "mcp_handshake_timeout" }) }); }, 3_000);
+    child.on("error", () => finish({ started: false, handshake: false, reason: "mcp_start_failed" }));
+    child.on("exit", async () => { if (settled) return; const handshake = await readHandshake(); finish({ started: true, handshake, ...(handshake ? {} : { reason: "mcp_process_exited" }) }); });
+  });
+}
+function runtimeRoot(): string {
+  if (process.env.OSSEO_RELEASE_ROOT) return path.resolve(process.env.OSSEO_RELEASE_ROOT);
+  return path.resolve(here, "../../..");
+}
+function mcpEntry(): string {
+  const explicit = process.env.OSSEO_MCP_ENTRY;
+  if (explicit) return path.resolve(explicit);
+  const root = runtimeRoot();
+  const candidates = [path.join(root, "packages/mcp-server/dist/index.js"), path.join(root, "dist/mcp-server/index.js"), path.join(root, "mcp-server/index.js")];
+  return candidates.find((candidate) => existsSync(candidate)) ?? candidates[0]!;
+}
+async function verifyArchiveChecksum(archive: string, supplied: string | undefined): Promise<string> {
+  const expected = supplied === undefined ? await readSha256Sidecar(archive) : normalizeSha256(supplied);
+  if (expected === undefined) throw new Error("release_checksum_required");
+  const actual = await sha256File(archive);
+  if (actual !== expected) throw new Error("release_checksum_mismatch");
+  return actual;
+}
+async function configObject(): Promise<Json> {
+  const candidate = existsSync(publicConfig) ? publicConfig : legacyConfigPath(home);
+  return (await readJson(candidate)) ?? {};
+}
+async function configValidate(): Promise<Output> {
+  try { const config = await loadOsseoConfig({ env: { ...process.env, OSSEO_CONFIG: existsSync(publicConfig) ? publicConfig : legacyConfigPath(home) } }); return { ok: true, command: "config validate", data: { valid: true, schemaVersion: config.schemaVersion ?? 1, configPath: "[config]" } }; } catch (error) { return fail("config validate", error instanceof Error ? error.message : "config_invalid"); }
+}
+/** Which config file Osseo reads, and a warning when the other one exists with different settings. */
+async function configPath(): Promise<Output> {
+  const legacy = legacyConfigPath(home);
+  const active = existsSync(publicConfig) ? publicConfig : legacy;
+  const other = active === publicConfig ? legacy : publicConfig;
+  const lines = [`Osseo reads: ${active}${existsSync(active) ? "" : " (not created yet; run osseo setup)"}`];
+  const warnings: string[] = [];
+  if (existsSync(other) && other !== active) {
+    const [a, b] = [JSON.stringify(await readJson(active) ?? {}), JSON.stringify(await readJson(other) ?? {})];
+    if (a !== b) warnings.push(`${other} also exists with different settings and is ignored. Move your changes into ${active}.`);
+  }
+  return { ok: true, command: "config path", data: lines.join("\n"), warnings };
+}
+async function configShow(): Promise<Output> { return { ok: true, command: "config show", data: redact(await configObject()) }; }
+async function setup(flags: ReturnType<typeof parseFlags>): Promise<Output> {
+  try {
+    await safeMkdir(agentHome); await safeMkdir(path.join(agentHome, "logs")); await safeMkdir(path.join(agentHome, "run")); await safeMkdir(path.dirname(publicConfig));
+    if (!existsSync(publicConfig)) {
+      const legacy = legacyConfigPath(home);
+      if (existsSync(legacy)) {
+        const migrated = (await readJson(legacy)) ?? {};
+        migrated.schemaVersion = OSSEO_CONFIG_SCHEMA_VERSION;
+        await safeWrite(`${legacy}.migration.bak`, await readFile(legacy, "utf8"));
+        await safeWrite(publicConfig, JSON.stringify(migrated, null, 2) + "\n");
+      } else {
+        await safeWrite(publicConfig, JSON.stringify({ schemaVersion: OSSEO_CONFIG_SCHEMA_VERSION }, null, 2) + "\n");
+      }
+    }
+    const stateFile = path.join(agentHome, "setup", "state.json"); const state = (await readJson(stateFile)) ?? { schemaVersion: 1, completed: [] };
+    const completed = ["environment", "home_config", ...(existsSync(mcpEntry()) ? ["mcp_runtime"] : []), "privacy", "validation"];
+    const manual = ["codex", "overlay"];
+    state.schemaVersion = 1; state.completed = completed; state.pendingManual = flags.flags.has("skip-optional") ? [] : manual; state.skipped = flags.flags.has("skip-optional") ? manual : []; state.updatedAt = new Date().toISOString(); await safeWrite(stateFile, JSON.stringify(state, null, 2) + "\n");
+    return { ok: true, command: "setup", data: { resumable: true, configPath: "[config]", osseoHome: "[osseo-home]", completed, pendingManual: state.pendingManual, skipped: state.skipped }, warnings: ["Browser installation and pairing remain manual.", "System dependencies are not installed automatically."] };
+  } catch (error) { return fail("setup", error instanceof Error ? error.message : "setup_failed"); }
+}
+async function setupGuide(args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const made = await setup(args);
+  if (!made.ok) return made;
+  const paths: IntegrationPaths = {
+    home,
+    project: process.cwd(),
+    ...(process.env.XDG_CONFIG_HOME === undefined ? {} : { xdgConfigHome: process.env.XDG_CONFIG_HOME }),
+    ...(process.env.CODEX_HOME === undefined ? {} : { codexHome: process.env.CODEX_HOME }),
+    ...(process.env.COPILOT_HOME === undefined ? {} : { copilotHome: process.env.COPILOT_HOME }),
+    ...(process.env.CLAUDE_CONFIG_DIR === undefined || process.env.CLAUDE_CONFIG_DIR === "" ? {} : { claudeConfigDir: process.env.CLAUDE_CONFIG_DIR })
+  };
+  const programs: Array<{ target: IntegrationTarget; label: string; command: string }> = [
+    { target: "claude", label: "Claude Code", command: "claude" },
+    { target: "codex", label: "Codex", command: "codex" },
+    { target: "opencode", label: "opencode", command: "opencode" },
+    { target: "cursor", label: "Cursor", command: "cursor" },
+    { target: "copilot-cli", label: "Copilot CLI", command: "copilot" }
+  ];
+  // Read the config the same way the server does; a config that does not load simply leaves the cards off.
+  const guideConfig = process.platform === "win32" ? await loadOsseoConfig().catch(() => undefined) : undefined;
+  const guide = await runGuide({
+    platform: process.platform,
+    homeLabel: "The Osseo folder",
+    ...(process.platform === "win32" ? { windowsCards: { enabled: process.env.OSSEO_WINDOWS_OVERLAY === "1" || guideConfig?.overlay?.windows === true } } : {}),
+    ...(process.platform === "linux" ? {
+      requirements: async () => {
+        const missing = (await checkLinuxRequirements()).filter((dependency) => !dependency.installed);
+        return { missing: missing.map((dependency) => dependency.name), command: "osseo setup deps --apply" };
+      }
+    } : {}),
+    selftest: async () => {
+      const outcome = await selftestCommand(["--json"], agentHome, { mcpEntry: mcpEntry() });
+      const data = outcome.data as { steps?: Array<{ name: string; status: string }>; summary?: string } | undefined;
+      const failed = data?.steps?.find((step) => step.status !== "pass");
+      return { ok: outcome.ok, summary: data?.summary ?? outcome.error ?? "No result.", ...(failed === undefined ? {} : { failedStep: failed.name }) };
+    },
+    clients: async (): Promise<GuideClient[]> => Promise.all(programs.map(async (program) => {
+      const report = await integrationStatus(program.target, paths).catch(() => undefined);
+      const claudeCode = program.target === "claude";
+      return {
+        target: program.target,
+        label: program.label,
+        installed: onPath(program.command),
+        registered: report?.configured === true && report.matches !== false,
+        // Works from a checkout (no `osseo` on PATH). User scope: the default is the current folder only.
+        ...(claudeCode ? { registerCommand: `claude mcp add osseo --scope user -- node "${mcpEntry()}"`, verifyCommand: "claude mcp list" } : {})
+      };
+    }))
+  });
+  const text = guide.lines.join("\n");
+  // print() shows data only on success, so a failed guide goes out as the error text, like selftest.
+  return guide.ok ? { ok: true, command: "setup guide", data: text } : ({ ok: false, command: "setup guide", error: `\n${text}`, exitCode: 1 } as Output);
+}
+async function readLock(): Promise<Json | undefined> { return readJson(lockPath); }
+function processAlive(pid: number): boolean { try { process.kill(pid, 0); return true; } catch { return false; } }
+async function status(): Promise<Output> {
+  const lock = await readLock();
+  const pid = typeof lock?.pid === "number" ? lock.pid : undefined;
+  const [runState, approval] = await Promise.all([readRunState(agentHome), readActiveTaskApproval(agentHome)]);
+  return {
+    ok: true,
+    command: "status",
+    data: {
+      version: OSSEO_VERSION,
+      configured: existsSync(publicConfig) || existsSync(legacyConfigPath(home)),
+      running: pid !== undefined && processAlive(pid),
+      pid: pid ?? null,
+      mcpEntryAvailable: existsSync(mcpEntry()),
+      runState,
+      activeTaskApproval: approval ?? null,
+      note: "MCP is normally launched by the client; status only tracks osseo-managed background processes."
+    }
+  };
+}
+async function start(flags: ReturnType<typeof parseFlags>): Promise<Output> {
+  const entry = mcpEntry(); if (!existsSync(entry)) return fail("start", "mcp_runtime_missing");
+  const current = await readLock(); if (typeof current?.pid === "number" && processAlive(current.pid)) return fail("start", "osseo_already_running");
+  await safeMkdir(path.dirname(lockPath)); const childEnv: NodeJS.ProcessEnv = { ...process.env, OSSEO_CONFIG: existsSync(publicConfig) ? publicConfig : legacyConfigPath(home) };
+  // Every session shares one host (one overlay, one dock) unless OSSEO_HOST is set (0 opts out). Windows keeps the in-process server.
+  if (process.platform !== "win32" && childEnv.OSSEO_HOST === undefined) { childEnv.OSSEO_HOST = "1"; childEnv.OSSEO_HOST_AUTO = "1"; }
+  if (flags.flags.has("background")) return fail("start", "background_unsupported: run osseo start in the foreground or let the MCP client spawn it");
+  const child = spawn(process.execPath, [entry], { stdio: "inherit", env: childEnv });
+  const exit = await new Promise<number>((resolve) => { child.once("error", () => resolve(1)); child.once("exit", (code) => resolve(code ?? 1)); });
+  return exit === 0 ? { ok: true, command: "start", data: { stopped: true } } : fail("start", `mcp_exit_${exit}`);
+}
+async function stop(): Promise<Output> {
+  await safeWrite(path.join(agentHome, "run", "stop.requested"), JSON.stringify({ stopped: true, reason: "cli_stop", at: new Date().toISOString() }) + "\n");
+  await rm(path.join(agentHome, "tasks", "approvals", "active.json"), { force: true }).catch(() => undefined);
+  const lock = await readLock(); const pid = typeof lock?.pid === "number" ? lock.pid : undefined;
+  if (pid === undefined || !processAlive(pid)) { await unlink(lockPath).catch(() => undefined); return { ok: true, command: "stop", data: { stopped: true, background: false, reason: "stop_flag_written" } }; }
+  try { process.kill(pid, "SIGTERM"); } catch { return fail("stop", "process_stop_failed"); }
+  const deadline = Date.now() + 2_000; while (processAlive(pid) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 50));
+  if (processAlive(pid)) return fail("stop", "process_stop_timeout");
+  await unlink(lockPath).catch(() => undefined); return { ok: true, command: "stop", data: { stopped: true, background: true } };
+}
+async function taskCommand(args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const [action, id] = args.positional.slice(1);
+  const taskDir = path.join(agentHome, "tasks");
+  if (action === undefined || action === "list") {
+    let files: string[] = [];
+    try { files = (await readdir(taskDir)).filter((f) => f.endsWith(".json")); } catch { files = []; }
+    const tasks: unknown[] = [];
+    for (const f of files.slice(0, 50)) { const t = await readJson(path.join(taskDir, f)); if (t) tasks.push({ taskId: t.taskId, goal: String(t.goal ?? "").slice(0, 120), status: t.status, phase: t.phase, updatedAt: t.updatedAt }); }
+    return { ok: true, command: "task list", data: { tasks } };
+  }
+  if ((action === "status" || action === "resume" || action === "pause") && id) {
+    const safe = id.replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 200);
+    const record = await readJson(path.join(taskDir, `${safe}.json`));
+    if (!record) return fail(`task ${action}`, "task_not_found");
+    if (action === "status") return { ok: true, command: "task status", data: record };
+    try {
+      const pauseReason = `cli_task_pause:${safe}`;
+      const updated = await transitionTask(agentHome, safe, action === "pause" ? "paused" : "active");
+      if (action === "pause") {
+        await requestPause(agentHome, pauseReason);
+      } else {
+        const runState = await readRunState(agentHome);
+        if (runState.pause.requested && runState.pause.reason === pauseReason) await clearPause(agentHome);
+      }
+      return { ok: true, command: `task ${action}`, data: updated };
+    } catch (error) {
+      return fail(`task ${action}`, error instanceof Error ? error.message : "task_transition_failed");
+    }
+  }
+  if (action === "stop") { await requestStop(agentHome, "cli_task_stop"); await clearActiveTaskApproval(agentHome); return { ok: true, command: "task stop", data: { stopped: true } }; }
+  if (action === "watch" && id) {
+    // Live progress tail: what the agent is doing in the background, without
+    // watching its windows. Polls the redacted task event log; --follow keeps
+    // polling until a terminal state, --notify sends a desktop notification.
+    const safe = id.replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 200);
+    const follow = args.flags.has("follow");
+    const notify = args.flags.has("notify");
+    const readTask = async () => readJson(path.join(taskDir, `${safe}.json`)) as Promise<{ taskId?: string; goal?: string; status?: string; phase?: string; currentAction?: string; updatedAt?: string; events?: Array<{ at?: string; kind?: string; summary?: string }> } | undefined>;
+    let record = await readTask();
+    if (!record) return fail("task watch", "task_not_found");
+    // Optional native progress card: mirrors the redacted task log on the
+    // operator's screen and stays until explicitly dismissed.
+    const overlay = args.flags.has("overlay") ? await attachTaskOverlay(safe, String(record.goal ?? safe), record) : undefined;
+    let seen = 0;
+    const render = (current: NonNullable<Awaited<ReturnType<typeof readTask>>>) => {
+      const events = Array.isArray(current.events) ? current.events : [];
+      const fresh = events.slice(seen);
+      seen = events.length;
+      // Styled follow-up: counts by kind plus the latest error/recovery, so
+      // one glance shows where the task stands without scrolling the log.
+      const counts = new Map<string, number>();
+      for (const event of events) {
+        const kind = typeof event.kind === "string" ? event.kind : "?";
+        counts.set(kind, (counts.get(kind) ?? 0) + 1);
+      }
+      const breakdown = [...counts.entries()].map(([kind, count]) => `${kind}x${count}`).join(" ");
+      const lastAlert = [...events].reverse().find((event) => event.kind === "error" || event.kind === "recovery");
+      const header = `task ${safe} [${current.status ?? "?"}] phase=${current.phase ?? "?"} action=${current.currentAction ?? "?"}` +
+        (events.length > 0 ? ` (${events.length} events${breakdown ? `: ${breakdown}` : ""})` : " (no events yet)") +
+        (lastAlert ? ` last ${lastAlert.kind}: ${String(lastAlert.summary ?? "").slice(0, 120)}` : "");
+      const lines = fresh.map((event) => `  ${event.at ?? "?"} ${event.kind ?? "?"} ${String(event.summary ?? "").slice(0, 160)}`);
+      return { header, lines, status: current.status, eventCount: events.length };
+    };
+    let first = render(record);
+    process.stdout.write(`${first.header}\n${first.lines.slice(-10).join("\n")}${first.lines.length > 0 ? "\n" : ""}`);
+    let terminal: NonNullable<Awaited<ReturnType<typeof readTask>>> | undefined;
+    if (follow) {
+      for (let i = 0; i < 150; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const current = await readTask();
+        if (!current) return fail("task watch", "task_not_found");
+        const update = render(current);
+        if (update.lines.length > 0) process.stdout.write(`${update.lines.join("\n")}\n`);
+        if (overlay) await overlay.update(current);
+        if (current.status === "completed" || current.status === "cancelled") {
+          process.stdout.write(`task ${safe} ${current.status}\n`);
+          if (notify) { try { spawnSync("notify-send", ["Osseo", `Task ${current.status}: ${String(current.goal ?? safe).slice(0, 120)}`], { stdio: "ignore" }); } catch { /* notifications are best effort */ } }
+          terminal = current;
+          break;
+        }
+      }
+      if (overlay) {
+        process.stdout.write("progress card stays visible until Dismiss / Ctrl+C / `osseo overlay hide`\n");
+        await overlay.waitForDismiss();
+        await overlay.close();
+      }
+      return { ok: true, command: "task watch", data: { taskId: safe, status: terminal?.status ?? record.status, phase: terminal?.phase ?? record.phase, eventCount: seen, ...(overlay ? { overlay: true } : {}), ...(terminal === undefined ? { note: "follow window expired (5 min); rerun to keep watching." } : {}) } };
+    }
+    if (notify) { try { spawnSync("notify-send", ["Osseo", `Task ${record.status}: ${String(record.goal ?? safe).slice(0, 120)}`], { stdio: "ignore" }); } catch { /* notifications are best effort */ } }
+    if (overlay) {
+      await overlay.update(record);
+      process.stdout.write("progress card stays visible until Dismiss / Ctrl+C / `osseo overlay hide`\n");
+      await overlay.waitForDismiss();
+      await overlay.close();
+    }
+    return { ok: true, command: "task watch", data: { taskId: safe, goal: record.goal, status: record.status, phase: record.phase, currentAction: record.currentAction, updatedAt: record.updatedAt, ...(overlay ? { overlay: true } : {}), recentEvents: (Array.isArray(record.events) ? record.events : []).slice(-10) } };
+  }
+  if (action === "approve" && id) {
+    const safe = id.replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 200);
+    const record = await readJson(path.join(taskDir, `${safe}.json`));
+    if (!record) return fail("task approve", "task_not_found");
+    if (record.status !== "active") return fail("task approve", "task_not_active");
+    const maxRisk = args.values.get("max-risk") ?? "medium";
+    if (maxRisk !== "low" && maxRisk !== "medium") return fail("task approve", "usage: osseo task approve <id> [--max-risk low|medium]");
+    const approval = { approvalId: `task_approval_cli_${Date.now()}`, taskId: safe, maxRisk, origin: "cli", createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() };
+    await safeMkdir(path.join(taskDir, "approvals"));
+    await safeWrite(path.join(taskDir, "approvals", "active.json"), JSON.stringify(approval, null, 2) + "\n");
+    return { ok: true, command: "task approve", data: { taskId: safe, maxRisk, expiresAt: approval.expiresAt, note: "Routine low/medium effects chain server-side; high/critical still need per-action confirmation." } };
+  }
+  if (action === "export" && id) {
+    return taskExportCommand(args, taskDir, id);
+  }
+  return fail("task", "usage: osseo task [list|status <id>|watch <id> [--follow] [--notify]|export <id> [--format md|html] [--out <path>]|pause <id>|resume <id>|stop|approve <id>]");
+}
+
+async function attachTaskOverlay(taskId: string, goal: string, initial: Json): Promise<{
+  update: (record: Json) => Promise<void>;
+  waitForDismiss: () => Promise<boolean>;
+  close: () => Promise<void>;
+} | undefined> {
+  try {
+    const { createOverlayRenderer, OverlayManager, TaskProgressOverlay } = await import("@osseo/app-overlay");
+    const sessionId = `cli-task-watch-${process.pid}`;
+    const renderer = createOverlayRenderer("auto", { sessionId, environment: process.env });
+    const capabilities = await renderer.capabilities();
+    if (!capabilities.supported) { await renderer.close?.(); return undefined; }
+    const manager = new OverlayManager(renderer, { sessionId }, { hideMarkerPath: path.join(agentHome, "run", "overlay.hide") });
+    let locallyPaused = false;
+    let terminalHandled = false;
+    let interrupted = false;
+    const overlayPauseReason = `cli_task_overlay_pause:${taskId}`;
+    const clearOwnPause = async (): Promise<void> => {
+      const state = await readRunState(agentHome);
+      if (state.pause.requested && state.pause.reason === overlayPauseReason) await clearPause(agentHome);
+    };
+    const onInterrupt = (): void => { interrupted = true; };
+    process.once("SIGINT", onInterrupt);
+    const controller = new TaskProgressOverlay({
+      manager,
+      taskId,
+      title: `Task ${taskId}: ${String(goal).slice(0, 100)}`,
+      onAction: (action) => {
+        if (action === "pause") {
+          locallyPaused = true;
+          void requestPause(agentHome, overlayPauseReason).catch(async () => {
+            locallyPaused = false;
+            await controller.resume();
+          });
+        }
+        if (action === "resume") {
+          locallyPaused = false;
+          void (async () => {
+            try {
+              const state = await readRunState(agentHome);
+              if (state.pause.requested && state.pause.reason !== overlayPauseReason) {
+                await controller.pause();
+                return;
+              }
+              if (state.pause.requested) await clearPause(agentHome);
+            } catch {
+              await controller.pause();
+            }
+          })();
+        }
+        if (action === "stop") {
+          void (async () => {
+            try {
+              await requestStop(agentHome, "overlay_stop");
+              await clearOwnPause();
+              await clearActiveTaskApproval(agentHome);
+              await controller.stopped("Stopped by operator");
+            } catch {
+              await controller.fail("Stop request failed. State-changing actions may still run.");
+            }
+          })();
+        }
+      }
+    });
+    if (!(await controller.start())) { process.off("SIGINT", onInterrupt); await manager.close(); return undefined; }
+    const update = async (record: Json): Promise<void> => {
+      if (terminalHandled) return;
+      const status = String(record.status ?? "running");
+      const detail = [record.phase, record.currentAction].filter((value): value is string => typeof value === "string" && value.length > 0).join(" · ");
+      if (status === "completed") { terminalHandled = true; await controller.complete(detail || "Completed"); return; }
+      if (status === "failed") { terminalHandled = true; await controller.fail(detail || "Failed"); return; }
+      if (status === "cancelled") { terminalHandled = true; await controller.stopped(detail || "Cancelled"); return; }
+      if (status === "blocked" || status === "waiting_approval") { await controller.waitingForApproval(taskId); if (detail) await controller.setDetail(detail); return; }
+      if (locallyPaused) { if (detail) await controller.setDetail(detail); return; }
+      const current = controller.snapshot().status;
+      if (current === "paused" || current === "pause_requested" || current === "waiting_approval") await controller.resume();
+      if (detail) await controller.setDetail(detail);
+    };
+    const waitForDismiss = async (): Promise<boolean> => {
+      while (!interrupted) {
+        const actions = await controller.pollEvents().catch(() => [] as string[]);
+        if (actions.includes("dismiss")) break;
+        await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      const dismissed = !interrupted;
+      process.off("SIGINT", onInterrupt);
+      return dismissed;
+    };
+    const close = async (): Promise<void> => { await controller.dismiss(); await manager.close(); };
+    await update(initial);
+    return { update, waitForDismiss, close };
+  } catch {
+    return undefined;
+  }
+}
+
+async function taskExportCommand(args: ReturnType<typeof parseFlags>, taskDir: string, id: string): Promise<Output> {
+  // Shareable run report: renders the redacted event log (same bounded
+  // summaries as `task watch`) to Markdown or self-contained HTML.
+  const safe = id.replace(/[^A-Za-z0-9_.:-]/g, "").slice(0, 200);
+  const record = await readJson(path.join(taskDir, `${safe}.json`));
+  if (!record) return fail("task export", "task_not_found");
+  const format = args.values.get("format") ?? "md";
+  if (format !== "md" && format !== "html") return fail("task export", "usage: osseo task export <id> [--format md|html] [--out <path>]");
+  const content = format === "html" ? renderTaskHtml(record) : renderTaskMarkdown(record);
+  const out = path.resolve(args.values.get("out") ?? `osseo-task-${safe}.${format === "html" ? "html" : "md"}`);
+  await safeWrite(out, content);
+  const events = Array.isArray(record.events) ? (record.events as unknown[]).length : 0;
+  return { ok: true, command: "task export", data: { taskId: safe, format, path: out, eventCount: events } };
+}
+async function confirmationsCommand(args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const action = args.positional[1];
+  if (action === undefined || action === "list") {
+    const records = await listConfirmations(agentHome);
+    return { ok: true, command: "confirmations", data: { pending: records.map((record) => ({
+      tokenId: record.tokenId,
+      tool: record.tool,
+      riskLevel: record.riskLevel,
+      summary: redact(record.summary),
+      status: record.status,
+      expiresAt: record.expiresAt,
+      createdAt: record.createdAt
+    })) } };
+  }
+  // `--always` is a switch, but parseFlags reads a word after it as its value. Put it back if it was the token.
+  const alwaysValue = args.values.get("always");
+  const always = args.flags.has("always") || alwaysValue !== undefined;
+  const tokenId = args.positional[2] ?? (alwaysValue !== undefined && alwaysValue.startsWith("conf_") ? alwaysValue : undefined);
+  if (tokenId === undefined) return fail(`confirmations ${action}`, `usage: osseo ${action} <tokenId>`);
+  if (action !== "confirm" && action !== "deny") return fail("confirmations", "usage: osseo confirmations [list]|confirm <tokenId>|deny <tokenId>");
+  if (always && action !== "confirm") return fail(action, "--always works only with confirm");
+  try {
+    const record = action === "confirm" ? await acceptConfirmation(agentHome, tokenId) : await rejectConfirmation(agentHome, tokenId);
+    // Approve once first; the rule is written only after that succeeded.
+    const policy = always ? await alwaysAllowFromConfirmation(agentHome, record) : undefined;
+    return { ok: true, command: action, data: { tokenId: record.tokenId, tool: record.tool, status: record.status, summary: redact(record.summary), expiresAt: record.expiresAt, ...(policy === undefined ? {} : { alwaysAllow: policy.written ? { written: true, rule: policy.index, note: "Added to policy.toml. Remove it with osseo policy remove." } : { written: false, reason: policy.reason, message: policy.message } }) } };
+  } catch (error) {
+    return fail(action, error instanceof Error ? error.message : "confirmation_failed");
+  }
+}
+
+async function agentCommand(args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const action = args.positional[1];
+  if (action === undefined || action === "status") {
+    const [runState, approval, handoff] = await Promise.all([readRunState(agentHome), readActiveTaskApproval(agentHome), readHandoff(agentHome)]);
+    return { ok: true, command: "agent status", data: { runState, activeTaskApproval: approval ?? null, handoff } };
+  }
+  if (action === "stop") {
+    const reason = args.values.get("reason") ?? "cli_agent_stop";
+    await requestStop(agentHome, reason);
+    await clearActiveTaskApproval(agentHome);
+    return { ok: true, command: "agent stop", data: { runState: await readRunState(agentHome) } };
+  }
+  if (action === "takeover-begin" || action === "takeover") {
+    const reason = args.values.get("reason") ?? "cli_agent_takeover";
+    await beginTakeover(agentHome, reason);
+    await clearActiveTaskApproval(agentHome);
+    return { ok: true, command: "agent takeover-begin", data: { runState: await readRunState(agentHome) } };
+  }
+  if (action === "pause") {
+    const reason = args.values.get("reason") ?? "cli_agent_pause";
+    await requestPause(agentHome, reason);
+    return { ok: true, command: "agent pause", data: { runState: await readRunState(agentHome) } };
+  }
+  if (action === "resume") {
+    const clearStopFlag = args.flags.has("stop");
+    const clearTakeoverFlag = args.flags.has("takeover");
+    const clearPauseFlag = args.flags.has("pause");
+    if (!clearStopFlag && !clearTakeoverFlag && !clearPauseFlag) {
+      // The common case is a pause. Clear it, and name the exact command for anything else still active.
+      const before = await readRunState(agentHome);
+      if (before.pause.requested) await clearPause(agentHome);
+      const stillActive = [
+        ...(before.stop.requested ? ["Stop is active. To clear it: osseo agent resume --stop"] : []),
+        ...(before.takeover.requested ? ["Takeover is active. To clear it: osseo agent resume --takeover"] : [])
+      ];
+      const note = before.pause.requested ? "Pause cleared." : stillActive.length > 0 ? "No pause was active." : "Nothing to resume: no pause, stop, or takeover is active.";
+      return { ok: true, command: "agent resume", data: { note, stillActive, cleared: { stop: false, takeover: false, pause: before.pause.requested }, runState: await readRunState(agentHome) } };
+    }
+    if (clearStopFlag) await clearStop(agentHome);
+    if (clearTakeoverFlag) {
+      await endHandoff(agentHome);
+      await endTakeover(agentHome);
+    }
+    if (clearPauseFlag) await clearPause(agentHome);
+    return { ok: true, command: "agent resume", data: { runState: await readRunState(agentHome), cleared: { stop: clearStopFlag, takeover: clearTakeoverFlag, pause: clearPauseFlag } } };
+  }
+  return fail("agent", "usage: osseo agent status|pause [--reason text]|stop [--reason text]|takeover-begin [--reason text]|resume --stop|--takeover|--pause");
+}
+
+async function capabilitiesCommand(args?: ReturnType<typeof parseFlags>): Promise<Output> {
+  if (args?.flags.has("markdown") === true) {
+    const { buildCapabilityMarkdown } = await import("@osseo/core");
+    const config = await loadOsseoConfig().catch(() => undefined);
+    return {
+      ok: true,
+      command: "capabilities",
+      data: buildCapabilityMarkdown({ version: OSSEO_VERSION, toolProfile: config?.tools?.profile ?? "desktop" })
+        + "\nLive counts: call system.list_capabilities over MCP, or read osseo://capabilities.\n"
+    };
+  }
+  return { ok: true, command: "capabilities", data: { families: ["computer", "filesystem", "shell", "applications", "mcp", "vision", "ocr"], note: "Authoritative live list: system.list_capabilities over MCP. Permissions: osseo permissions." } };
+}
+async function permissionsCommand(): Promise<Output> {
+  return { ok: true, command: "permissions", data: { model: "observe/low->governed automatic; medium/high state changes->exact confirmation or short-lived task approval; blocked->denied", capabilities: { computer: "allow", filesystem: "allow", shell: "allow", applications: "allow", mcp: "allow", vision: "allow", ocr: "allow" }, hardStop: "osseo stop halts state-changing tools via run/stop.requested" } };
+}
+async function sessionsCommand(): Promise<Output> {
+  const lock = await readLock();
+  return { ok: true, command: "sessions", data: { background: lock ?? null, tasksDir: "[osseo-home]/tasks", stopRequested: existsSync(path.join(agentHome, "run", "stop.requested")), takeoverActive: existsSync(path.join(agentHome, "run", "takeover.active")) } };
+}
+async function attentionCommand(args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const { action, result } = await attentionCli(agentHome, args);
+  return result.ok ? { ok: true, command: `attention ${action}`, data: result.data } : fail("attention", result.error ?? "attention_failed");
+}
+async function overlayCommand(sub: string | undefined, flags: ReturnType<typeof parseFlags>): Promise<Output> {
+  const { listOverlayRendererPids, sweepOrphanedOverlayRenderers } = await import("@osseo/app-overlay");
+  if (sub === "check-input") {
+    const result = await pressCheck(agentHome);
+    const advice = result === "allowed" ? "Your press was accepted as a real hardware press."
+      : result === "denied" ? "You pressed Cancel."
+      : result === "timed_out" ? "No accepted press. If you did press Allow, it was rejected: check that xinput is installed (osseo setup deps) and that you used a physical mouse or touchpad."
+      : "No overlay could be shown here (needs an X11 display and GTK).";
+    return { ok: result === "allowed", command: "overlay check-input", data: { result, note: advice }, ...(result === "allowed" ? {} : { error: `${result}: ${advice}` }) };
+  }
+  if (sub === "hide") {
+    const orphansOnly = flags.flags.has("orphans");
+    if (!orphansOnly) await safeWrite(path.join(agentHome, "run", "overlay.hide"), `${JSON.stringify({ hidden: true, reason: "cli_overlay_hide", at: new Date().toISOString() })}\n`);
+    const { killed, skippedLive } = sweepOrphanedOverlayRenderers();
+    return { ok: true, command: "overlay hide", data: { hidden: !orphansOnly || killed.length > 0, liveManagersNotified: !orphansOnly, hideMarker: !orphansOnly, terminatedRenderers: killed, skippedLiveRenderers: skippedLive } };
+  }
+  if (sub === "status") {
+    const record = await readJson(path.join(agentHome, "run", "overlay-renderer.pid"));
+    const pid = typeof record?.pid === "number" ? record.pid : undefined;
+    const activity = await readActivityStatus(agentHome);
+    const config = await loadOsseoConfig({ env: { ...process.env, OSSEO_CONFIG: existsSync(publicConfig) ? publicConfig : legacyConfigPath(home) } }).catch(() => undefined);
+    return { ok: true, command: "overlay status", data: { mode: config?.overlay?.mode ?? "always", rendererMode: config?.overlayRendererMode ?? "auto", hideMarkerPending: existsSync(path.join(agentHome, "run", "overlay.hide")), registeredRenderer: pid === undefined ? null : { pid, alive: processAlive(pid), sessionId: typeof record?.sessionId === "string" ? record.sessionId : null }, rendererProcesses: listOverlayRendererPids().length, lastActivity: activity ?? null } };
+  }
+  return await doctor();
+}
+async function setupDeps(args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const statuses = await checkLinuxRequirements();
+  const missing = missingAptPackages(statuses);
+  const data = { requirements: statuses, missingPackages: missing };
+  if (missing.length === 0) return { ok: true, command: "setup deps", data: { ...data, installed: false, reason: "All desktop requirements are present." } };
+  const plan = await planAptInstall(missing, process.stdin.isTTY === true);
+  if (!args.flags.has("apply")) return { ok: true, command: "setup deps", data: { ...data, preview: true, run: "osseo setup deps --apply", elevation: plan?.elevation ?? "manual" } };
+  if (plan === undefined) return fail("setup deps", `no apt-get with sudo/pkexec available; install manually: ${missing.join(" ")}`);
+  // sudo prompts in this terminal; pkexec opens the desktop password dialog.
+  const result = spawnSync(plan.command[0]!, plan.command.slice(1), { stdio: "inherit" });
+  const after = await checkLinuxRequirements();
+  return { ok: result.status === 0, command: "setup deps", data: { installed: result.status === 0, elevation: plan.elevation, stillMissing: missingAptPackages(after) }, ...(result.status === 0 ? {} : { error: "apt_install_failed_or_cancelled" }) };
+}
+async function doctor(): Promise<Output> {
+  const config = await configValidate(); const mcp = await probeMcp(mcpEntry()); const windows = process.platform === "win32";
+  // Linux-only checks are left out on Windows: they are not part of a Windows install.
+  const checks = { platform: process.platform === "linux" || windows, architecture: process.arch === "x64", node: Number(process.versions.node.split(".")[0]) >= 20, python: windows ? undefined : commandExists("python3"), x11: windows ? undefined : Boolean(process.env.DISPLAY), gtkProbe: windows ? undefined : pythonModuleExists("import gi; from gi.repository import Gtk"), mcpEntry: existsSync(mcpEntry()), mcpHandshake: mcp.handshake, codexConfig: existsSync(path.join(process.env.CODEX_HOME ?? path.join(home, ".codex"), "config.toml")), storage: existsSync(agentHome) };
+  const desktopPlatform = describeDesktopPlatform();
+  const warnings = [!checks.architecture ? "x86_64 is the public RC target." : "", checks.python === false ? "Install Python 3 for overlay diagnostics." : "", ...desktopPlatform.guidance].filter(Boolean);
+  if (!mcp.handshake) warnings.push(mcp.reason ?? "mcp_handshake_unavailable");
+  const desktopDependencies = windows ? [] : await checkLinuxRequirements();
+  const missingPackages = missingAptPackages(desktopDependencies);
+  if (missingPackages.length > 0) warnings.push(`Missing desktop tools (${desktopDependencies.filter((dependency) => !dependency.installed).map((dependency) => dependency.name).join(", ")}). Run: osseo setup deps --apply (or sudo apt install ${missingPackages.join(" ")})`);
+  return { ok: config.ok, command: "doctor", data: { version: OSSEO_VERSION, checks, desktopPlatform, desktopDependencies, config: config.ok ? "valid" : config.error, mcp, process: await status(), activity: (await readActivityStatus(agentHome)) ?? null, host: await hostDoctorLine(agentHome).catch(() => undefined), paths: { osseoHome: "[osseo-home]", config: "[config]", mcpEntry: "[installed-mcp-runtime]" } }, warnings };
+}
+async function integrationsCommand(targetArg: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const action = (args.positional[2] ?? "status") as IntegrationAction;
+  if (!["status", "add", "remove"].includes(action)) return fail("integrations", "unknown_action");
+  const paths: IntegrationPaths = {
+    home,
+    project: path.resolve(args.values.get("project") ?? process.cwd()),
+    ...(process.env.XDG_CONFIG_HOME === undefined ? {} : { xdgConfigHome: process.env.XDG_CONFIG_HOME }),
+    ...(process.env.CODEX_HOME === undefined ? {} : { codexHome: process.env.CODEX_HOME }),
+    ...(process.env.COPILOT_HOME === undefined ? {} : { copilotHome: process.env.COPILOT_HOME }),
+    ...(process.env.CLAUDE_CONFIG_DIR === undefined || process.env.CLAUDE_CONFIG_DIR === "" ? {} : { claudeConfigDir: process.env.CLAUDE_CONFIG_DIR })
+  };
+  const hookOptions = paths.claudeConfigDir === undefined ? {} : { configDir: paths.claudeConfigDir };
+  if (targetArg === undefined || targetArg === "status") {
+    const reports = await Promise.all(INTEGRATION_TARGETS.map((target) => integrationStatus(target, paths)));
+    return { ok: true, command: "integrations status", data: { targets: reports.map(publicIntegrationReport) } };
+  }
+  if (!INTEGRATION_TARGETS.includes(targetArg as IntegrationTarget)) return fail("integrations", "unknown_integration");
+  const target = targetArg as IntegrationTarget;
+  const apply = args.flags.has("apply");
+  const value = action === "add"
+    ? await integrationAdd(target, paths, apply)
+    : action === "remove"
+      ? await integrationRemove(target, paths, apply)
+      : await integrationStatus(target, paths);
+  if (value.error !== undefined) return fail(`integrations ${target} ${action}`, value.error);
+  // Claude Code also gets attention hooks so its own permission prompts raise the terminal.
+  // Codex gets a turn-end `notify` entry inside its config (reported as codexNotify).
+  const hooks = target !== "claude"
+    ? undefined
+    : action === "add"
+      ? await claudeHooksAdd(home, apply, hookOptions)
+      : action === "remove"
+        ? await claudeHooksRemove(home, apply, hookOptions)
+        : await claudeHooksStatus(home, hookOptions);
+  // Opt-in: Claude Code allow rules for Osseo's tools (--allow-tools read|all), so auto mode does not block them.
+  const allowLevel = args.values.get("allow-tools");
+  if (allowLevel !== undefined && allowLevel !== "read" && allowLevel !== "all") return fail(`integrations ${target} ${action}`, "allow_tools_must_be_read_or_all");
+  const allow = target !== "claude"
+    ? undefined
+    : action === "add" && allowLevel !== undefined
+      ? await claudeAllowAdd(home, allowLevel as AllowLevel, apply, hookOptions)
+      : action === "remove"
+        ? await claudeAllowRemove(home, apply, hookOptions)
+        : undefined;
+  return {
+    ok: true,
+    command: `integrations ${target} ${action}`,
+    data: { ...publicIntegrationReport(value), ...(hooks === undefined ? {} : { attentionHooks: hooks }), ...(allow === undefined ? {} : { allowRules: allow }) },
+    ...(value.applied || hooks?.applied === true || allow?.applied === true ? { warnings: ["reload_client_session"] } : {})
+  };
+}
+async function update(args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const current = layout.current;
+  if (args.flags.has("rollback")) {
+    const previous = `${current}.previous`;
+    if (!existsSync(previous)) return fail("update rollback", "previous_release_missing");
+    if (!args.flags.has("apply")) return { ok: true, command: "update rollback", data: { preview: true, rollbackAvailable: true } };
+    if (layout.platform === "win32") { try { await rollbackJunctionRelease(layout); } catch (error) { return fail("update rollback", error instanceof Error ? error.message : "rollback_failed"); } return { ok: true, command: "update rollback", data: { applied: true, healthCheck: "manifest_present" } }; }
+    const temporary = `${current}.rollback-${process.pid}`; await rename(current, temporary).catch(() => undefined); await rename(previous, current); await rm(temporary, { recursive: true, force: true }); return { ok: true, command: "update rollback", data: { applied: true, healthCheck: "manifest_present" } };
+  }
+  const archive = args.values.get("archive"); if (!archive) return fail("update", "archive_required"); if (!existsSync(archive)) return fail("update", "archive_missing");
+  const checksum = await verifyArchiveChecksum(archive, args.values.get("sha256"));
+  if (archive.toLowerCase().endsWith(".zip")) {
+    const zipped = await updateFromZip({ archive, checksum, apply: args.flags.has("apply"), layout, tmpDir: os.tmpdir() });
+    if (!zipped.ok) return fail("update", zipped.error);
+    if (args.flags.has("apply")) await safeWrite(`${publicConfig}.update.bak`, existsSync(publicConfig) ? await readFile(publicConfig, "utf8") : "");
+    return { ok: true, command: "update", data: zipped.data };
+  }
+  const listing = spawnSync("tar", ["-tzf", archive], { encoding: "utf8" }); if (listing.status !== 0 || listing.stdout.split("\n").some((item) => item.startsWith("/") || item.includes("../"))) return fail("update", "archive_invalid");
+  const first = listing.stdout.split("\n").find((item) => item.length > 0)?.split("/")[0]; if (!first) return fail("update", "archive_layout_invalid");
+  const version = first.replace(/^osseo-v/, "").replace(/-linux-x64$/, ""); if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/u.test(version)) return fail("update", "release_version_invalid");
+  const preview = { archive: path.basename(archive), version, checksum, checksumVerified: true, backupRequired: true, atomicSwitch: true, rollbackOnHealthFailure: true };
+  if (!args.flags.has("apply")) return { ok: true, command: "update", data: { preview: true, ...preview } };
+  const extraction = await mkdtemp(path.join(os.tmpdir(), "osseo-update-")); const extracted = spawnSync("tar", ["-xzf", archive, "-C", extraction], { stdio: "ignore" }); if (extracted.status !== 0) return fail("update", "archive_extract_failed"); const staged = path.join(extraction, first); if (!existsSync(path.join(staged, "version.json")) || !existsSync(path.join(staged, "packages", "mcp-server", "dist", "index.js"))) return fail("update", "archive_health_check_failed");
+  const releases = layout.releases; const manifestVersion = JSON.parse(await readFile(path.join(staged, "version.json"), "utf8")).version as string; if (manifestVersion !== version) return fail("update", "release_version_mismatch"); const destination = path.join(releases, version); await mkdir(releases, { recursive: true, mode: 0o700 }); await rm(destination, { recursive: true, force: true }); await rename(staged, destination); await safeWrite(`${publicConfig}.update.bak`, existsSync(publicConfig) ? await readFile(publicConfig, "utf8") : ""); const previous = `${current}.previous`; await rm(previous, { recursive: true, force: true }); if (existsSync(current)) await rename(current, previous); try { await rename(destination, current); } catch (error) { await rename(previous, current).catch(() => undefined); throw error; } return { ok: true, command: "update", data: { applied: true, version, checksumVerified: true, backup: "[config-backup]", rollbackAvailable: true } };
+}
+async function uninstall(flags: ReturnType<typeof parseFlags>): Promise<Output> { const data = { preview: !flags.flags.has("yes"), removes: ["[installed-release]", "[osseo-wrapper]"], preserves: flags.flags.has("remove-data") ? [] : ["[osseo-home]", "[config]"] }; if (!flags.flags.has("yes")) return { ok: true, command: "uninstall", data }; await stop(); await rm(layout.root, { recursive: true, force: true }); for (const launcher of layout.launchers) await rm(launcher, { force: true }); if (flags.flags.has("remove-data")) { await rm(agentHome, { recursive: true, force: true }); await rm(path.dirname(publicConfig), { recursive: true, force: true }); } return { ok: true, command: "uninstall", data: { ...data, preview: false } }; }
+async function workflowCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output & { exitCode?: number }> {
+  const name = args.positional[2];
+  if (sub === undefined || sub === "list") {
+    const workflows = await listWorkflows(agentHome);
+    return { ok: true, command: "workflow list", data: { workflows: workflows.map((workflow) => ({ name: workflow.name, description: workflow.description, parameters: workflow.parameters.map((parameter) => parameter.name), steps: workflow.steps.length, uses: workflow.uses, updatedAt: workflow.updatedAt })) } };
+  }
+  if (name === undefined) return fail(`workflow ${sub}`, `usage: osseo workflow ${sub} <name>`);
+  if (sub === "show") {
+    const workflow = await loadWorkflow(agentHome, name);
+    return workflow === undefined ? fail("workflow show", "workflow_not_found") : { ok: true, command: "workflow show", data: redact(workflow) };
+  }
+  if (sub === "delete") return (await deleteWorkflow(agentHome, name)) ? { ok: true, command: "workflow delete", data: { deleted: name } } : fail("workflow delete", "workflow_not_found");
+  if (sub === "run") {
+    const summary = await runSavedWorkflow({ agentHome, mcpEntry: mcpEntry(), name, params: parseParams(process.argv.slice(2)) });
+    if (args.flags.has("unattended") && summary.status !== "completed") {
+      const body = summary.status === "needs_approval" ? `Workflow ${name} stopped: it needs your approval. Run: osseo confirmations` : `Workflow ${name} stopped: ${summary.code ?? summary.status}`;
+      spawnSync("notify-send", ["-a", "Osseo", "Osseo scheduled workflow", body.slice(0, 200)], { stdio: "ignore" });
+    }
+    return { ok: summary.status === "completed", command: "workflow run", data: summary, exitCode: exitCodeFor(summary.status), ...(summary.status === "completed" ? {} : { error: `${summary.status}${summary.code === undefined ? "" : `:${summary.code}`}${summary.message === undefined ? "" : ` ${summary.message}`}` }) };
+  }
+  return fail("workflow", "usage: osseo workflow list|show <name>|run <name> [--param k=v]|delete <name>");
+}
+async function memoryCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
+  if (sub === undefined || sub === "list") return { ok: true, command: "memory list", data: { lessons: await listMemory(agentHome) } };
+  if (sub === "delete") {
+    const id = args.positional[2];
+    if (id === undefined) return fail("memory delete", "usage: osseo memory delete <id>");
+    await deleteMemory(agentHome, id);
+    return { ok: true, command: "memory delete", data: { deleted: id } };
+  }
+  if (sub === "clear") {
+    if (!args.flags.has("yes")) return { ok: true, command: "memory clear", data: { preview: true, lessons: (await listMemory(agentHome)).length, note: "Re-run with --yes to erase every lesson." } };
+    await clearMemory(agentHome);
+    return { ok: true, command: "memory clear", data: { cleared: true } };
+  }
+  return fail("memory", "usage: osseo memory list|delete <id>|clear [--yes]");
+}
+function systemdUserDir(): string { return path.join(process.env.XDG_CONFIG_HOME ?? path.join(home, ".config"), "systemd", "user"); }
+const runSchtasks: SchtasksRunner = (schtasksArgs) => {
+  const result = spawnSync("schtasks.exe", schtasksArgs, { encoding: "utf8", windowsHide: true });
+  return { status: result.status, stdout: result.stdout ?? "", stderr: result.stderr || result.error?.message || "" };
+};
+/** Windows: Task Scheduler through schtasks.exe. Same flags as the systemd version. */
+async function windowsScheduleCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
+  const name = args.positional[2];
+  if (sub === undefined || sub === "list") {
+    const listed = windowsScheduleList(runSchtasks);
+    return listed.ok ? { ok: true, command: "schedule list", data: listed.data } : fail("schedule list", listed.error);
+  }
+  if (name === undefined) return fail(`schedule ${sub}`, `usage: osseo schedule ${sub} <workflow>`);
+  const apply = args.flags.has("apply");
+  if (sub === "add") {
+    if (await loadWorkflow(agentHome, name) === undefined) return fail("schedule add", "workflow_not_found");
+    // The task runs in the person's normal environment, so a custom home or config cannot be carried into it.
+    if (process.env.OSSEO_HOME !== undefined || process.env.OSSEO_CONFIG !== undefined) return fail("schedule add", "schedule_env_override_unsupported: unset OSSEO_HOME and OSSEO_CONFIG first");
+    const added = windowsScheduleAdd({ workflow: name, schedule: parseSchedule(args.values), params: parseParams(process.argv.slice(2)), nodePath: process.execPath, cliPath: path.resolve(process.argv[1] ?? "") }, apply, runSchtasks);
+    return added.ok ? { ok: true, command: "schedule add", data: added.data } : fail("schedule add", added.error);
+  }
+  if (sub === "remove") {
+    const removed = windowsScheduleRemove(name, apply, runSchtasks);
+    return removed.ok ? { ok: true, command: "schedule remove", data: removed.data } : fail("schedule remove", removed.error);
+  }
+  return fail("schedule", "usage: osseo schedule list|add <workflow> --daily HH:MM|--weekdays HH:MM|--every 30m [--param k=v] [--apply]|remove <workflow> [--apply]");
+}
+async function scheduleCommand(sub: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
+  if (process.platform === "win32") return await windowsScheduleCommand(sub, args);
+  const name = args.positional[2];
+  const dir = systemdUserDir();
+  if (sub === undefined || sub === "list") {
+    const files = (await readdir(dir).catch(() => [] as string[])).filter((file) => file.startsWith("osseo-wf-") && file.endsWith(".timer"));
+    return { ok: true, command: "schedule list", data: { timers: files.map((file) => file.slice("osseo-wf-".length, -".timer".length)) } };
+  }
+  if (name === undefined) return fail(`schedule ${sub}`, `usage: osseo schedule ${sub} <workflow>`);
+  const unit = scheduleUnitName(name);
+  if (sub === "add") {
+    if (await loadWorkflow(agentHome, name) === undefined) return fail("schedule add", "workflow_not_found");
+    const units = buildScheduleUnits({ workflow: name, schedule: parseSchedule(args.values), params: parseParams(process.argv.slice(2)), nodePath: process.execPath, cliPath: path.resolve(process.argv[1] ?? ""), agentHome, environment: process.env });
+    if (!args.flags.has("apply")) return { ok: true, command: "schedule add", data: { preview: true, wouldWrite: [path.join(dir, `${unit}.service`), path.join(dir, `${unit}.timer`)], service: units.service, timer: units.timer, note: "Re-run with --apply to install. A scheduled run never approves anything: it stops at the first step that needs approval and notifies you." } };
+    await safeMkdir(dir);
+    await writeFile(path.join(dir, `${unit}.service`), units.service, { mode: 0o600 });
+    await writeFile(path.join(dir, `${unit}.timer`), units.timer, { mode: 0o600 });
+    const reload = spawnSync("systemctl", ["--user", "daemon-reload"], { encoding: "utf8" });
+    const enable = spawnSync("systemctl", ["--user", "enable", "--now", `${unit}.timer`], { encoding: "utf8" });
+    if (reload.status !== 0 || enable.status !== 0) return fail("schedule add", `systemctl_failed: ${(enable.stderr || reload.stderr || "").trim().slice(0, 200)}`);
+    return { ok: true, command: "schedule add", data: { installed: `${unit}.timer` } };
+  }
+  if (sub === "remove") {
+    if (!args.flags.has("apply")) return { ok: true, command: "schedule remove", data: { preview: true, wouldRemove: [`${unit}.timer`, `${unit}.service`], note: "Re-run with --apply to remove." } };
+    spawnSync("systemctl", ["--user", "disable", "--now", `${unit}.timer`], { stdio: "ignore" });
+    await rm(path.join(dir, `${unit}.timer`), { force: true });
+    await rm(path.join(dir, `${unit}.service`), { force: true });
+    spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" });
+    return { ok: true, command: "schedule remove", data: { removed: unit } };
+  }
+  return fail("schedule", "usage: osseo schedule list|add <workflow> --daily HH:MM|--weekdays HH:MM|--every 30m [--param k=v] [--apply]|remove <workflow> [--apply]");
+}
+async function main(): Promise<number> {
+  const argv = process.argv.slice(2);
+  if (wantsHelp(argv)) {
+    const command = argv.find((item) => !item.startsWith("-") && item !== "help");
+    process.stdout.write(`${command !== undefined && COMMAND_USAGE[command] !== undefined ? `usage: ${COMMAND_USAGE[command]}` : `usage: ${TOP_USAGE}`}\n`);
+    return 0;
+  }
+  const args = parseFlags(argv); const json = args.flags.has("json"); const [top, sub] = args.positional; let result: Output;
+  try {
+    if (top === undefined) result = { ok: true, command: "help", data: TOP_USAGE };
+    else if (top === "version") result = { ok: true, command: "version", data: { version: OSSEO_VERSION, platform: process.platform, architecture: process.arch } };
+    else if (top === "doctor") result = await doctor();
+    else if (top === "setup") result = sub === "deps" ? await setupDeps(args) : sub === "guide" ? await setupGuide(args) : await setup(args);
+    else if (top === "start") result = await start(args);
+    else if (top === "stop") result = await stop();
+    else if (top === "status") result = await status();
+    else if (top === "task") result = await taskCommand(args);
+    else if (top === "confirm" || top === "deny") result = await confirmationsCommand({ ...args, positional: ["confirmations", top, ...args.positional.slice(1)] });
+    else if (top === "confirmations") result = await confirmationsCommand(args);
+    else if (top === "agent") result = await agentCommand(args);
+    else if (top === "attention") result = await attentionCommand(args);
+    else if (top === "capabilities") result = await capabilitiesCommand(args);
+    else if (top === "permissions") result = await permissionsCommand();
+    else if (top === "sessions") result = await sessionsCommand();
+    else if (top === "integrations") result = await integrationsCommand(sub, args);
+    else if (top === "config") result = sub === "validate" ? await configValidate() : sub === "path" ? await configPath() : await configShow();
+    else if (top === "update") result = await update(args);
+    else if (top === "uninstall") result = await uninstall(args);
+    else if (top === "overlay") result = await overlayCommand(sub, args);
+    else if (top === "workflow") result = await workflowCommand(sub, args);
+    else if (top === "schedule") result = await scheduleCommand(sub, args);
+    else if (top === "memory") result = await memoryCommand(sub, args);
+    else if (top === "policy") result = await policyCommand(agentHome, sub, args, json);
+    else if (top === "replay") result = await replayCommand(args, agentHome);
+    else if (top === "viewer") result = await viewerCommand(argv.slice(argv.indexOf("viewer") + 1), agentHome);
+    else if (top === "tray") result = await trayCommand(argv.slice(argv.indexOf("tray") + 1), agentHome);
+    else if (top === "portal") result = await portalCommand(argv.slice(argv.indexOf("portal") + 1));
+    else if (top === "selftest") result = await selftestCommand(argv.slice(argv.indexOf("selftest") + 1), agentHome, { mcpEntry: mcpEntry() });
+    else if (top === "shortcut") result = await shortcutCommand(argv.slice(argv.indexOf("shortcut") + 1), agentHome);
+    else if (top === "host") result = await hostCommand(argv.slice(argv.indexOf("host") + 1), agentHome, { hostEntry: path.join(path.dirname(mcpEntry()), "host", "main.js") });
+    else if (top === "journal") result = await journalCommand(argv.slice(argv.indexOf("journal") + 1), agentHome, { mcpEntry: mcpEntry() });
+    else if (top === "failures") result = await failuresCommand(argv.slice(argv.indexOf("failures") + 1), agentHome);
+    else result = fail(top, "unknown_command");
+  } catch (error) { result = fail(top ?? "osseo", error instanceof Error ? error.message : "command_failed"); }
+  await print(result, json); return result.ok ? 0 : (result as { exitCode?: number }).exitCode ?? 1;
+}
+void main().then((code) => { process.exitCode = code; });

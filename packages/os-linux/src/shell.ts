@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import type { ShellRunResult } from "@agenthost/core";
+import type { ShellRunResult } from "@osseo/core";
 import { killProcessTree } from "./process-tree.js";
 
 const DEFAULT_TIMEOUT_MS = 10_000;

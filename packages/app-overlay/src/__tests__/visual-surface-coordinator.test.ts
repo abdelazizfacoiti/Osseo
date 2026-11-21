@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { HeadlessOverlayRenderer } from "../headless-renderer.js";
 import { VisualSurfaceCoordinator } from "../visual-surface-coordinator.js";
-import type { VisualSurfaceProtocolEnvelope, OverlayWidget } from "@agenthost/core";
+import type { VisualSurfaceProtocolEnvelope, OverlayWidget } from "@osseo/core";
 
 const surface = (id: string): VisualSurfaceProtocolEnvelope => ({ schemaVersion: 1, surfaceId: id, ownerSessionId: "surface-owner", source: "assistance", type: "instruction_card", content: { title: "Safe", components: [{ type: "text", text: "Visual only" }] }, state: "draft", placement: "top_left", priority: "normal", interactionMode: "click_through", approvedIntents: ["acknowledge"], ttlMs: 30_000, sensitivity: "public", screenshotBehavior: "hide", createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 30_000).toISOString() });
 

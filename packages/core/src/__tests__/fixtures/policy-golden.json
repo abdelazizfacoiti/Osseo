@@ -1,7 +1,7 @@
 {
   "context": {
     "homeDir": "/home/tester",
-    "agentHostDir": "/home/tester/.agenthost",
+    "osseoDir": "/home/tester/.osseo",
     "platform": "linux"
   },
   "cases": [
@@ -59,7 +59,7 @@
       "input": {
         "tool": "file.write",
         "actionType": "file_write",
-        "filePath": "/home/tester/.agenthost/config.json"
+        "filePath": "/home/tester/.osseo/config.json"
       },
       "expected": {
         "riskLevel": "blocked",

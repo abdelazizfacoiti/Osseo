@@ -1,4 +1,4 @@
-# AgentHost minimal-v2 — Features and Runtime Guide
+# Osseo minimal-v2 — Features and Runtime Guide
 
 > **Scope:** the live minimal-v2 tree, package version `0.1.0`. “v2” here means
 > the current minimal-v2 architecture, not a published 2.x release. Historical
@@ -9,9 +9,9 @@
 > `docs/04_SECURITY_PERMISSIONS_AND_LOGGING.md` remain authoritative if this
 > guide ever drifts from source.
 
-## 1. What AgentHost is
+## 1. What Osseo is
 
-AgentHost is a local, provider-agnostic MCP server that gives an AI agent
+Osseo is a local, provider-agnostic MCP server that gives an AI agent
 controlled access to a Linux workstation:
 
 ```text
@@ -45,7 +45,7 @@ Primary design goals:
 packages/
   core/          App-agnostic risk tiers, permissions, policies, types, stores
   mcp-server/    MCP server, tools, runner, resources, overlays, task state
-  agenthost-cli/ Operator CLI
+  osseo-cli/ Operator CLI
   app-overlay/   GTK3 renderer, overlay manager, task progress card
   os-linux/      Linux desktop, filesystem, shell, window, OCR backends
 ```
@@ -81,8 +81,8 @@ source is always:
 
 - MCP `tools/list`
 - `system.list_capabilities`
-- `agenthost://capabilities`
-- `agenthost://capabilities.md`
+- `osseo://capabilities`
+- `osseo://capabilities.md`
 
 ### Tool inventory
 
@@ -177,7 +177,7 @@ Screenshot behavior:
 - Creates output directories with mode `0700`.
 - Removes stale output first.
 - Rejects missing, empty, or zero-byte captures.
-- Suppresses AgentHost overlays during capture and restores them afterward.
+- Suppresses Osseo overlays during capture and restores them afterward.
 - Supports optional `region`, `scale`, `format: "jpeg"`, and `quality`; native
   `scrot -a` region capture avoids post-processing, while crop/scale/JPEG
   conversion requires `ffmpeg` and fails explicitly when unavailable.
@@ -206,7 +206,7 @@ Targets and pictures:
 
 Vision tools operate on approved local images only:
 
-- Default approved sources: AgentHost screenshots and outputs.
+- Default approved sources: Osseo screenshots and outputs.
 - Other paths are refused (`image_path_not_approved`).
 - Maximum image size: 20 MB.
 - Formats: PNG, JPEG, WebP, BMP, TIFF.
@@ -250,7 +250,7 @@ Consequential:
 - A directory target returns `directory_delete_unsupported`.
 
 Default write roots are `~` and `/tmp`; exact per-path decisions come from the
-safety evaluator. AgentHost control-plane files are write/delete blocked.
+safety evaluator. Osseo control-plane files are write/delete blocked.
 
 ### Shell
 
@@ -266,7 +266,7 @@ Features:
 - Classifies destructive commands, wrapper shells, inline interpreters,
   package/service changes, credential paths, and protected control-plane
   access.
-- `sudo`, unsafe metacharacter patterns, and mutating AgentHost control
+- `sudo`, unsafe metacharacter patterns, and mutating Osseo control
   commands are blocked.
 
 High-risk shell effects require exact confirmation. Some lower-risk commands
@@ -274,7 +274,7 @@ may execute directly.
 
 ## 5. Safety and confirmation model
 
-AgentHost has one autonomous runtime policy.
+Osseo has one autonomous runtime policy.
 
 Risk levels are `observe`, `low`, `medium`, `high`, and `blocked`.
 
@@ -307,7 +307,7 @@ These remain denied even with a valid token:
   `ui.*`/`vision.*` reads).
 - Secret data.
 - Protected system paths.
-- AgentHost control-plane writes and deletes.
+- Osseo control-plane writes and deletes.
 - Actions blocked by policy.
 
 ### Dry-run envelope
@@ -333,7 +333,7 @@ Nothing executes.
 
 - Valid for 15 minutes.
 - Single use.
-- Stored under `~/.agenthost/run/confirmations/` with mode `0600`.
+- Stored under `~/.osseo/run/confirmations/` with mode `0600`.
 - Bound to:
   - tool name;
   - canonical arguments;
@@ -349,9 +349,9 @@ Nothing executes.
 Operator commands:
 
 ```bash
-agenthost confirmations
-agenthost confirm <tokenId>
-agenthost deny <tokenId>
+osseo confirmations
+osseo confirm <tokenId>
+osseo deny <tokenId>
 ```
 
 ### Approving from the screen
@@ -360,12 +360,12 @@ Each pending confirmation created by the running MCP server also appears as an
 "Approve this action?" card with the redacted preview, tool, risk, and expiry,
 plus Approve and Deny buttons. Cards are shown one at a time (oldest first)
 and each is bound to its own token, which is never displayed. Approve and Deny
-make exactly the decision `agenthost confirm|deny` makes; they do not run the
+make exactly the decision `osseo confirm|deny` makes; they do not run the
 action, the agent still retries with its token.
 
 Control buttons (Approve, Deny, Continue, Pause, Resume, Stop) are accepted
 only from a real pointer or touch device. The renderer ignores keyboard and
-accessibility activation, input AgentHost injects itself, and synthetic XTEST
+accessibility activation, input Osseo injects itself, and synthetic XTEST
 clicks (for example `xdotool` run through `shell.run`), which GTK reports as
 `Virtual core XTEST pointer`.
 
@@ -387,7 +387,7 @@ can set `overlay.allowSyntheticControl: true`, which turns these checks off.
 ### Active task approval
 
 ```bash
-agenthost task approve <taskId> [--max-risk low|medium]
+osseo task approve <taskId> [--max-risk low|medium]
 ```
 
 - Valid for 30 minutes.
@@ -430,7 +430,7 @@ confirmation-gated.
 
 ## 6. Tasks and definition of done
 
-Tasks are persistent records under `~/.agenthost/tasks/`.
+Tasks are persistent records under `~/.osseo/tasks/`.
 
 ### Lifecycle
 
@@ -486,7 +486,7 @@ not stop a runaway loop:
 - **Yield to the user.** Before injecting input (`desktop.click`,
   `desktop.pointer`, `desktop.hotkey`, `desktop.type_text`, `ui.activate`,
   `ui.set_text`) the runner reads X idle time. If the person touched the
-  keyboard or mouse in the last 1.2 s and it was not AgentHost's own injection
+  keyboard or mouse in the last 1.2 s and it was not Osseo's own injection
   (compared with the `run/input-active` marker), it waits up to 15 s, then
   fails with `user_active` and sends nothing. Disable with
   `execution.yieldToUser: false`. It needs the XScreenSaver extension
@@ -509,7 +509,7 @@ not stop a runaway loop:
   (`desktop.screenshot`, `vision.find_text_on_screen`, `ui.tree`, `ui.find`,
   `clipboard.get`, `computer.wait_for`, `computer.observe_state`) fail with
   `handoff_active`. A "Your turn" card with a pointer-only Continue button, or
-  `agenthost agent resume --takeover`, ends it.
+  `osseo agent resume --takeover`, ends it.
 
 Neither stop nor takeover is gated by the flag it sets, so the agent can request
 them safely.
@@ -530,13 +530,13 @@ These gates apply to state-changing tools only. Observation remains available.
 ### CLI controls
 
 ```bash
-agenthost agent status
-agenthost agent pause [--reason text]
-agenthost agent stop [--reason text]
-agenthost agent takeover-begin [--reason text]
-agenthost agent resume --stop
-agenthost agent resume --takeover
-agenthost agent resume --pause
+osseo agent status
+osseo agent pause [--reason text]
+osseo agent stop [--reason text]
+osseo agent takeover-begin [--reason text]
+osseo agent resume --stop
+osseo agent resume --takeover
+osseo agent resume --pause
 ```
 
 Flags can be combined when clearing multiple gates.
@@ -595,7 +595,7 @@ Computer-action families:
   remaining work area. Dock mode is opt-in because it changes desktop layout
   and can invalidate coordinates captured before it was enabled. It requires
   `xprop`; the background is click-through, and screenshot suppression still
-  hides AgentHost cards.
+  hides Osseo cards.
 
 ### Current-task card
 
@@ -632,13 +632,13 @@ Behavior:
 
 Surfaced by:
 
-- `agenthost overlay status` (including effective overlay/renderer mode)
-- `agenthost doctor`
-- `agenthost://status.lastActivity`
+- `osseo overlay status` (including effective overlay/renderer mode)
+- `osseo doctor`
+- `osseo://status.lastActivity`
 
-`agenthost overlay hide` writes a timestamped cross-process hide marker that
+`osseo overlay hide` writes a timestamped cross-process hide marker that
 only already-running managers honor, and can sweep orphaned GTK renderers.
-`agenthost overlay hide --orphans` only sweeps.
+`osseo overlay hide --orphans` only sweeps.
 
 The renderer prewarms with the server unless overlay mode is `off`; startup and
 shutdown also sweep orphaned renderers. On X11,
@@ -652,14 +652,14 @@ Exactly three resources:
 
 | Resource | Purpose |
 |---|---|
-| `agenthost://capabilities` | Live JSON inventory, execution classes, families |
-| `agenthost://capabilities.md` | Compact agent-facing capability brief |
-| `agenthost://status` | Stop/takeover/pause, active task approval, last activity overlay state |
+| `osseo://capabilities` | Live JSON inventory, execution classes, families |
+| `osseo://capabilities.md` | Compact agent-facing capability brief |
+| `osseo://status` | Stop/takeover/pause, active task approval, last activity overlay state |
 
 There is no skills resource. The portable skill is installed on disk.
 
-For static agent configs, prefer `agenthost://capabilities.md` or
-`agenthost capabilities --markdown` instead of ingesting every tool schema on
+For static agent configs, prefer `osseo://capabilities.md` or
+`osseo capabilities --markdown` instead of ingesting every tool schema on
 every turn.
 
 ## 10. CLI features
@@ -667,13 +667,13 @@ every turn.
 ### Saved workflows and schedules
 
 ```bash
-agenthost workflow list
-agenthost workflow show <name>
-agenthost workflow run <name> [--param key=value ...] [--unattended]
-agenthost workflow delete <name>
-agenthost schedule list
-agenthost schedule add <name> (--daily HH:MM | --weekdays HH:MM | --every 30m|2h) [--param k=v ...] [--apply]
-agenthost schedule remove <name> [--apply]
+osseo workflow list
+osseo workflow show <name>
+osseo workflow run <name> [--param key=value ...] [--unattended]
+osseo workflow delete <name>
+osseo schedule list
+osseo schedule add <name> (--daily HH:MM | --weekdays HH:MM | --every 30m|2h) [--param k=v ...] [--apply]
+osseo schedule remove <name> [--apply]
 ```
 
 `workflow run` loads a saved workflow (see `workflow.save`), fills in the
@@ -681,26 +681,26 @@ parameters, and runs it through the real `computer.run_steps` tool in a fresh
 server context with `stopOnError`, so every approval, safety, stop, pause, and
 takeover gate applies. It never approves anything itself. Exit codes: `0`
 completed, `1` failed, `2` stopped because a step needs an exact confirmation
-(run `agenthost confirmations`), `3` halted by stop/pause/takeover, a handoff,
+(run `osseo confirmations`), `3` halted by stop/pause/takeover, a handoff,
 or because the user was active. `--unattended` also sends a desktop
 notification when a run does not complete.
 
 `schedule add` previews by default; `--apply` writes a systemd user
-`agenthost-wf-<name>.service` and `.timer` and enables the timer. Parameters sit
+`osseo-wf-<name>.service` and `.timer` and enables the timer. Parameters sit
 in a plain-text unit file, so values that look like secrets are refused. The
 unit captures `DISPLAY`, `XAUTHORITY`, `DBUS_SESSION_BUS_ADDRESS`,
-`XDG_RUNTIME_DIR`, and the AgentHost home at creation time; re-run `schedule add
---apply` if your session changes. AgentHost still runs no daemon of its own:
+`XDG_RUNTIME_DIR`, and the Osseo home at creation time; re-run `schedule add
+--apply` if your session changes. Osseo still runs no daemon of its own:
 systemd starts a one-shot process per run.
 
 ### Setup and diagnostics
 
 ```bash
-agenthost version
-agenthost doctor [--json]
-agenthost setup [--resume]
-agenthost config show
-agenthost config validate
+osseo version
+osseo doctor [--json]
+osseo setup [--resume]
+osseo config show
+osseo config validate
 ```
 
 `doctor` checks platform, architecture, Node, Python, X11, GTK/PyGObject, MCP
@@ -712,29 +712,29 @@ automatically.
 ### Runtime lifecycle
 
 ```bash
-agenthost start
-agenthost stop
-agenthost status
-agenthost sessions
+osseo start
+osseo stop
+osseo status
+osseo sessions
 ```
 
 `start` runs in the foreground. `start --background` is rejected. There is no
 daemon, systemd unit, cron job, or restart loop.
 
-`stop` writes the stop flag and terminates an AgentHost-managed background
+`stop` writes the stop flag and terminates an Osseo-managed background
 process if one exists.
 
 ### Tasks
 
 ```bash
-agenthost task list
-agenthost task status <id>
-agenthost task pause <id>
-agenthost task resume <id>
-agenthost task stop
-agenthost task approve <id> [--max-risk low|medium]
-agenthost task watch <id> [--follow] [--notify] [--overlay]
-agenthost task export <id> [--format md|html] [--out <path>]
+osseo task list
+osseo task status <id>
+osseo task pause <id>
+osseo task resume <id>
+osseo task stop
+osseo task approve <id> [--max-risk low|medium]
+osseo task watch <id> [--follow] [--notify] [--overlay]
+osseo task export <id> [--format md|html] [--out <path>]
 ```
 
 `task watch` tails redacted events. `task export` creates a shareable redacted
@@ -743,25 +743,25 @@ report.
 ### Discovery and permissions
 
 ```bash
-agenthost capabilities
-agenthost capabilities --markdown
-agenthost permissions
+osseo capabilities
+osseo capabilities --markdown
+osseo permissions
 ```
 
 ### Overlay
 
 ```bash
-agenthost overlay status
-agenthost overlay hide
-agenthost overlay hide --orphans
+osseo overlay status
+osseo overlay hide
+osseo overlay hide --orphans
 ```
 
 ### Integrations
 
 ```bash
-agenthost integrations status
-agenthost integrations <client> add [--apply]
-agenthost integrations <client> remove [--apply]
+osseo integrations status
+osseo integrations <client> add [--apply]
+osseo integrations <client> remove [--apply]
 ```
 
 Supported clients:
@@ -775,24 +775,24 @@ Supported clients:
 
 Preview is the default. `--apply` writes one entry, preserves unrelated config,
 and backs up existing files. Reload or restart the client afterward so it
-spawns AgentHost.
+spawns Osseo.
 
 Two clients also get attention hooks that raise the agent's terminal through
-`agenthost attention request`: `claude` gets Claude Code hooks in
+`osseo attention request`: `claude` gets Claude Code hooks in
 `~/.claude/settings.json` (permission prompts, questions, turn end), and
-`codex` gets a top-level `notify = ["agenthost", "attention", "request",
+`codex` gets a top-level `notify = ["osseo", "attention", "request",
 "--source", "codex", "--reason", "done"]` in `~/.codex/config.toml`, which Codex
 runs when a turn ends. Codex allows one `notify` program, so an existing one
-that is not AgentHost's is left unchanged and reported in `codexNotify`
-(`configured: false` with a reason). `status` reports whether AgentHost's is
+that is not Osseo's is left unchanged and reported in `codexNotify`
+(`configured: false` with a reason). `status` reports whether Osseo's is
 present and `remove` deletes only that one.
 
 ### Update and uninstall
 
 ```bash
-agenthost update --archive <archive> [--sha256 <digest>] [--apply]
-agenthost update --rollback [--apply]
-agenthost uninstall [--dry-run] [--yes] [--remove-data]
+osseo update --archive <archive> [--sha256 <digest>] [--apply]
+osseo update --rollback [--apply]
+osseo uninstall [--dry-run] [--yes] [--remove-data]
 ```
 
 Updates require checksum verification, preflight, backup, atomic switch, and
@@ -805,7 +805,7 @@ Any MCP client can use:
 ```json
 {
   "mcpServers": {
-    "agenthost": { "command": "agenthost", "args": ["start"] }
+    "osseo": { "command": "osseo", "args": ["start"] }
   }
 }
 ```
@@ -816,7 +816,7 @@ Known integration config locations:
 |---|---|
 | `opencode` | `~/.config/opencode/opencode.json[c]` under `mcp` |
 | `claude` | `~/.claude.json` under `mcpServers` |
-| `codex` | `~/.codex/config.toml` under `[mcp_servers.agenthost]` |
+| `codex` | `~/.codex/config.toml` under `[mcp_servers.osseo]` |
 | `copilot` | `<project>/.vscode/mcp.json` under `servers` |
 | `copilot-cli` | `~/.copilot/mcp-config.json` under `mcpServers` |
 | `cursor` | `<project>/.cursor/mcp.json` under `mcpServers` |
@@ -834,17 +834,17 @@ npm run skill:install -- --print
 ```
 
 The skill teaches an assistant when to route laptop-control work through
-AgentHost. `--no-mcp` installs skill text only.
+Osseo. `--no-mcp` installs skill text only.
 
 ## 12. Configuration
 
-AgentHost loads one strict JSON config with `schemaVersion: 1`.
+Osseo loads one strict JSON config with `schemaVersion: 1`.
 
 Main fields:
 
 | Field | Purpose |
 |---|---|
-| `agentHostDir` | Runtime data directory |
+| `osseoDir` | Runtime data directory |
 | `logFile` | Audit log path |
 | `overlay` | Renderer mode, activity mode, theme, density, persistence, placement, width, monitor policy |
 | `execution` | `placement` (`foreground` default, `background` nested display), `yieldToUser` (default true), `maxActionsPerTask` (default 500; 0 = off) |
@@ -884,12 +884,12 @@ visible success.
 
 Documented environment overrides:
 
-- `AGENTHOST_HOME`
-- `AGENTHOST_CONFIG`
-- `AGENTHOST_LOG_FILE`
-- `AGENTHOST_OVERLAY_MODE`
+- `OSSEO_HOME`
+- `OSSEO_CONFIG`
+- `OSSEO_LOG_FILE`
+- `OSSEO_OVERLAY_MODE`
 
-`AGENTHOST_PROFILE` is ignored. Legacy settings may be accepted for
+`OSSEO_PROFILE` is ignored. Legacy settings may be accepted for
 configuration compatibility, but they do not register removed tools. Removed
 top-level config keys such as `runtimeActivityOverlay`, `browserBridge`,
 `controlRoom`, and `profile` are stripped before strict validation.
@@ -898,7 +898,7 @@ top-level config keys such as `runtimeActivityOverlay`, `browserBridge`,
 
 ### Background placement (nested display)
 
-`execution.placement: "background"` (or `AGENTHOST_EXECUTION_PLACEMENT`) starts a
+`execution.placement: "background"` (or `OSSEO_EXECUTION_PLACEMENT`) starts a
 nested Xephyr display (`:90` upward) when the server starts. Screenshots, input,
 window tools, app launch, and a headed `browser.open` all target it, so the
 person keeps their own cursor, keyboard, and screen; the nested desktop appears
@@ -925,32 +925,32 @@ for X11 (XWayland) apps. Native Wayland windows are not reachable directly: ther
 is no XTEST or global window list. See `docs/13_PLATFORMS.md`.
 
 For native Wayland apps, `execution.placement: "background"` is the supported
-path, because Xephyr runs under XWayland and gives AgentHost a real X
-display. Apps must be started by AgentHost to live inside it; it cannot control
+path, because Xephyr runs under XWayland and gives Osseo a real X
+display. Apps must be started by Osseo to live inside it; it cannot control
 native Wayland windows outside it. This was verified end to end against a
 headless GNOME Wayland compositor using a standalone `Xwayland`; mutter's own
 on-demand XWayland did not serve clients in headless mode, so a normal logged-in
-Wayland session has not been exercised. `agenthost doctor` prints this guidance
+Wayland session has not been exercised. `osseo doctor` prints this guidance
 on Wayland.
 
 ### Memory
 
 `memory.save`, `memory.search`, and `memory.delete` keep short lessons about how
 to work on this computer, at most 200 entries of 300 characters in
-`~/.agenthost/memory/lessons.json`. Secrets are refused, and search results are
+`~/.osseo/memory/lessons.json`. Secrets are refused, and search results are
 marked `untrustedContent` because a lesson can originate from a hostile page.
-Operators can inspect and erase everything: `agenthost memory
+Operators can inspect and erase everything: `osseo memory
 list|delete <id>|clear --yes`.
 
 ### Push notifications
 
 `notifications.pushUrl` (https, opt-in) receives one fixed POST, at most every 30
-seconds, saying AgentHost is waiting at the computer. It carries no preview,
+seconds, saying Osseo is waiting at the computer. It carries no preview,
 app name, task text, or token, and it cannot approve anything.
 
 ### Dropped
 
-A pixel-based "did the click do anything" check: AgentHost's own cards and rings
+A pixel-based "did the click do anything" check: Osseo's own cards and rings
 would always register as change. The old geometry-based hint could never change,
 so it was removed.
 
@@ -959,7 +959,7 @@ so it was removed.
 ### Runtime data
 
 ```text
-~/.agenthost/
+~/.osseo/
   logs/
   screenshots/
   outputs/
@@ -973,9 +973,9 @@ so it was removed.
     overlay.hide
 ```
 
-Installed public config lives under `~/.config/agenthost/`. Installation files
-live under `~/.local/share/agenthost/` with the launcher at
-`~/.local/bin/agenthost`.
+Installed public config lives under `~/.config/osseo/`. Installation files
+live under `~/.local/share/osseo/` with the launcher at
+`~/.local/bin/osseo`.
 
 ### Audit logging
 
@@ -1008,20 +1008,20 @@ A failed audit write does not repeat a completed action.
 - No public listener.
 - No telemetry upload.
 - No cloud OCR.
-- No access to the person's own browser profile, cookies, or storage. `browser.*` drives a separate AgentHost profile on a loopback-only debugger port.
+- No access to the person's own browser profile, cookies, or storage. `browser.*` drives a separate Osseo profile on a loopback-only debugger port.
 - No credential extraction.
 - No CAPTCHA, MFA, login, payment, or security bypass.
 - No generated code execution in this tree.
 
 ## 14. Packaging and release
 
-AgentHost ships as a Linux x86_64 archive with a rootless CLI:
+Osseo ships as a Linux x86_64 archive with a rootless CLI:
 
 ```text
-~/.local/share/agenthost/
-~/.local/bin/agenthost
-~/.config/agenthost/config.json
-~/.agenthost/
+~/.local/share/osseo/
+~/.local/bin/osseo
+~/.config/osseo/config.json
+~/.osseo/
 ```
 
 No sudo, system service, package installation, or hidden browser installation.
@@ -1033,7 +1033,7 @@ npm run build
 npm run release:build
 npm run release:scan
 npm run release:verify
-npm run release:install -- release/agenthost-v0.1.0-linux-x64.tar.gz
+npm run release:install -- release/osseo-v0.1.0-linux-x64.tar.gz
 ```
 
 The archive contains compiled runtime, production dependencies, renderer
@@ -1062,8 +1062,8 @@ Current v2 safeguards include:
   their own token.
 - State-changing execution is serialized per MCP session; read-only calls may
   run concurrently and stop/takeover is rechecked after queueing.
-- Optional `AGENTHOST_TRACE=1` writes redacted timestamped phase traces under
-  `~/.agenthost/logs/traces/<session>.jsonl`.
+- Optional `OSSEO_TRACE=1` writes redacted timestamped phase traces under
+  `~/.osseo/logs/traces/<session>.jsonl`.
 - Active-window verification before GUI input.
 - Focus verification and fallback.
 - Screenshot directory creation, stale-file removal, and zero-byte rejection.
@@ -1108,7 +1108,7 @@ Do not treat these as available features:
 ## 17. Typical agent operating loop
 
 ```text
-1. Read agenthost://capabilities.md
+1. Read osseo://capabilities.md
 2. Create a task with observable completion criteria
 3. Follow the fidelity ladder: shell/file or an app adapter first, then
    accessibility/GUI only when needed

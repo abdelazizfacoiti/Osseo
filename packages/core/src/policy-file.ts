@@ -347,11 +347,11 @@ export function decidePolicy(
 // File
 // ---------------------------------------------------------------------------
 
-export function policyFilePath(agentHostDir: string): string {
-  return path.join(agentHostDir, POLICY_FILE_NAME);
+export function policyFilePath(osseoDir: string): string {
+  return path.join(osseoDir, POLICY_FILE_NAME);
 }
 
-export const DEFAULT_POLICY_TEXT = `# AgentHost policy.
+export const DEFAULT_POLICY_TEXT = `# Osseo policy.
 #
 # Rules are checked from top to bottom. The first rule that matches decides.
 # Each rule has an action and a decision. app and site are optional.
@@ -392,10 +392,10 @@ decision = "ask"
 `;
 
 /** Writes the commented default file when none exists. Never overwrites. Returns true when it wrote. */
-export async function ensurePolicyFile(agentHostDir: string): Promise<boolean> {
+export async function ensurePolicyFile(osseoDir: string): Promise<boolean> {
   try {
-    await mkdir(agentHostDir, { recursive: true, mode: 0o700 });
-    await writeFile(policyFilePath(agentHostDir), DEFAULT_POLICY_TEXT, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    await mkdir(osseoDir, { recursive: true, mode: 0o700 });
+    await writeFile(policyFilePath(osseoDir), DEFAULT_POLICY_TEXT, { encoding: "utf8", mode: 0o600, flag: "wx" });
     return true;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
@@ -413,15 +413,15 @@ export interface LoadedPolicy {
 
 const cache = new Map<string, { key: string; loaded: LoadedPolicy }>();
 
-export function invalidatePolicyCache(agentHostDir?: string): void {
-  if (agentHostDir === undefined) cache.clear();
-  else cache.delete(path.resolve(agentHostDir));
+export function invalidatePolicyCache(osseoDir?: string): void {
+  if (osseoDir === undefined) cache.clear();
+  else cache.delete(path.resolve(osseoDir));
 }
 
 /** Reads policy.toml, again whenever its mtime or size changes. */
-export async function loadPolicy(agentHostDir: string): Promise<LoadedPolicy> {
-  const file = policyFilePath(agentHostDir);
-  const dir = path.resolve(agentHostDir);
+export async function loadPolicy(osseoDir: string): Promise<LoadedPolicy> {
+  const file = policyFilePath(osseoDir);
+  const dir = path.resolve(osseoDir);
   let info;
   try {
     info = await stat(file);
@@ -512,10 +512,10 @@ export function removeRuleText(text: string, index: number): string {
   return [...lines.slice(0, rule.line - 1), ...lines.slice(end)].join("\n");
 }
 
-async function atomicWritePolicy(agentHostDir: string, text: string): Promise<void> {
+async function atomicWritePolicy(osseoDir: string, text: string): Promise<void> {
   parsePolicy(text); // never write a file the loader would reject
-  await mkdir(agentHostDir, { recursive: true, mode: 0o700 });
-  const target = policyFilePath(agentHostDir);
+  await mkdir(osseoDir, { recursive: true, mode: 0o700 });
+  const target = policyFilePath(osseoDir);
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
   try {
     await writeFile(temporary, text, { encoding: "utf8", mode: 0o600 });
@@ -525,12 +525,12 @@ async function atomicWritePolicy(agentHostDir: string, text: string): Promise<vo
     await rm(temporary, { force: true }).catch(() => undefined);
     throw error;
   }
-  invalidatePolicyCache(agentHostDir);
+  invalidatePolicyCache(osseoDir);
 }
 
-async function readPolicyText(agentHostDir: string): Promise<string> {
+async function readPolicyText(osseoDir: string): Promise<string> {
   try {
-    return await readFile(policyFilePath(agentHostDir), "utf8");
+    return await readFile(policyFilePath(osseoDir), "utf8");
   } catch {
     return DEFAULT_POLICY_TEXT;
   }
@@ -539,22 +539,22 @@ async function readPolicyText(agentHostDir: string): Promise<string> {
 export interface PolicyEdit { index: number; text: string; rule: NewPolicyRule }
 
 /** Builds the edit without writing it (preview). */
-export async function planAddRule(agentHostDir: string, rule: NewPolicyRule): Promise<PolicyEdit> {
+export async function planAddRule(osseoDir: string, rule: NewPolicyRule): Promise<PolicyEdit> {
   const problem = validateNewRule(rule);
   if (problem !== undefined) throw new Error(problem);
-  const inserted = insertRuleText(await readPolicyText(agentHostDir), rule);
+  const inserted = insertRuleText(await readPolicyText(osseoDir), rule);
   return { index: inserted.index, text: inserted.text, rule };
 }
 
-export async function addRule(agentHostDir: string, rule: NewPolicyRule): Promise<PolicyEdit> {
-  const edit = await planAddRule(agentHostDir, rule);
-  await atomicWritePolicy(agentHostDir, edit.text);
+export async function addRule(osseoDir: string, rule: NewPolicyRule): Promise<PolicyEdit> {
+  const edit = await planAddRule(osseoDir, rule);
+  await atomicWritePolicy(osseoDir, edit.text);
   return edit;
 }
 
-export async function removeRule(agentHostDir: string, index: number): Promise<void> {
-  const text = await readPolicyText(agentHostDir);
-  await atomicWritePolicy(agentHostDir, removeRuleText(text, index));
+export async function removeRule(osseoDir: string, index: number): Promise<void> {
+  const text = await readPolicyText(osseoDir);
+  await atomicWritePolicy(osseoDir, removeRuleText(text, index));
 }
 
 export type AlwaysAllowResult =
@@ -570,7 +570,7 @@ export const REMEMBERABLE_ACTIONS: readonly PolicyAction[] = ["send", "upload", 
  * prompt and got a physical or chat answer; this only turns the answer into a rule.
  */
 export async function applyAlwaysAllow(
-  agentHostDir: string,
+  osseoDir: string,
   record: { appName?: string | undefined; site?: string | undefined; category?: string | undefined }
 ): Promise<AlwaysAllowResult> {
   const category = record.category;
@@ -597,14 +597,14 @@ export async function applyAlwaysAllow(
   const problem = validateNewRule(rule);
   if (problem !== undefined) return { written: false, reason: "policy_invalid", message: `${problem}. Approved once only.` };
   try {
-    const text = await readPolicyText(agentHostDir);
+    const text = await readPolicyText(osseoDir);
     const existing = parsePolicy(text);
     const target: PolicyTarget = { app: hasApp ? app : undefined, site: hasSite ? site.toLowerCase().replace(/^\*?\./, "") : undefined };
     const decided = existing.find((entry) => ruleMatches(entry, category as PolicyAction, target));
     if (decided?.decision === "allow" && decided.action === category) {
       return { written: false, reason: "already_allowed", message: "A rule already allows this, so it was approved once only." };
     }
-    const edit = await addRule(agentHostDir, rule);
+    const edit = await addRule(osseoDir, rule);
     return { written: true, index: edit.index, rule };
   } catch (error) {
     const invalid = error instanceof PolicyParseError;
@@ -614,7 +614,7 @@ export async function applyAlwaysAllow(
 
 /** The one function all three surfaces (chat, card, CLI) call after the person chose "Always allow here". */
 export async function alwaysAllowFromConfirmation(
-  agentHostDir: string,
+  osseoDir: string,
   record: Pick<ConfirmationRecord, "policyTarget" | "riskLevel">
 ): Promise<AlwaysAllowResult> {
   if (record.riskLevel === "blocked") {
@@ -624,7 +624,7 @@ export async function alwaysAllowFromConfirmation(
   if (target === undefined) {
     return { written: false, reason: "no_category", message: "This approval did not record what it was about, so it was approved once only." };
   }
-  return applyAlwaysAllow(agentHostDir, { appName: target.app, site: target.site, category: target.category });
+  return applyAlwaysAllow(osseoDir, { appName: target.app, site: target.site, category: target.category });
 }
 
 export function describeRule(rule: PolicyRule, index: number): string {

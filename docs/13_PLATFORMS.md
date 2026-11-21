@@ -1,13 +1,13 @@
 # Platforms and session types
 
-What AgentHost can control, by operating system and session. Run
-`agenthost doctor` to see this for the current machine (`desktopPlatform`).
+What Osseo can control, by operating system and session. Run
+`osseo doctor` to see this for the current machine (`desktopPlatform`).
 
 | Host | Session | Control | Verified |
 |---|---|---|---|
 | Linux | X11 | Full: windows, input, screenshots, cards, accessibility | Daily use |
 | Linux | Wayland + XWayland | X11 (XWayland) windows only: list, focus, type, click, screenshot, cards | Headless GNOME compositor with `Xwayland` |
-| Linux | Native Wayland, no XWayland | Opt-in: `AGENTHOST_WAYLAND_PORTAL=1` sends input and screenshots through the desktop portal after one consent (not yet run on a real Wayland login). Otherwise `execution.placement: "background"` (Xephyr) | Headless GNOME compositor |
+| Linux | Native Wayland, no XWayland | Opt-in: `OSSEO_WAYLAND_PORTAL=1` sends input and screenshots through the desktop portal after one consent (not yet run on a real Wayland login). Otherwise `execution.placement: "background"` (Xephyr) | Headless GNOME compositor |
 | Linux | Headless | Only tools that need no display | Yes |
 | Windows | Native desktop (W2) | Windows, mouse, keyboard, screenshots, clipboard and accessibility (Windows UI Automation: `ui.*`, `screen.read`, label clicks, `set_field` read-back, `guide.show` labels) through a PowerShell helper (`packages/os-windows`); headless tools as in W1. No OCR fallback; windows running as administrator are refused (`elevated_window`) | Verified on Windows 11 Pro 10.0.26200 (2026-11-16): `scripts\windows-desktop-check.ps1` 32 of 32 |
 | macOS | Native | Not implemented: desktop tools fail with `unsupported_platform` | No |
@@ -46,13 +46,13 @@ JSON lines on stdin and stdout, like the GTK renderer on Linux. Nothing is insta
   refused (`elevated_window`). Chrome and Edge expose page controls only once a UI Automation client has asked
   (they switch accessibility on by themselves); other apps (games, custom-drawn UIs) may expose nothing.
 - **Not yet:** OCR for label clicks, the `ffmpeg`-free inline JPEG (screenshots work, but inline images need
-  `ffmpeg` on PATH for now). The overlay (W3) is built behind `AGENTHOST_WINDOWS_OVERLAY=1`; see below.
+  `ffmpeg` on PATH for now). The overlay (W3) is built behind `OSSEO_WINDOWS_OVERLAY=1`; see below.
 - **Check it:** `powershell -ExecutionPolicy Bypass -File scripts\windows-desktop-check.ps1`. It drives
   a test window it creates, never your own apps. `-ElevatedProbe` checks the administrator refusal.
 
 ## Windows overlay (W3)
 
-Built and opt-in. The safety guard and the dock passed on Windows 11 Pro 10.0.26200 on 2026-11-16 (see Check it below). With `AGENTHOST_WINDOWS_OVERLAY=1` the server draws the
+Built and opt-in. The safety guard and the dock passed on Windows 11 Pro 10.0.26200 on 2026-11-16 (see Check it below). With `OSSEO_WINDOWS_OVERLAY=1` the server draws the
 action, task and approval cards with WPF, in one Windows PowerShell process that speaks the same protocol as
 the Linux renderer. Without the variable nothing changes: the headless renderer runs, as before.
 
@@ -66,8 +66,8 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
 - **Not drawn:** the pointer, ring, highlight, frame and pill primitives. The cards work without them. Cards go
   on the primary display only. A card without buttons passes clicks through.
 - **Switch.** The cards turn on with `"windows": true` under `"overlay"` in `config.json`, or with
-  `AGENTHOST_WINDOWS_OVERLAY=1`. `overlay.mode` is `always`, `on_change` or `off`; there is no true/false switch for
-  it. `agenthost setup guide` says which of these applies on Windows.
+  `OSSEO_WINDOWS_OVERLAY=1`. `overlay.mode` is `always`, `on_change` or `off`; there is no true/false switch for
+  it. `osseo setup guide` says which of these applies on Windows.
 - **Dock.** With `overlay.layout` `dock` (the default) the strip on `overlay.dockSide` takes `overlay.dockWidthPercent`
   of the primary display, at least 240 units wide. The shell reserves it the way it reserves the taskbar
   (`SHAppBarMessage`), so maximized windows end at its edge. The timeline card sits at its top, and cards whose
@@ -89,7 +89,7 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
   starts and installs the mouse guard; the test card is shown and listed; UI Automation finds the Stop button
   with bounds; a synthetic click on Stop is refused; a real click on Stop is accepted
   (`emergency_stop_requested`); the state lists the card; dismiss removes it; close leaves no card behind.
-  The check counts only the card it shows, so a card with the same title from another AgentHost session is ignored.
+  The check counts only the card it shows, so a card with the same title from another Osseo session is ignored.
 - **Card look.** Timeline rows show a state glyph (green check for done, blue dot for running, amber circle for waiting,
   red cross for failed), the label in bold with the detail under it, and the time at the right. Status badges are
   tinted pills, key/value rows have a fixed key column, and cards use the Linux gradient and edge. Checked by eye on
@@ -101,7 +101,7 @@ the Linux renderer. Without the variable nothing changes: the headless renderer 
 
 ## Windows browser (the agent's own Chrome)
 
-`browser.*` drives the agent's own Chrome on a dedicated profile (`~\.agenthost\browser\profiles\agent`), never the
+`browser.*` drives the agent's own Chrome on a dedicated profile (`~\.osseo\browser\profiles\agent`), never the
 person's profile. `scripts\windows-browser-check.mjs` checks it on Windows: a visible Chrome window opens, a local
 form is read by DOM, typed into and submitted, and the confirmation page is reached. Last run, Windows 11 Pro
 10.0.26200, 2026-11-16: 6 passed, 0 failed. Chrome is closed afterwards. An earlier `connection_closed` on
@@ -114,35 +114,35 @@ the agent's browser unless `in: "my-browser"` is given.
 
 ## Windows packaging (W4)
 
-Installed on Windows 11 (2026-11-17). The zip is built on Windows from the stage (`npm run release:build -- --stage-only`, then `npm run release:build:windows`); `scripts\install.ps1` with `AGENTHOST_ARCHIVE` installed it into this account, an update to a later release and `update --rollback` switched the release junction, and `agenthost doctor` passes. Not run: a clean user (creating one needs administrator rights), and client registration with the installed release. What exists:
+Installed on Windows 11 (2026-11-17). The zip is built on Windows from the stage (`npm run release:build -- --stage-only`, then `npm run release:build:windows`); `scripts\install.ps1` with `OSSEO_ARCHIVE` installed it into this account, an update to a later release and `update --rollback` switched the release junction, and `osseo doctor` passes. Not run: a clean user (creating one needs administrator rights), and client registration with the installed release. What exists:
 
 - **Installer.** `scripts/install.ps1` (Windows PowerShell 5.1): checks OS, x64 and Node 20+, takes the
-  archive from `AGENTHOST_ARCHIVE`, `AGENTHOST_ARCHIVE_URL` or the latest release
-  (`agenthost-win-x64.zip`), always verifies the SHA-256, installs under `%LOCALAPPDATA%\AgentHost`
-  with a `current` junction, writes `bin\agenthost.cmd` (and an `agenthost` shim for Git Bash), and adds
+  archive from `OSSEO_ARCHIVE`, `OSSEO_ARCHIVE_URL` or the latest release
+  (`osseo-win-x64.zip`), always verifies the SHA-256, installs under `%LOCALAPPDATA%\Osseo`
+  with a `current` junction, writes `bin\osseo.cmd` (and an `osseo` shim for Git Bash), and adds
   `bin` to the user `Path` only when missing. No administrator rights, no execution-policy change
   (run it with `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`). `-DryRun`, `-Help`.
   Download and read the script before running it; do not pipe it into `iex`.
 - **Release zip.** `npm run release:build:windows` (after `release:build`) writes
-  `agenthost-v<version>-win-x64.zip` with Node only (`packages/agenthost-cli/src/zip.ts`). The CLI reads
-  it the same way: `agenthost update --archive <zip> --apply`. Zip64, encryption and symbolic links are
+  `osseo-v<version>-win-x64.zip` with Node only (`packages/osseo-cli/src/zip.ts`). The CLI reads
+  it the same way: `osseo update --archive <zip> --apply`. Zip64, encryption and symbolic links are
   refused, and so are names with `..`, `:` or backslashes.
-- **Folders.** Config `%APPDATA%\agenthost\config.json`; runtime data `%USERPROFILE%\.agenthost`
-  (unchanged, so the W1 access-list rules apply); releases `%LOCALAPPDATA%\AgentHost`.
+- **Folders.** Config `%APPDATA%\osseo\config.json`; runtime data `%USERPROFILE%\.osseo`
+  (unchanged, so the W1 access-list rules apply); releases `%LOCALAPPDATA%\Osseo`.
 - **Client integrations.** Same config files as on Linux, under `%USERPROFILE%`; entries run
-  `cmd /c agenthost start`. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME` and `XDG_CONFIG_HOME`
+  `cmd /c osseo start`. `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME` and `XDG_CONFIG_HOME`
   override the roots. A byte order mark in a config file is accepted.
-- **Schedules.** `agenthost schedule add|list|remove` use `schtasks.exe` (`/SC DAILY|WEEKLY|MINUTE`),
-  task `AgentHost\wf-<name>`, per user, `/F`, preview unless `--apply`. Names must match
+- **Schedules.** `osseo schedule add|list|remove` use `schtasks.exe` (`/SC DAILY|WEEKLY|MINUTE`),
+  task `Osseo\wf-<name>`, per user, `/F`, preview unless `--apply`. Names must match
   `^[A-Za-z0-9._-]{1,64}$`; parameters containing `" % ^ & | < >` or a line break are refused; the
-  command line is limited to 261 characters. A custom `AGENTHOST_HOME` or `AGENTHOST_CONFIG` cannot be
+  command line is limited to 261 characters. A custom `OSSEO_HOME` or `OSSEO_CONFIG` cannot be
   carried into a task and is refused. The task starts a console window while it runs.
 - **Not done.** Attention hooks record a request but cannot raise a window on Windows. The Python
   overlay is not shipped. `doctor` still reports Linux-only checks. Uninstall leaves the `Path` entry and
   any scheduled tasks.
 - **Check it.** `scripts\windows-check.ps1` now also runs `install.ps1 -DryRun`; `npm run test:windows`
   includes the zip, layout, junction, schedule and integration tests. For a real install, build the zip on
-  Linux and run `$env:AGENTHOST_ARCHIVE = "C:\path\agenthost-win-x64.zip"; powershell -ExecutionPolicy Bypass -File scripts\install.ps1`.
+  Linux and run `$env:OSSEO_ARCHIVE = "C:\path\osseo-win-x64.zip"; powershell -ExecutionPolicy Bypass -File scripts\install.ps1`.
 
 ## Windows (headless, W1)
 
@@ -172,7 +172,7 @@ What the Windows port covers today, and what it does not.
 - **Browsers.** `browser.*` finds Chrome in its install folders (Program Files,
   Program Files (x86), per-user) and then Edge, then `chrome.exe` or `msedge.exe`
   on PATH. It drives them over the same DevTools protocol.
-- **Files on disk.** POSIX file modes do nothing on Windows. The AgentHost home
+- **Files on disk.** POSIX file modes do nothing on Windows. The Osseo home
   is restricted with an access list instead (`icacls`: inheritance off; only the
   current user and SYSTEM kept). Failure is reported, not hidden.
 - **Linux-only start-up work is skipped.** The overlay sweep (`pgrep`, `ps`) and
@@ -189,7 +189,7 @@ How it is checked:
   shell classifier, process trees, browser discovery, access lists, and the
   pure result helpers). Run on Windows in CI (`windows-headless`).
 - `node scripts/windows-smoke.mjs`: the built server over stdio with a temporary
-  AgentHost home: initialize, tools, `system.get_info`, provenance, files, a
+  Osseo home: initialize, tools, `system.get_info`, provenance, files, a
   protected file, the `.ssh` folder, `where`/`which`, a PowerShell or `sh`
   wrapper, a delete, headless Chrome or Edge, and tasks. It runs on any OS.
 - `scripts\windows-check.ps1`: Node version, install, build, lint, the Windows
@@ -207,15 +207,15 @@ cannot. The remaining routes, and why each is not shipped yet:
   is a safety problem, so it must be calibrated and verified on a real Wayland
   session before it ships. It also needs the user in the `uinput` group.
 - **Desktop portal (RemoteDesktop and ScreenCast)** gives input and screenshots
-  after one consent prompt. It ships as an opt-in path, `AGENTHOST_WAYLAND_PORTAL=1`,
+  after one consent prompt. It ships as an opt-in path, `OSSEO_WAYLAND_PORTAL=1`,
   and the shared screen is its only target; see `docs/notes/wayland-portal.md`.
 - **AT-SPI** can list apps and windows on Wayland but not screen coordinates for
   most toolkits.
 
-On a Wayland login, `AGENTHOST_WAYLAND_PORTAL=1` sends input and screenshots
-through the desktop portal, after one consent prompt. AgentHost does not list or
+On a Wayland login, `OSSEO_WAYLAND_PORTAL=1` sends input and screenshots
+through the desktop portal, after one consent prompt. Osseo does not list or
 focus windows there, and it has not yet been run on a real Wayland login:
-`agenthost portal check --start` is the check to run on one. Otherwise, the
+`osseo portal check --start` is the check to run on one. Otherwise, the
 supported ways to work with native Wayland apps are the nested display
 (`execution.placement: "background"`) or an X11 login.
 
@@ -224,7 +224,7 @@ supported ways to work with native Wayland apps are the nested display
 The seam is the `LinuxAutomation` interface in
 `packages/mcp-server/src/context.ts` (the name is historical). A new package
 (for example `os-windows`) implements the same calls and is selected in
-`server.ts` by `describeDesktopPlatform()` from `@agenthost/core`:
+`server.ts` by `describeDesktopPlatform()` from `@osseo/core`:
 
 - window list, focus, and active window (with app name and pid);
 - screenshot, click, pointer, hotkey, and type text, each verifying the target

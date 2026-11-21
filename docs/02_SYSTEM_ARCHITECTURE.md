@@ -1,4 +1,4 @@
-# AgentHost System Architecture
+# Osseo System Architecture
 
 > **Current minimal-v2 status:** the live MCP surface is the tool set in
 > `docs/03_MCP_TOOLS_AND_ADAPTERS.md`. Control Room, Browser Bridge, runtime
@@ -32,7 +32,7 @@ takeover/discovery, all stop-exempt), `mcp-server/tools/tasks.ts`
 
 ### Release boundary
 
-`packages/agenthost-cli` and `scripts/build-release.mjs` wrap existing compiled packages without changing tool execution. Installed runtime paths resolve from release metadata, public config lives under `~/.config/agenthost`, and runtime state remains under `~/.agenthost`. Rootless lifecycle locks, release manifests, checksum verification, and redacted doctor output are packaging concerns only.
+`packages/osseo-cli` and `scripts/build-release.mjs` wrap existing compiled packages without changing tool execution. Installed runtime paths resolve from release metadata, public config lives under `~/.config/osseo`, and runtime state remains under `~/.osseo`. Rootless lifecycle locks, release manifests, checksum verification, and redacted doctor output are packaging concerns only.
 
 Core is app-agnostic. Linux and application implementations stay outside `packages/core`.
 
@@ -48,11 +48,11 @@ MCP server and context, `tool-runner.ts`, `tool-metadata.ts`, confirmation manag
 
 ### Capability strategy boundary
 
-`capability-strategy-store.ts` persists versioned structural definitions, reviews, bounded selections, and safe outcome summaries under `~/.agenthost/strategies/`. `capability-strategy-service.ts` performs deterministic compatibility/health ranking, Browser Bridge preference, bounded fallback planning, fixed read-only verification, receipt validation, confidence updates, and degradation. It has no generic executor; original MCP tools remain governed execution boundary.
+`capability-strategy-store.ts` persists versioned structural definitions, reviews, bounded selections, and safe outcome summaries under `~/.osseo/strategies/`. `capability-strategy-service.ts` performs deterministic compatibility/health ranking, Browser Bridge preference, bounded fallback planning, fixed read-only verification, receipt validation, confidence updates, and degradation. It has no generic executor; original MCP tools remain governed execution boundary.
 
 ## Local speech boundary
 
-`packages/os-linux/src/speech.ts` owns fixed Linux provider, voice, device, routing, synthesis, and playback subprocess probes. `speech-service.ts` coordinates provider health, bounded artifacts, owner/session checks, preparation TTLs, and transmission revalidation. `speech-store.ts` stores only opaque artifact/preparation metadata under `~/.agenthost/speech/`; audio files never enter logs or Control Room projections. All commands use argument arrays, `shell:false`, filtered environment, bounded timeout/output, and cleanup.
+`packages/os-linux/src/speech.ts` owns fixed Linux provider, voice, device, routing, synthesis, and playback subprocess probes. `speech-service.ts` coordinates provider health, bounded artifacts, owner/session checks, preparation TTLs, and transmission revalidation. `speech-store.ts` stores only opaque artifact/preparation metadata under `~/.osseo/speech/`; audio files never enter logs or Control Room projections. All commands use argument arrays, `shell:false`, filtered environment, bounded timeout/output, and cleanup.
 
 Speech transmission is generic existing-route playback only. No provider-specific meeting adapter, recording, transcription, route mutation, or autonomous coordination exists. Owner-scoped artifact, playback, and preparation metadata projections remain bounded and redacted.
 
@@ -78,7 +78,7 @@ Headless/disabled renderers plus optional GTK3/X11 renderer child. Renderer comm
 
 ### Runtime activity boundary
 
-`packages/core/src/runtime-activity.ts` defines strict lifecycle/source/label/progress contracts and legal transitions. `runtime-activity-store.ts` persists bounded owner-scoped redacted JSONL under `~/.agenthost/runtime-activity/`; `runtime-activity-service.ts` normalizes tool results; `runtime-activity-overlay.ts` projects the highest-priority activity through `OverlayManager`. Renderer bindings contain ephemeral overlay IDs and epochs and are invalidated on restart. Control Room consumes same projection, avoiding direct-activity double counting. Screenshot capture is serialized and requires acknowledged overlay suppression before capture and acknowledged restoration after capture.
+`packages/core/src/runtime-activity.ts` defines strict lifecycle/source/label/progress contracts and legal transitions. `runtime-activity-store.ts` persists bounded owner-scoped redacted JSONL under `~/.osseo/runtime-activity/`; `runtime-activity-service.ts` normalizes tool results; `runtime-activity-overlay.ts` projects the highest-priority activity through `OverlayManager`. Renderer bindings contain ephemeral overlay IDs and epochs and are invalidated on restart. Control Room consumes same projection, avoiding direct-activity double counting. Screenshot capture is serialized and requires acknowledged overlay suppression before capture and acknowledged restoration after capture.
 
 ### Governed tool-call boundary
 
@@ -93,7 +93,7 @@ or dry-run token + exact confirmation consume -> handler -> redacted audit
 Previews resolve the actual target without executing. Routine local actions
 execute directly. Consequential effects require a 15-minute single-use token;
 a non-dry call without one returns `confirmation_required`, and an operator
-approves with `agenthost confirm <tokenId>`. Active task approval can
+approves with `osseo confirm <tokenId>`. Active task approval can
 auto-chain low/medium effects for an active task only. Stop and takeover are checked before every
 state-changing call; read-only observation remains available. The audit entry
 includes server version and entry path so clients can verify which runtime
@@ -112,13 +112,13 @@ Placement changes visibility, never permission.
 
 ### Background execution and live progress boundary
 
-`execution.placement` (`foreground` default, `background` opt-in via config or `AGENTHOST_EXECUTION_PLACEMENT`) declares where desktop work runs. Background starts a nested Xephyr display; see the V2 guide section 12b. Live progress never requires watching the app: `GET /api/v1/activity` exposes the bounded redacted runtime-activity feed (same 50-default/100-max pagination as other Control Room queries, rendered in the “Live background work” panel), and `agenthost task watch <id> [--follow] [--notify]` tails the redacted task event log with an optional desktop notification on terminal state. Background work passes the identical safety pipeline and stop/takeover gates; placement changes visibility, never permission.
+`execution.placement` (`foreground` default, `background` opt-in via config or `OSSEO_EXECUTION_PLACEMENT`) declares where desktop work runs. Background starts a nested Xephyr display; see the V2 guide section 12b. Live progress never requires watching the app: `GET /api/v1/activity` exposes the bounded redacted runtime-activity feed (same 50-default/100-max pagination as other Control Room queries, rendered in the “Live background work” panel), and `osseo task watch <id> [--follow] [--notify]` tails the redacted task event log with an optional desktop notification on terminal state. Background work passes the identical safety pipeline and stop/takeover gates; placement changes visibility, never permission.
 
 ### Episodic memory boundary
 
 `episodic-memory-store.ts` persists bounded redacted learning episodes
 (`goalCategory`, `strategyId`, verified outcome, secret-scrubbed lesson,
-30-day TTL) under `~/.agenthost/memory/`. `strategyScore` takes an optional
+30-day TTL) under `~/.osseo/memory/`. `strategyScore` takes an optional
 per-strategy success/failure count (capped bonus, linear failure penalty);
 `strategy.select` consults the store and notes the adjustment in the
 selection explanation. `strategy.record_episode` / `strategy.recall_episodes`
@@ -157,11 +157,11 @@ Central verification does not replace domain checks. Confirmation envelopes do n
 
 ## Browser trust boundary
 
-The bridge is disabled by default and binds to `127.0.0.1`. Initial enrollment uses one short-lived, single-use token. AgentHost then persists a revocable device record containing exact extension identity/origin and only a hash of the reconnect secret. Session tokens remain memory-only. Protocol and extension versions are checked on enrollment/reconnect; command/body/session queues are bounded. Extension receives only fixed commands. Browser content is sanitized and sensitivity-gated before it reaches a ToolResult. If extension is unavailable, AgentHost recommends accessibility, local vision/OCR, pointer, or guide strategies explicitly; it never silently executes a fallback.
+The bridge is disabled by default and binds to `127.0.0.1`. Initial enrollment uses one short-lived, single-use token. Osseo then persists a revocable device record containing exact extension identity/origin and only a hash of the reconnect secret. Session tokens remain memory-only. Protocol and extension versions are checked on enrollment/reconnect; command/body/session queues are bounded. Extension receives only fixed commands. Browser content is sanitized and sensitivity-gated before it reaches a ToolResult. If extension is unavailable, Osseo recommends accessibility, local vision/OCR, pointer, or guide strategies explicitly; it never silently executes a fallback.
 
 ## Overlay renderer boundary
 
-The Node renderer client starts the GTK3/X11 child lazily. It sends bounded JSONL messages authenticated by a random session token and validates handshake, command, reply, payload, timeout, and crash state. The child receives a filtered environment and only renderer commands. It cannot invoke AgentHost tools. Headless state is the safe fallback.
+The Node renderer client starts the GTK3/X11 child lazily. It sends bounded JSONL messages authenticated by a random session token and validates handshake, command, reply, payload, timeout, and crash state. The child receives a filtered environment and only renderer commands. It cannot invoke Osseo tools. Headless state is the safe fallback.
 
 GTK3/X11 supports transparent/topmost/click-through overlays and bounded widgets only after display compositor/RGBA checks. Cairo is used when its PyGObject bridge exists; otherwise the child uses bounded GTK widgets without Cairo draw callbacks. It never creates an opaque fullscreen surface. Wayland does not claim global coordinates, layer-shell, or guaranteed click-through; it reports limited/unavailable support.
 
@@ -199,7 +199,7 @@ Jobs, reviews, activations, manual-run contracts, preflights, acknowledgements, 
 ## Local data layout
 
 ```text
-~/.agenthost/
+~/.osseo/
   config.json
   logs/
   outputs/
@@ -233,11 +233,11 @@ Jobs, reviews, activations, manual-run contracts, preflights, acknowledgements, 
 
 Records are local JSON with restrictive permissions and safe atomic writes where implemented. Receipt secrets and active receipt state are process-local; raw page text, OCR, credentials, tokens, and private payloads are not persisted.
 
-The unpacked browser bundle is prepared separately under `~/.local/share/agenthost/browser-extension/{firefox,chromium}` by default (or the directory selected by `AGENTHOST_BROWSER_EXTENSION_DIR`).
+The unpacked browser bundle is prepared separately under `~/.local/share/osseo/browser-extension/{firefox,chromium}` by default (or the directory selected by `OSSEO_BROWSER_EXTENSION_DIR`).
 
 ## Control Room reporting boundary
 
-`packages/app-control-room` serves dependency-free static HTML over a same-process Node loopback listener. `mcp-server` supplies redacted projections from existing workflow, assistance, Forge, scheduler metadata, overlay, browser, screenshot, and tool-activity records. Session-bound workflow, assistance, Forge, activity, and screenshot records are scoped to trusted MCP owner context; inert scheduler metadata is local AgentHost governance data. Service is opt-in, binds only to `127.0.0.1`, uses per-process token, rejects non-local origins, validates date/cursor queries, caps responses/pagination, and exposes only GET reporting routes. No MCP execution route or target-application control path exists.
+`packages/app-control-room` serves dependency-free static HTML over a same-process Node loopback listener. `mcp-server` supplies redacted projections from existing workflow, assistance, Forge, scheduler metadata, overlay, browser, screenshot, and tool-activity records. Session-bound workflow, assistance, Forge, activity, and screenshot records are scoped to trusted MCP owner context; inert scheduler metadata is local Osseo governance data. Service is opt-in, binds only to `127.0.0.1`, uses per-process token, rejects non-local origins, validates date/cursor queries, caps responses/pagination, and exposes only GET reporting routes. No MCP execution route or target-application control path exists.
 
 ## Platform and trust limitations
 

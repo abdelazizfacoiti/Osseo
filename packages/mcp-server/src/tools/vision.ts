@@ -1,10 +1,10 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
-import { classifyAppSensitivity, evaluateSafety, rankVisionTargets, toolFailure, toolSuccess, type DesktopWindowContext, type ToolResult, type VisionGroundingResult } from "@agenthost/core";
+import { classifyAppSensitivity, evaluateSafety, rankVisionTargets, toolFailure, toolSuccess, type DesktopWindowContext, type ToolResult, type VisionGroundingResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import { runTool, type AgentHostToolDefinition, type AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import { runTool, type OsseoToolDefinition, type AnyOsseoToolDefinition } from "../tool-runner.js";
 
 const activeWindow = z.object({ windowId: z.string().trim().min(1).max(200).optional(), appName: z.string().trim().min(1).max(200).optional(), title: z.string().trim().min(1).max(500).optional(), pid: z.number().int().min(1).optional() }).strict();
 const base = { imagePath: z.string().trim().min(1).max(1000), activeWindow: activeWindow.optional() };
@@ -33,7 +33,7 @@ function matches(expected: DesktopWindowContext, actual: DesktopWindowContext): 
   return (expected.windowId === undefined || expected.windowId === actual.windowId) && (expected.appName === undefined || expected.appName === actual.appName) && (expected.pid === undefined || expected.pid === actual.pid) && (expected.title === undefined || expected.title === actual.title);
 }
 
-async function prepare(input: Base, context: AgentHostMcpContext, mode: "ocr" | "layout" | "target_search" = "ocr"): Promise<VisionGroundingResult | { imagePath: string; source: "agenthost_screenshot" | "agenthost_output"; basename: string; sensitivity: ReturnType<typeof classifyAppSensitivity> }> {
+async function prepare(input: Base, context: OsseoMcpContext, mode: "ocr" | "layout" | "target_search" = "ocr"): Promise<VisionGroundingResult | { imagePath: string; source: "osseo_screenshot" | "osseo_output"; basename: string; sensitivity: ReturnType<typeof classifyAppSensitivity> }> {
   let actual: DesktopWindowContext | undefined;
   if (input.activeWindow !== undefined) {
     const expected: DesktopWindowContext = {
@@ -59,7 +59,7 @@ async function prepare(input: Base, context: AgentHostMcpContext, mode: "ocr" | 
       ...(sensitivity === "communication" ? { dataSensitivity: "sensitive" as const } : {})
     },
     context.policy,
-    { agentHostDir: context.config.agentHostDir }
+    { osseoDir: context.config.osseoDir }
   );
   if (!safety.allowed) return failResult(safety.blocked ? "safety_blocked" : "approval_required");
   let resolved: string;
@@ -77,9 +77,9 @@ async function prepare(input: Base, context: AgentHostMcpContext, mode: "ocr" | 
   } catch {
     return failResult("image_path_invalid");
   }
-  const screenshots = path.join(context.config.agentHostDir, "screenshots");
-  const outputs = path.join(context.config.agentHostDir, "outputs");
-  const source = inside(resolved, screenshots) ? "agenthost_screenshot" : inside(resolved, outputs) ? "agenthost_output" : undefined;
+  const screenshots = path.join(context.config.osseoDir, "screenshots");
+  const outputs = path.join(context.config.osseoDir, "outputs");
+  const source = inside(resolved, screenshots) ? "osseo_screenshot" : inside(resolved, outputs) ? "osseo_output" : undefined;
   if (source === undefined) return failResult("image_path_not_approved");
   return { imagePath: resolved, source, basename: path.basename(resolved), sensitivity };
 }
@@ -99,7 +99,7 @@ function failure(tool: string, result: VisionGroundingResult) {
   return toolFailure({ tool, riskLevel: result.reason.includes("protected") ? "blocked" : "low", error: { code: result.reason, message: "Vision analysis was not performed." }, observations: hint === undefined ? [result.reason] : [result.reason, hint] });
 }
 
-async function analyze(input: Base, context: AgentHostMcpContext, mode: "ocr" | "layout" | "target_search" = "ocr"): Promise<VisionGroundingResult> {
+async function analyze(input: Base, context: OsseoMcpContext, mode: "ocr" | "layout" | "target_search" = "ocr"): Promise<VisionGroundingResult> {
   const prepared = await prepare(input, context, mode);
   if ("supported" in prepared) return prepared;
   if (context.linux.analyzeImage === undefined) return failResult("ocr_backend_unavailable");
@@ -128,7 +128,7 @@ export function regionFromBounds(bounds: { x: number; y: number; width: number; 
 }
 
 export async function findScreenTextMatches(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   input: { query: string; match?: "exact" | "contains"; limit?: number; region?: { x: number; y: number; width: number; height: number } | undefined }
 ): Promise<ToolResult<unknown>> {
   const region = input.region === undefined ? undefined : regionFromBounds(input.region);
@@ -138,12 +138,12 @@ export async function findScreenTextMatches(
   const screenshotTool = context.tools?.get("desktop.screenshot");
   let capturePath: string | undefined;
   if (screenshotTool !== undefined) {
-    const captureResult = await runTool(screenshotTool, { outputDir: path.join(context.config.agentHostDir, "screenshots"), filename, format: "png", ...(region === undefined ? {} : { region }) }, context);
+    const captureResult = await runTool(screenshotTool, { outputDir: path.join(context.config.osseoDir, "screenshots"), filename, format: "png", ...(region === undefined ? {} : { region }) }, context);
     const captureData = captureResult.data as { path?: unknown } | null;
     if (!captureResult.ok || typeof captureData?.path !== "string") return toolFailure({ tool: "vision.find_text_on_screen", riskLevel: "low", error: { code: "screen_capture_failed", message: captureResult.error?.message ?? "Fresh screen capture failed." }, observations: [captureResult.error?.code ?? "screen_capture_failed"] });
     capturePath = captureData.path;
   } else {
-    const screenshotPath = path.join(context.config.agentHostDir, "screenshots", filename);
+    const screenshotPath = path.join(context.config.osseoDir, "screenshots", filename);
     const captureFn = () => context.linux.screenshot({ path: screenshotPath, format: "png" });
     const capture = context.overlayScreenshotSuppression === undefined
       ? await captureFn()
@@ -176,8 +176,8 @@ export async function findScreenTextMatches(
   return toolSuccess({ tool: "vision.find_text_on_screen", riskLevel: "low", data: { activeWindow: current.activeWindow, matches, warnings: [...data.warnings, "Coordinates are absolute screen suggestions only; revalidate active-window context before any click."], truncated: data.truncated }, observations: ["Captured fresh local OCR suggestions; no click occurred."] });
 }
 
-export function createVisionTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const analyzeTool: AgentHostToolDefinition<z.infer<typeof analyzeInput>, VisionGroundingResult, AgentHostMcpContext> = {
+export function createVisionTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const analyzeTool: OsseoToolDefinition<z.infer<typeof analyzeInput>, VisionGroundingResult, OsseoMcpContext> = {
     name: "vision.analyze_image",
     description: "Runs bounded local OCR on an approved screenshot or output image; never clicks. Repeat queries on the same image reuse cached OCR; prefer active-window-only screenshots for faster OCR.",
     riskLevel: "low",
@@ -202,7 +202,7 @@ export function createVisionTools(): AnyAgentHostToolDefinition<AgentHostMcpCont
     }
   };
 
-  const findText: AgentHostToolDefinition<z.infer<typeof findInput>, unknown, AgentHostMcpContext> = {
+  const findText: OsseoToolDefinition<z.infer<typeof findInput>, unknown, OsseoMcpContext> = {
     name: "vision.find_text",
     description: "Finds bounded redacted OCR text and image-relative centers; never clicks. Shares cached OCR with analyze/find_target on the same image.",
     riskLevel: "low",
@@ -228,7 +228,7 @@ export function createVisionTools(): AnyAgentHostToolDefinition<AgentHostMcpCont
     }
   };
 
-  const findTarget: AgentHostToolDefinition<z.infer<typeof targetInput>, unknown, AgentHostMcpContext> = {
+  const findTarget: OsseoToolDefinition<z.infer<typeof targetInput>, unknown, OsseoMcpContext> = {
     name: "vision.find_target",
     description: "Ranks visible OCR target candidates with image-relative coordinates; never clicks or types. Shares cached OCR with analyze/find_text on the same image.",
     riskLevel: "low",
@@ -253,7 +253,7 @@ export function createVisionTools(): AnyAgentHostToolDefinition<AgentHostMcpCont
     }
   };
 
-  const findTextOnScreen: AgentHostToolDefinition<z.infer<typeof screenTextInput>, unknown, AgentHostMcpContext> = {
+  const findTextOnScreen: OsseoToolDefinition<z.infer<typeof screenTextInput>, unknown, OsseoMcpContext> = {
     name: "vision.find_text_on_screen",
     description: "Captures a fresh full-screen image and returns OCR suggestions in absolute screen coordinates; never clicks or types.",
     riskLevel: "low",

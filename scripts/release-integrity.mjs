@@ -20,7 +20,7 @@ export function productionDependencyInventory(lock) {
   for (const [lockPath, value] of Object.entries(lock?.packages ?? {})) {
     if (!lockPath.startsWith("node_modules/")
       || value?.dev === true
-      || lockPath.startsWith("node_modules/@agenthost/")) continue;
+      || lockPath.startsWith("node_modules/@osseo/")) continue;
     const name = typeof value?.name === "string" ? value.name : packageNameFromLockPath(lockPath);
     if (typeof name !== "string"
       || typeof value?.version !== "string"
@@ -43,10 +43,10 @@ export function renderThirdPartyNotices(records) {
     grouped.set(record.license, names);
   }
   const lines = [
-    "AgentHost Third-Party Notices",
+    "Osseo Third-Party Notices",
     "",
     "This file is generated from package-lock.json production dependency entries.",
-    "AgentHost does not modify third-party license terms. Complete license texts",
+    "Osseo does not modify third-party license terms. Complete license texts",
     "remain alongside bundled packages under node_modules.",
     "",
     "Bundled npm production dependencies:",
@@ -61,7 +61,7 @@ export function renderThirdPartyNotices(records) {
   lines.push(
     "Optional system programs such as GTK3/PyGObject, xdotool, Tesseract,",
     "Bubblewrap, eSpeak NG, Piper, and Speech Dispatcher are not bundled by",
-    "AgentHost. Their licenses and installation remain the operator's responsibility.",
+    "Osseo. Their licenses and installation remain the operator's responsibility.",
     ""
   );
   return lines.join("\n");
@@ -133,7 +133,7 @@ async function validateLegalFiles(root, manifest, failures) {
       continue;
     }
     if ((name === "LICENSE" && !content.includes("Apache License"))
-      || (name === "NOTICE" && !content.includes("AgentHost"))
+      || (name === "NOTICE" && !content.includes("Osseo"))
       || (name === "THIRD_PARTY_NOTICES"
         && !content.includes("Bundled npm production dependencies:"))) {
       failures.push(`${name}:invalid`);
@@ -143,7 +143,7 @@ async function validateLegalFiles(root, manifest, failures) {
 
 export async function validateReleaseTree(root, manifest, options = {}) {
   const failures = [];
-  if (manifest?.product !== "AgentHost") failures.push("manifest:product");
+  if (manifest?.product !== "Osseo") failures.push("manifest:product");
   if (manifest?.schemaVersion !== 2) failures.push("manifest:schema_version");
   if (manifest?.platform !== (options.platform ?? "linux")) failures.push("manifest:platform");
   if (manifest?.architecture !== "x64") failures.push("manifest:architecture");
@@ -190,7 +190,7 @@ export async function pruneNonProductionPackages(stageRoot, lock) {
   // This repo's own packages are npm "link" entries. The stage copies them on purpose (Windows) or links them (Linux),
   // so they are kept; any other package outside the production inventory is still removed.
   for (const [lockPath, record] of Object.entries(lock.packages ?? {})) {
-    if (record?.link === true && lockPath.startsWith("node_modules/@agenthost/")) allowed.add(lockPath);
+    if (record?.link === true && lockPath.startsWith("node_modules/@osseo/")) allowed.add(lockPath);
   }
   const nodeModules = path.join(stageRoot, "node_modules");
   async function walk(directory) {

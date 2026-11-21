@@ -93,13 +93,13 @@ describe("install-host", () => {
   it("apply writes the launcher 0700 and the manifest 0644 pointing at it", () => {
     const home = tmp();
     run(home, "--apply");
-    const bin = path.join(home, ".agenthost", "browser-extension", "bin");
-    const launcher = path.join(bin, "agenthost-browser-host");
+    const bin = path.join(home, ".osseo", "browser-extension", "bin");
+    const launcher = path.join(bin, "osseo-browser-host");
     expect(fs.statSync(bin).mode & 0o777).toBe(0o700);
     expect(fs.statSync(launcher).mode & 0o777).toBe(0o700);
     const text = fs.readFileSync(launcher, "utf8");
     expect(text).toBe(launcherScript(process.execPath, path.join(root, "host/native-host.mjs")));
-    const mf = path.join(home, ".config", "google-chrome", "NativeMessagingHosts", "dev.agenthost.browser.json");
+    const mf = path.join(home, ".config", "google-chrome", "NativeMessagingHosts", "dev.osseo.browser.json");
     expect(fs.statSync(mf).mode & 0o777).toBe(0o644);
     const manifest = JSON.parse(fs.readFileSync(mf, "utf8"));
     expect(manifest.path).toBe(launcher);

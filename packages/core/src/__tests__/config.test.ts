@@ -2,14 +2,14 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { loadAgentHostConfig } from "../index.js";
+import { loadOsseoConfig } from "../index.js";
 
-describe("loadAgentHostConfig", () => {
+describe("loadOsseoConfig", () => {
   it("uses safe defaults", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-default-"));
-    const config = await loadAgentHostConfig({ env: {}, homeDir });
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-default-"));
+    const config = await loadOsseoConfig({ env: {}, homeDir });
 
-    expect(config.agentHostDir).toBe(path.join(homeDir, ".agenthost"));
+    expect(config.osseoDir).toBe(path.join(homeDir, ".osseo"));
     expect(config.schemaVersion).toBe(1);
     expect((config as unknown as Record<string, unknown>).profile).toBeUndefined();
     expect(config.policy.enabled).toBe(true);
@@ -41,16 +41,16 @@ describe("loadAgentHostConfig", () => {
   });
 
   it("strips dead legacy config blocks instead of failing strict validation", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-legacy-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-legacy-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(configPath, JSON.stringify({
       runtimeActivityOverlay: { enabled: true, terminalAutoHideMs: 5000 },
       browserBridge: { enabled: true, port: 43119, host: "0.0.0.0" },
       controlRoom: { enabled: true, port: 43120 }
     }), "utf8");
-    const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
+    const config = await loadOsseoConfig({ env: {}, homeDir, configPath });
     const legacy = config as unknown as Record<string, unknown>;
     expect(legacy.runtimeActivityOverlay).toBeUndefined();
     expect(legacy.browserBridge).toBeUndefined();
@@ -58,193 +58,193 @@ describe("loadAgentHostConfig", () => {
     expect(config.overlay).toEqual(expect.objectContaining({ persistent: true, autoHideMs: 0 }));
   });
 
-  it("accepts explicit AGENTHOST_CONFIG path and schema version", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-explicit-"));
+  it("accepts explicit OSSEO_CONFIG path and schema version", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-explicit-"));
     const configPath = path.join(homeDir, "public-config.json");
     await writeFile(configPath, JSON.stringify({ schemaVersion: 1, profile: "dev" }), "utf8");
-    const config = await loadAgentHostConfig({ env: { AGENTHOST_CONFIG: configPath }, homeDir });
+    const config = await loadOsseoConfig({ env: { OSSEO_CONFIG: configPath }, homeDir });
     expect(config.configPath).toBe(configPath);
     expect(config.schemaVersion).toBe(1);
   });
 
   it("ignores the legacy profile field and loads paths from a config file", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-file-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-file-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(
       configPath,
       JSON.stringify({
         profile: "dev",
         forgeRuntimeSandboxMode: "none",
-        logFile: "~/agenthost-test-log.jsonl"
+        logFile: "~/osseo-test-log.jsonl"
       }),
       "utf8"
     );
 
-    const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
+    const config = await loadOsseoConfig({ env: {}, homeDir, configPath });
 
     expect((config as unknown as Record<string, unknown>).profile).toBeUndefined();
     expect(config.forgeRuntimeSandboxMode).toBe("none");
-    expect(config.logFile).toBe(path.join(homeDir, "agenthost-test-log.jsonl"));
+    expect(config.logFile).toBe(path.join(homeDir, "osseo-test-log.jsonl"));
   });
 
   it("round-trips bounded speech configuration without enabling providers implicitly", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-speech-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-speech-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(configPath, JSON.stringify({ speech: { enabled: false, providerPreference: ["piper", "espeak-ng"], defaultProvider: "piper", artifactTtlMs: 60000, maxTextChars: 1000, maxDurationMs: 10000, maxArtifactBytes: 1000000, synthesisTimeoutMs: 5000, playbackTimeoutMs: 20000 } }), "utf8");
-    const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
+    const config = await loadOsseoConfig({ env: {}, homeDir, configPath });
     expect(config.speech).toMatchObject({ enabled: false, providerPreference: ["piper", "espeak-ng"], defaultProvider: "piper", artifactTtlMs: 60000, maxTextChars: 1000 });
     await writeFile(configPath, JSON.stringify({ speech: { defaultProvider: "cloud" } }), "utf8");
-    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
+    await expect(loadOsseoConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
   });
 
   it("loads an old config with a phone key and drops the key", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-phone-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-phone-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(configPath, JSON.stringify({ phone: { paired: true } }), "utf8");
-    const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
+    const config = await loadOsseoConfig({ env: {}, homeDir, configPath });
     expect("phone" in config).toBe(false);
   });
 
   it("rejects a non-empty grants array and tells the person where the rule goes", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-grants-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-grants-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(
       configPath,
       JSON.stringify({ grants: [{ id: "allow-output-write", scope: "persistent", effect: "allow", match: { tools: ["file.write"] } }] }),
       "utf8"
     );
-    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow(
+    await expect(loadOsseoConfig({ env: {}, homeDir, configPath })).rejects.toThrow(
       "Capability grants were removed. Move the rule to policy.toml (see docs/04) or delete the grants key from config.json."
     );
   });
 
   it("accepts an empty grants array", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-grants-empty-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-grants-empty-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(configPath, JSON.stringify({ grants: [] }), "utf8");
-    const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
+    const config = await loadOsseoConfig({ env: {}, homeDir, configPath });
     expect("grants" in config.policy).toBe(false);
   });
 
   it("ignores optionalAdapters from an old config file", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-optional-adapters-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-optional-adapters-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(configPath, JSON.stringify({ optionalAdapters: { ssh: { enabled: true } } }), "utf8");
-    const config = await loadAgentHostConfig({ env: {}, homeDir, configPath });
+    const config = await loadOsseoConfig({ env: {}, homeDir, configPath });
     expect("optionalAdapters" in config).toBe(false);
   });
 
-  it("ignores the legacy AGENTHOST_PROFILE environment variable", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-legacy-profile-"));
-    const config = await loadAgentHostConfig({ env: { AGENTHOST_PROFILE: "demo-unlocked-local" }, homeDir });
+  it("ignores the legacy OSSEO_PROFILE environment variable", async () => {
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-legacy-profile-"));
+    const config = await loadOsseoConfig({ env: { OSSEO_PROFILE: "demo-unlocked-local" }, homeDir });
     expect(config.policy.allowFileWriteRoots).toContain("~");
     expect("grants" in config.policy).toBe(false);
   });
 
   it("allows environment to override Forge sandbox mode", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-sandbox-"));
-    const config = await loadAgentHostConfig({ env: { AGENTHOST_FORGE_RUNTIME_SANDBOX_MODE: "bubblewrap" }, homeDir });
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-sandbox-"));
+    const config = await loadOsseoConfig({ env: { OSSEO_FORGE_RUNTIME_SANDBOX_MODE: "bubblewrap" }, homeDir });
     expect(config.forgeRuntimeSandboxMode).toBe("bubblewrap");
   });
 
   it("maps overlay persistence and auto-hide configuration", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-overlay-persist-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-overlay-persist-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(configPath, JSON.stringify({ overlay: { persistent: false } }), "utf8");
-    expect((await loadAgentHostConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ persistent: false, autoHideMs: 15_000 });
+    expect((await loadOsseoConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ persistent: false, autoHideMs: 15_000 });
     await writeFile(configPath, JSON.stringify({ overlay: { autoHideMs: 30_000 } }), "utf8");
-    expect((await loadAgentHostConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ persistent: true, autoHideMs: 30_000 });
+    expect((await loadOsseoConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ persistent: true, autoHideMs: 30_000 });
     await writeFile(configPath, JSON.stringify({ overlay: { terminalAutoHideMs: 5_000 } }), "utf8");
-    expect((await loadAgentHostConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ persistent: true, autoHideMs: 0 });
+    expect((await loadOsseoConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ persistent: true, autoHideMs: 0 });
   });
 
   it("maps overlay activity mode and rejects unknown modes", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-overlay-mode-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-overlay-mode-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     for (const mode of ["always", "on_change", "off"] as const) {
       await writeFile(configPath, JSON.stringify({ overlay: { mode } }), "utf8");
-      expect((await loadAgentHostConfig({ env: {}, homeDir, configPath })).overlay?.mode).toBe(mode);
+      expect((await loadOsseoConfig({ env: {}, homeDir, configPath })).overlay?.mode).toBe(mode);
     }
     await writeFile(configPath, JSON.stringify({ overlay: { mode: "sometimes" } }), "utf8");
-    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
+    await expect(loadOsseoConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
   });
 
   it("bounds ambient overlay and optional dock settings", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-overlay-layout-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-overlay-layout-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(configPath, JSON.stringify({ overlay: { layout: "dock", dockSide: "left", dockWidthPercent: 25, dockReserveSpace: false, frame: false, actionPill: false, targetRing: false, targetRingLeadMs: 200, targetRingDurationMs: 900, pillAutoHideMs: 2000 } }), "utf8");
-    expect((await loadAgentHostConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ layout: "dock", dockSide: "left", dockWidthPercent: 25, dockReserveSpace: false, frame: false, actionPill: false, targetRing: false, targetRingLeadMs: 200, targetRingDurationMs: 900, pillAutoHideMs: 2000 });
+    expect((await loadOsseoConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ layout: "dock", dockSide: "left", dockWidthPercent: 25, dockReserveSpace: false, frame: false, actionPill: false, targetRing: false, targetRingLeadMs: 200, targetRingDurationMs: 900, pillAutoHideMs: 2000 });
     await writeFile(configPath, JSON.stringify({ overlay: { dockWidthPercent: 60 } }), "utf8");
-    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
+    await expect(loadOsseoConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
   });
 
   it("accepts the opt-in rail layout and keeps dock as the default", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-overlay-rail-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    const configPath = path.join(agentHostDir, "config.json");
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-overlay-rail-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    const configPath = path.join(osseoDir, "config.json");
     await writeFile(configPath, JSON.stringify({ overlay: { layout: "rail", dockSide: "left" } }), "utf8");
-    expect((await loadAgentHostConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ layout: "rail", dockSide: "left", dockReserveSpace: true, frame: false });
+    expect((await loadOsseoConfig({ env: {}, homeDir, configPath })).overlay).toMatchObject({ layout: "rail", dockSide: "left", dockReserveSpace: true, frame: false });
     await writeFile(configPath, JSON.stringify({ overlay: {} }), "utf8");
-    expect((await loadAgentHostConfig({ env: {}, homeDir, configPath })).overlay?.layout).toBe("dock");
+    expect((await loadOsseoConfig({ env: {}, homeDir, configPath })).overlay?.layout).toBe("dock");
     await writeFile(configPath, JSON.stringify({ overlay: { layout: "strip" } }), "utf8");
-    await expect(loadAgentHostConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
+    await expect(loadOsseoConfig({ env: {}, homeDir, configPath })).rejects.toThrow();
   });
 
   it("allows explicitly selecting the local overlay renderer mode", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-overlay-"));
-    const config = await loadAgentHostConfig({ env: { AGENTHOST_OVERLAY_MODE: "gtk3-x11" }, homeDir });
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-overlay-"));
+    const config = await loadOsseoConfig({ env: { OSSEO_OVERLAY_MODE: "gtk3-x11" }, homeDir });
     expect(config.overlayRendererMode).toBe("gtk3-x11");
   });
 
   it("defaults execution placement to foreground", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-placement-"));
-    const config = await loadAgentHostConfig({ env: {}, homeDir });
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-placement-"));
+    const config = await loadOsseoConfig({ env: {}, homeDir });
     expect(config.execution).toEqual({ placement: "foreground", yieldToUser: true, maxActionsPerTask: 500 });
   });
 
   it("allows background execution placement from file and environment", async () => {
-    const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-placement-bg-"));
-    const agentHostDir = path.join(homeDir, ".agenthost");
-    await mkdir(agentHostDir, { recursive: true });
-    await writeFile(path.join(agentHostDir, "config.json"), JSON.stringify({ execution: { placement: "background" } }), "utf8");
-    const fromFile = await loadAgentHostConfig({ env: {}, homeDir, configPath: path.join(agentHostDir, "config.json") });
+    const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-placement-bg-"));
+    const osseoDir = path.join(homeDir, ".osseo");
+    await mkdir(osseoDir, { recursive: true });
+    await writeFile(path.join(osseoDir, "config.json"), JSON.stringify({ execution: { placement: "background" } }), "utf8");
+    const fromFile = await loadOsseoConfig({ env: {}, homeDir, configPath: path.join(osseoDir, "config.json") });
     expect(fromFile.execution).toEqual({ placement: "background", yieldToUser: true, maxActionsPerTask: 500 });
-    const fromEnv = await loadAgentHostConfig({ env: { AGENTHOST_EXECUTION_PLACEMENT: "foreground" }, homeDir, configPath: path.join(agentHostDir, "config.json") });
+    const fromEnv = await loadOsseoConfig({ env: { OSSEO_EXECUTION_PLACEMENT: "foreground" }, homeDir, configPath: path.join(osseoDir, "config.json") });
     expect(fromEnv.execution).toEqual({ placement: "foreground", yieldToUser: true, maxActionsPerTask: 500 });
   });
 
   describe("replay", () => {
     it("defaults onTaskFinish to false and loads true", async () => {
-      const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-replay-"));
-      expect((await loadAgentHostConfig({ env: {}, homeDir })).replay).toEqual({ onTaskFinish: false });
-      await mkdir(path.join(homeDir, ".agenthost"), { recursive: true });
-      await writeFile(path.join(homeDir, ".agenthost", "config.json"), JSON.stringify({ replay: { onTaskFinish: true } }));
-      expect((await loadAgentHostConfig({ env: {}, homeDir })).replay).toEqual({ onTaskFinish: true });
+      const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-replay-"));
+      expect((await loadOsseoConfig({ env: {}, homeDir })).replay).toEqual({ onTaskFinish: false });
+      await mkdir(path.join(homeDir, ".osseo"), { recursive: true });
+      await writeFile(path.join(homeDir, ".osseo", "config.json"), JSON.stringify({ replay: { onTaskFinish: true } }));
+      expect((await loadOsseoConfig({ env: {}, homeDir })).replay).toEqual({ onTaskFinish: true });
     });
     it("refuses an unknown key under replay", async () => {
-      const homeDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-config-replay-bad-"));
-      await mkdir(path.join(homeDir, ".agenthost"), { recursive: true });
-      await writeFile(path.join(homeDir, ".agenthost", "config.json"), JSON.stringify({ replay: { onTaskFinsh: true } }));
-      await expect(loadAgentHostConfig({ env: {}, homeDir })).rejects.toThrow();
+      const homeDir = await mkdtemp(path.join(os.tmpdir(), "osseo-config-replay-bad-"));
+      await mkdir(path.join(homeDir, ".osseo"), { recursive: true });
+      await writeFile(path.join(homeDir, ".osseo", "config.json"), JSON.stringify({ replay: { onTaskFinsh: true } }));
+      await expect(loadOsseoConfig({ env: {}, homeDir })).rejects.toThrow();
     });
   });
 });
@@ -254,11 +254,11 @@ describe("a UTF-8 byte-order mark", () => {
     const { mkdtemp, writeFile } = await import("node:fs/promises");
     const os = await import("node:os");
     const path = await import("node:path");
-    const { loadAgentHostConfig } = await import("../index.js");
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-bom-"));
+    const { loadOsseoConfig } = await import("../index.js");
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-bom-"));
     const file = path.join(dir, "config.json");
     await writeFile(file, "﻿" + JSON.stringify({ schemaVersion: 1, overlay: { mode: "always" } }), "utf8");
-    const config = await loadAgentHostConfig({ env: { ...process.env, AGENTHOST_HOME: dir, AGENTHOST_CONFIG: file } });
+    const config = await loadOsseoConfig({ env: { ...process.env, OSSEO_HOME: dir, OSSEO_CONFIG: file } });
     expect(config.overlay?.mode).toBe("always");
   });
 });
@@ -268,12 +268,12 @@ describe('overlay.frame "always"', () => {
     const { mkdtemp, writeFile } = await import("node:fs/promises");
     const os = await import("node:os");
     const path = await import("node:path");
-    const { loadAgentHostConfig } = await import("../index.js");
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-frame-"));
+    const { loadOsseoConfig } = await import("../index.js");
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-frame-"));
     const file = path.join(dir, "config.json");
     const load = async (frame: unknown) => {
       await writeFile(file, JSON.stringify({ schemaVersion: 1, overlay: { frame } }), "utf8");
-      return loadAgentHostConfig({ env: { ...process.env, AGENTHOST_HOME: dir, AGENTHOST_CONFIG: file } });
+      return loadOsseoConfig({ env: { ...process.env, OSSEO_HOME: dir, OSSEO_CONFIG: file } });
     };
     expect((await load("always")).overlay?.frame).toBe("always");
     expect((await load(true)).overlay?.frame).toBe(true);

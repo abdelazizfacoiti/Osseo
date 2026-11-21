@@ -2,29 +2,29 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AgentHostMcpContext } from "../context.js";
+import type { OsseoMcpContext } from "../context.js";
 import { forgetScreens, rememberScreen } from "../screenshot-registry.js";
 import { inputGuardPath } from "../input-guard.js";
 import { createGuideTools, guideActive, guideHooks } from "../tools/guide.js";
 
-const [show, clear] = createGuideTools() as unknown as Array<{ name: string; inputSchema: { parse(v: unknown): unknown }; handler(input: unknown, context: AgentHostMcpContext): Promise<{ ok: boolean; data?: any; error?: { code: string; message: string } }> }>;
+const [show, clear] = createGuideTools() as unknown as Array<{ name: string; inputSchema: { parse(v: unknown): unknown }; handler(input: unknown, context: OsseoMcpContext): Promise<{ ok: boolean; data?: any; error?: { code: string; message: string } }> }>;
 
 function fake(options: { overlay?: boolean; screen?: { width: number; height: number }; active?: boolean; showOk?: boolean; wait?: (input: any) => Promise<any>; dir?: string } = {}) {
   const showPrimitive = vi.fn(async (_p: any, _r?: any) => ({ ok: options.showOk ?? true, errors: [] as string[] }));
   const dismiss = vi.fn(async (_id: string) => ({ ok: true }));
   const context = {
-    ...(options.dir === undefined ? {} : { config: { agentHostDir: options.dir } }),
+    ...(options.dir === undefined ? {} : { config: { osseoDir: options.dir } }),
     ...(options.overlay === false ? {} : { overlay: { showPrimitive, dismiss } }),
     linux: {
       ...(options.wait === undefined ? {} : { waitForPointerPress: options.wait }),
       getActiveWindow: async () => ({ activeWindow: options.active === false ? undefined : { windowId: "w1", title: "App", appName: "App", pid: 7 } }),
       getScreenGeometry: async () => ({ supported: true, bounds: { x: 0, y: 0, ...(options.screen ?? { width: 1920, height: 1080 }) }, reason: "ok" })
     }
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
   return { context, showPrimitive, dismiss };
 }
 
-const run = (context: AgentHostMcpContext, input: unknown) => show!.handler(show!.inputSchema.parse(input), context);
+const run = (context: OsseoMcpContext, input: unknown) => show!.handler(show!.inputSchema.parse(input), context);
 
 afterEach(() => forgetScreens());
 

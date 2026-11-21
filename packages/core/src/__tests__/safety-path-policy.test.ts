@@ -10,7 +10,7 @@ describe("path policy", () => {
     const roots = resolveAllowedWriteRoots(getDefaultPolicy(), {
       homeDir,
       cwd,
-      agentHostDir: "/tmp/agenthost"
+      osseoDir: "/tmp/osseo"
     });
 
     expect(roots).toContain(homeDir);
@@ -18,7 +18,7 @@ describe("path policy", () => {
   });
 
   it("allows writes inside configured write roots", () => {
-    const result = classifyPath("~/Desktop/agenthost-output/result.txt", getDefaultPolicy(), {
+    const result = classifyPath("~/Desktop/osseo-output/result.txt", getDefaultPolicy(), {
       homeDir,
       cwd,
       access: "write"

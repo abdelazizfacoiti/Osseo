@@ -66,19 +66,19 @@ export interface ActiveTaskApproval {
   expiresAt: string;
 }
 
-function confirmationsDir(agentHostDir: string): string {
-  return path.join(agentHostDir, "run", "confirmations");
+function confirmationsDir(osseoDir: string): string {
+  return path.join(osseoDir, "run", "confirmations");
 }
 
 export function isValidConfirmationTokenId(tokenId: string): boolean {
   return /^conf_[A-Za-z0-9-]{8,100}$/.test(tokenId);
 }
 
-function tokenPath(agentHostDir: string, tokenId: string): string {
+function tokenPath(osseoDir: string, tokenId: string): string {
   if (!isValidConfirmationTokenId(tokenId)) {
     throw new ConfirmationError("confirmation_token_not_found", "Confirmation token was not found.");
   }
-  return path.join(confirmationsDir(agentHostDir), `${tokenId}.json`);
+  return path.join(confirmationsDir(osseoDir), `${tokenId}.json`);
 }
 
 function normalizeValue(value: unknown): unknown {
@@ -103,15 +103,15 @@ export function fingerprintToolInput(tool: string, input: unknown): string {
   return createHash("sha256").update(`${tool}\n${JSON.stringify(normalizeValue(record))}`).digest("hex");
 }
 
-async function safeDirectory(agentHostDir: string): Promise<string> {
-  const directory = confirmationsDir(agentHostDir);
+async function safeDirectory(osseoDir: string): Promise<string> {
+  const directory = confirmationsDir(osseoDir);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   await chmod(directory, 0o700);
   return directory;
 }
 
-async function writeRecord(agentHostDir: string, record: ConfirmationRecord): Promise<void> {
-  const directory = await safeDirectory(agentHostDir);
+async function writeRecord(osseoDir: string, record: ConfirmationRecord): Promise<void> {
+  const directory = await safeDirectory(osseoDir);
   const target = path.join(directory, `${record.tokenId}.json`);
   const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`;
   await writeFile(temporary, `${JSON.stringify(record, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
@@ -120,8 +120,8 @@ async function writeRecord(agentHostDir: string, record: ConfirmationRecord): Pr
   await chmod(target, 0o600);
 }
 
-async function removeExpired(agentHostDir: string, now: number): Promise<void> {
-  const directory = confirmationsDir(agentHostDir);
+async function removeExpired(osseoDir: string, now: number): Promise<void> {
+  const directory = confirmationsDir(osseoDir);
   let files: string[] = [];
   try {
     files = (await readdir(directory)).filter((entry) => entry.endsWith(".json"));
@@ -141,7 +141,7 @@ async function removeExpired(agentHostDir: string, now: number): Promise<void> {
 }
 
 export async function prepareConfirmation(input: {
-  agentHostDir: string;
+  osseoDir: string;
   tool: string;
   riskLevel: RiskLevel;
   args: unknown;
@@ -153,8 +153,8 @@ export async function prepareConfirmation(input: {
   ttlMs?: number;
 }): Promise<ConfirmationRecord> {
   const now = Date.now();
-  await removeExpired(input.agentHostDir, now);
-  const directory = await safeDirectory(input.agentHostDir);
+  await removeExpired(input.osseoDir, now);
+  const directory = await safeDirectory(input.osseoDir);
   const existing = await readdir(directory).catch(() => [] as string[]);
   if (existing.filter((entry) => entry.endsWith(".json")).length >= MAX_PENDING_CONFIRMATIONS) {
     throw new ConfirmationError("confirmation_store_failed", "Too many pending confirmations; resolve or deny older tokens first.");
@@ -176,27 +176,27 @@ export async function prepareConfirmation(input: {
     ...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
     ...(input.policyTarget === undefined ? {} : { policyTarget: input.policyTarget })
   };
-  await writeRecord(input.agentHostDir, record);
+  await writeRecord(input.osseoDir, record);
   return record;
 }
 
-export async function readConfirmation(agentHostDir: string, tokenId: string): Promise<ConfirmationRecord | undefined> {
+export async function readConfirmation(osseoDir: string, tokenId: string): Promise<ConfirmationRecord | undefined> {
   try {
-    return JSON.parse(await readFile(tokenPath(agentHostDir, tokenId), "utf8")) as ConfirmationRecord;
+    return JSON.parse(await readFile(tokenPath(osseoDir, tokenId), "utf8")) as ConfirmationRecord;
   } catch {
     return undefined;
   }
 }
 
-export async function listConfirmations(agentHostDir: string): Promise<ConfirmationRecord[]> {
-  const directory = confirmationsDir(agentHostDir);
+export async function listConfirmations(osseoDir: string): Promise<ConfirmationRecord[]> {
+  const directory = confirmationsDir(osseoDir);
   let files: string[] = [];
   try {
     files = (await readdir(directory)).filter((entry) => entry.endsWith(".json"));
   } catch {
     return [];
   }
-  await removeExpired(agentHostDir, Date.now());
+  await removeExpired(osseoDir, Date.now());
   const records: ConfirmationRecord[] = [];
   for (const entry of files) {
     try {
@@ -210,11 +210,11 @@ export async function listConfirmations(agentHostDir: string): Promise<Confirmat
 }
 
 async function mutateRecord(
-  agentHostDir: string,
+  osseoDir: string,
   tokenId: string,
   status: "accepted" | "rejected"
 ): Promise<ConfirmationRecord> {
-  const original = tokenPath(agentHostDir, tokenId);
+  const original = tokenPath(osseoDir, tokenId);
   const claimed = `${original}.${process.pid}.${randomUUID()}.${status}`;
   try {
     await rename(original, claimed);
@@ -245,7 +245,7 @@ async function mutateRecord(
     ? { ...record, status, acceptedAt: now }
     : { ...record, status, rejectedAt: now };
   try {
-    await writeRecord(agentHostDir, next);
+    await writeRecord(osseoDir, next);
   } catch (error) {
     await rename(claimed, original).catch(() => undefined);
     throw error;
@@ -254,23 +254,23 @@ async function mutateRecord(
   return next;
 }
 
-export function acceptConfirmation(agentHostDir: string, tokenId: string): Promise<ConfirmationRecord> {
-  return mutateRecord(agentHostDir, tokenId, "accepted");
+export function acceptConfirmation(osseoDir: string, tokenId: string): Promise<ConfirmationRecord> {
+  return mutateRecord(osseoDir, tokenId, "accepted");
 }
 
-export function rejectConfirmation(agentHostDir: string, tokenId: string): Promise<ConfirmationRecord> {
-  return mutateRecord(agentHostDir, tokenId, "rejected");
+export function rejectConfirmation(osseoDir: string, tokenId: string): Promise<ConfirmationRecord> {
+  return mutateRecord(osseoDir, tokenId, "rejected");
 }
 
 export async function consumeConfirmation(input: {
-  agentHostDir: string;
+  osseoDir: string;
   tokenId: string;
   tool: string;
   args: unknown;
   targetFingerprint?: string;
   allowPending: boolean;
 }): Promise<ConfirmationRecord> {
-  const original = tokenPath(input.agentHostDir, input.tokenId);
+  const original = tokenPath(input.osseoDir, input.tokenId);
   const claimed = `${original}.${process.pid}.${randomUUID()}.claimed`;
   try {
     await rename(original, claimed);
@@ -296,7 +296,7 @@ export async function consumeConfirmation(input: {
   if (record.status === "rejected") return await fail("confirmation_token_rejected", "Confirmation token was rejected.", false);
   if (record.status === "used") return await fail("confirmation_token_used", "Confirmation token has already been used.", false);
   if (record.status === "pending" && !input.allowPending) {
-    return await fail("confirmation_not_approved", `Confirmation token is pending operator approval. Run: agenthost confirm ${record.tokenId}`, true);
+    return await fail("confirmation_not_approved", `Confirmation token is pending operator approval. Run: osseo confirm ${record.tokenId}`, true);
   }
   if (record.tool !== input.tool) return await fail("confirmation_tool_mismatch", "Confirmation token belongs to a different tool.", true);
   if (record.inputFingerprint !== fingerprintToolInput(input.tool, input.args)) {
@@ -317,13 +317,13 @@ export async function consumeConfirmation(input: {
   return consumed;
 }
 
-export function activeTaskApprovalPath(agentHostDir: string): string {
-  return path.join(agentHostDir, "tasks", "approvals", "active.json");
+export function activeTaskApprovalPath(osseoDir: string): string {
+  return path.join(osseoDir, "tasks", "approvals", "active.json");
 }
 
-export async function readActiveTaskApproval(agentHostDir: string): Promise<ActiveTaskApproval | undefined> {
+export async function readActiveTaskApproval(osseoDir: string): Promise<ActiveTaskApproval | undefined> {
   try {
-    const parsed = JSON.parse(await readFile(activeTaskApprovalPath(agentHostDir), "utf8")) as Partial<ActiveTaskApproval>;
+    const parsed = JSON.parse(await readFile(activeTaskApprovalPath(osseoDir), "utf8")) as Partial<ActiveTaskApproval>;
     if (typeof parsed.approvalId !== "string" || typeof parsed.taskId !== "string" || typeof parsed.expiresAt !== "string") return undefined;
     if (parsed.maxRisk !== "low" && parsed.maxRisk !== "medium") return undefined;
     if (Date.parse(parsed.expiresAt) <= Date.now()) return undefined;
@@ -340,8 +340,8 @@ export async function readActiveTaskApproval(agentHostDir: string): Promise<Acti
   }
 }
 
-export async function clearActiveTaskApproval(agentHostDir: string): Promise<void> {
-  await rm(activeTaskApprovalPath(agentHostDir), { force: true });
+export async function clearActiveTaskApproval(osseoDir: string): Promise<void> {
+  await rm(activeTaskApprovalPath(osseoDir), { force: true });
 }
 
 const RISK_ORDER: RiskLevel[] = ["observe", "low", "medium", "high", "blocked"];

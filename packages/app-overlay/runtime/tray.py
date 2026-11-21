@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AgentHost tray icon: a StatusNotifierItem (org.kde.StatusNotifierItem) on the session bus.
+"""Osseo tray icon: a StatusNotifierItem (org.kde.StatusNotifierItem) on the session bus.
 
 Shows the agent's state (running, paused, stopped, waiting for approval) and offers
 Stop, Pause, Resume, Open viewer and Quit tray. GNOME needs the AppIndicator
@@ -56,10 +56,10 @@ NODE_XML = """
 
 # State -> (tooltip text, icon name, Status). Standard icon names from the freedesktop theme.
 STATES = {
-    "running": ("AgentHost: running", "dialog-information", "Active"),
-    "paused": ("AgentHost: paused", "media-playback-pause", "Active"),
-    "stopped": ("AgentHost: stopped", "process-stop", "Active"),
-    "approval": ("AgentHost: waiting for approval", "dialog-warning", "NeedsAttention"),
+    "running": ("Osseo: running", "dialog-information", "Active"),
+    "paused": ("Osseo: paused", "media-playback-pause", "Active"),
+    "stopped": ("Osseo: stopped", "process-stop", "Active"),
+    "approval": ("Osseo: waiting for approval", "dialog-warning", "NeedsAttention"),
 }
 
 # Menu key -> (label, arguments after `node <entry>`). Fixed lists, never built from input.
@@ -102,7 +102,7 @@ def build_command(key, node, entry):
 def run_action(key, node, entry, agent_home, popen=subprocess.Popen):
     """Run one action with a fixed argument list and no shell. `popen` is injectable."""
     env = dict(os.environ)
-    env["AGENTHOST_HOME"] = agent_home
+    env["OSSEO_HOME"] = agent_home
     try:
         popen(build_command(key, node, entry), env=env, shell=False, stdin=subprocess.DEVNULL,
               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -133,14 +133,14 @@ class Tray:
         text, icon, status = STATES[self.state]
         return {
             "Category": GLib.Variant("s", "ApplicationStatus"),
-            "Id": GLib.Variant("s", "agenthost"),
-            "Title": GLib.Variant("s", "AgentHost"),
+            "Id": GLib.Variant("s", "osseo"),
+            "Title": GLib.Variant("s", "Osseo"),
             "Status": GLib.Variant("s", status),
             "WindowId": GLib.Variant("u", 0),
             "IconName": GLib.Variant("s", icon),
             "OverlayIconName": GLib.Variant("s", ""),
             "AttentionIconName": GLib.Variant("s", "dialog-warning"),
-            "ToolTip": GLib.Variant("(sa(iiay)ss)", (icon, [], "AgentHost", text)),
+            "ToolTip": GLib.Variant("(sa(iiay)ss)", (icon, [], "Osseo", text)),
             "ItemIsMenu": GLib.Variant("b", False),
             "Menu": GLib.Variant("o", "/NO_DBUSMENU"),
         }

@@ -1,17 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import path from "node:path";
-import { getDefaultPolicy } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 import { createUiTools } from "../tools/ui.js";
 
-function makeContext(linux: Record<string, unknown>): AgentHostMcpContext {
-  const home = "/tmp/agenthost-ui-tools";
+function makeContext(linux: Record<string, unknown>): OsseoMcpContext {
+  const home = "/tmp/osseo-ui-tools";
   return {
     sessionId: "ui-tools",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     linux
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
 const tool = (name: string) => createUiTools().find((entry) => entry.name === name)!;

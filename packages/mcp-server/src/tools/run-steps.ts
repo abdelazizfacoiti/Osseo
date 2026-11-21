@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { toolFailure, toolSuccess, type RiskLevel, type StepExpectation, type ToolResult } from "@agenthost/core";
+import { toolFailure, toolSuccess, type RiskLevel, type StepExpectation, type ToolResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { runTool } from "../tool-runner.js";
 import { settledPicture } from "./desktop.js";
 import { findScreenTextMatches } from "./vision.js";
@@ -81,7 +81,7 @@ function outlineContains(node: { name?: string | null; text?: string | null; des
 }
 
 /** Whether text is visible in the active window: the accessibility outline first, OCR when there is none. */
-async function textVisibleIn(context: AgentHostMcpContext, text: string): Promise<boolean | undefined> {
+async function textVisibleIn(context: OsseoMcpContext, text: string): Promise<boolean | undefined> {
   const active = (await context.linux.getActiveWindow().catch(() => undefined))?.activeWindow;
   if (active !== undefined && (active.pid !== undefined || active.appName !== undefined)) {
     const tree = await context.linux.getAccessibilityTree({
@@ -102,7 +102,7 @@ async function textVisibleIn(context: AgentHostMcpContext, text: string): Promis
 
 /** Checks a step's expectations against what the step reported and the window now shows. */
 async function checkExpectation(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   expect: StepExpectation,
   result: ToolResult
 ): Promise<{ ok: true } | { ok: false; code: "expectation_failed" | "expectation_unverified"; message: string }> {
@@ -142,7 +142,7 @@ function outcomeLine(index: number, tool: string, result: ToolResult, failure: T
   return `${number}. ${tool} ok${change}${expected ? ", expectation met" : ""}`;
 }
 
-function previewContext(context: AgentHostMcpContext): AgentHostMcpContext {
+function previewContext(context: OsseoMcpContext): OsseoMcpContext {
   const {
     actionOverlay: _actionOverlay,
     trace: _trace,
@@ -153,10 +153,10 @@ function previewContext(context: AgentHostMcpContext): AgentHostMcpContext {
   return { ...rest, previewOnly: true, logger: { log: async () => undefined } };
 }
 
-export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpContext> {
-  const tool: AgentHostToolDefinition<RunStepsInput, unknown, AgentHostMcpContext> = {
+export function createRunStepsTool(): AnyOsseoToolDefinition<OsseoMcpContext> {
+  const tool: OsseoToolDefinition<RunStepsInput, unknown, OsseoMcpContext> = {
     name: "computer.run_steps",
-    description: "Runs a bounded, governed plan of up to 20 AgentHost tool calls with one plan-scoped approval for low/medium effects. Each step still re-enters full safety, stop/takeover, confirmation, audit, and execution gates; high-risk steps still need their own token.",
+    description: "Runs a bounded, governed plan of up to 20 Osseo tool calls with one plan-scoped approval for low/medium effects. Each step still re-enters full safety, stop/takeover, confirmation, audit, and execution gates; high-risk steps still need their own token.",
     riskLevel: "medium",
     inputSchema: runStepsInput,
     mcpInputSchema: {
@@ -207,7 +207,7 @@ export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpCon
         const previews = await Promise.all(input.steps.map(async (step) => {
           const target = tools?.get(step.tool);
           return target === undefined ? undefined : await runTool(
-            target as AnyAgentHostToolDefinition<AgentHostMcpContext>,
+            target as AnyOsseoToolDefinition<OsseoMcpContext>,
             { ...(step.input ?? {}), dryRun: true },
             previewContext(context),
             { previewOnly: true }
@@ -255,7 +255,7 @@ export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpCon
       }
       const { confirmationSatisfied: _ignored, ...baseContext } = context;
       const planApproved = context.confirmationSatisfied === true;
-      const childContext: AgentHostMcpContext = planApproved
+      const childContext: OsseoMcpContext = planApproved
         ? { ...baseContext, planApproval: { planFingerprint: fingerprint, maxRisk: "medium" } }
         : baseContext;
       const stopOnError = input.stopOnError !== false;
@@ -269,7 +269,7 @@ export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpCon
           outcomes.push(`${index + 1}. ${step.tool} not run: unknown tool`);
           break;
         }
-        const result = await runTool(target as AnyAgentHostToolDefinition<AgentHostMcpContext>, step.input ?? {}, {
+        const result = await runTool(target as AnyOsseoToolDefinition<OsseoMcpContext>, step.input ?? {}, {
           ...childContext,
           planStep: { index, total: input.steps.length, ...(step.expect === undefined ? {} : { checked: true }) }
         });
@@ -336,5 +336,5 @@ export function createRunStepsTool(): AnyAgentHostToolDefinition<AgentHostMcpCon
       });
     }
   };
-  return tool as AnyAgentHostToolDefinition<AgentHostMcpContext>;
+  return tool as AnyOsseoToolDefinition<OsseoMcpContext>;
 }

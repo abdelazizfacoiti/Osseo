@@ -16,13 +16,13 @@ import {
   type DataSensitivity,
   type DesktopCapabilitySupport,
   type DesktopWindowBounds
-} from "@agenthost/core";
+} from "@osseo/core";
 import { findCommandPath, type LinuxLookupContext } from "./dependencies.js";
 import { pythonWorkerFor } from "./py-worker.js";
 import { runSafeLinuxCommand } from "./shell.js";
 
 export interface LinuxAccessibilityContext extends LinuxLookupContext {
-  agentHostDir?: string;
+  osseoDir?: string;
   runAccessibilityQuery?: (payload: Record<string, unknown>) => Promise<AccessibilityBackendResult>;
 }
 
@@ -995,8 +995,8 @@ async function runAccessibilityCommand(
     maxOutputBytes: 512 * 1024
   };
 
-  if (context.agentHostDir !== undefined) {
-    input.cwd = context.agentHostDir;
+  if (context.osseoDir !== undefined) {
+    input.cwd = context.osseoDir;
   }
 
   return runSafeLinuxCommand(input);
@@ -1230,7 +1230,7 @@ async function pythonAccessibilityResult(
 
   // The long-lived worker saves the ~80 ms of starting Python and importing the accessibility library on every call.
   // It declines (undefined) when it cannot run; the per-call process below then does the work as before.
-  const worker = process.env.AGENTHOST_NO_PY_WORKER === "1" ? undefined : pythonWorkerFor(pythonPath, context.agentHostDir);
+  const worker = process.env.OSSEO_NO_PY_WORKER === "1" ? undefined : pythonWorkerFor(pythonPath, context.osseoDir);
   const fast = worker === undefined || worker.disabled ? undefined : await worker.run(ACCESSIBILITY_SCRIPT, [JSON.stringify(payload)], 10_000);
   const result = fast ?? await runAccessibilityCommand(pythonPath, ["-c", ACCESSIBILITY_SCRIPT, JSON.stringify(payload)], context);
 

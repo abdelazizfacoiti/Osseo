@@ -1,7 +1,7 @@
-import { toolFailure, toolSuccess, evaluateSafety, type WindowListResult, type WindowFocusResult, type DesktopWindowContext, type ToolResult } from "@agenthost/core";
+import { toolFailure, toolSuccess, evaluateSafety, type WindowListResult, type WindowFocusResult, type DesktopWindowContext, type ToolResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { safetyContext } from "../context.js";
 
 const listInput = z.object({
@@ -28,7 +28,7 @@ const focusInput = z.object({
   }
 });
 
-function safetyCheck(tool: string, context: AgentHostMcpContext, appName?: string) {
+function safetyCheck(tool: string, context: OsseoMcpContext, appName?: string) {
   return evaluateSafety(
     { tool, actionType: "inspect", strategy: "gui_control", ...(appName === undefined ? {} : { appName }) },
     context.policy,
@@ -46,8 +46,8 @@ function failure(tool: string, safety: ReturnType<typeof evaluateSafety>): ToolR
   });
 }
 
-export function createWindowTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const list: AgentHostToolDefinition<z.infer<typeof listInput>, WindowListResult, AgentHostMcpContext> = {
+export function createWindowTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const list: OsseoToolDefinition<z.infer<typeof listInput>, WindowListResult, OsseoMcpContext> = {
     name: "window.list",
     description: "Lists visible windows.",
     riskLevel: "low",
@@ -67,7 +67,7 @@ export function createWindowTools(): AnyAgentHostToolDefinition<AgentHostMcpCont
     }
   };
 
-  const focus: AgentHostToolDefinition<z.infer<typeof focusInput>, WindowFocusResult, AgentHostMcpContext> = {
+  const focus: OsseoToolDefinition<z.infer<typeof focusInput>, WindowFocusResult, OsseoMcpContext> = {
     name: "window.focus",
     description: "Focuses a window by ID, app name, title, or PID.",
     riskLevel: "medium",

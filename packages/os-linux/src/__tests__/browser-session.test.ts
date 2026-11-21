@@ -26,13 +26,13 @@ describe.skipIf(chrome === undefined)("BrowserSession (real headless Chrome)", (
   let pageUrl: string;
 
   beforeAll(async () => {
-    home = await mkdtemp(path.join(os.tmpdir(), "agenthost-browser-"));
+    home = await mkdtemp(path.join(os.tmpdir(), "osseo-browser-"));
     const file = path.join(home, "page.html");
     const second = path.join(home, "second.html");
     await writeFile(second, "<!doctype html><title>Second tab</title><h1>second</h1>");
     await writeFile(file, PAGE.replace("SECOND_URL", pathToFileURL(second).toString()));
     pageUrl = pathToFileURL(file).toString();
-    session = new BrowserSession({ agentHostDir: home });
+    session = new BrowserSession({ osseoDir: home });
   });
   afterAll(async () => {
     await session.close();
@@ -90,13 +90,13 @@ describe.skipIf(chrome === undefined)("BrowserSession forms (real headless Chrom
   let session: BrowserSession;
 
   beforeAll(async () => {
-    home = await mkdtemp(path.join(os.tmpdir(), "agenthost-forms-"));
+    home = await mkdtemp(path.join(os.tmpdir(), "osseo-forms-"));
     const file = path.join(home, "form.html");
     await writeFile(file, `<!doctype html><title>Form</title>
       <input type="file" id="f" onchange="document.getElementById('msg').textContent = 'files:' + this.files.length">
       <select id="s"><option value="a">Alpha</option><option value="b">Beta</option></select>
       <input id="name" placeholder="Name"><p id="msg">ready</p>`);
-    session = new BrowserSession({ agentHostDir: home });
+    session = new BrowserSession({ osseoDir: home });
     await session.open({ url: pathToFileURL(file).toString(), headless: true });
   }, 60_000);
 

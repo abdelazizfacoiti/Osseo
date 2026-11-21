@@ -45,7 +45,7 @@ export async function probeSocket(socketPath: string, timeoutMs = 1000): Promise
 }
 
 /**
- * Starts listening. Refuses with agenthost_host_running when a live host owns
+ * Starts listening. Refuses with osseo_host_running when a live host owns
  * the socket; removes a stale socket first.
  */
 export async function listenOnHostSocket(agentHome: string, onConnection: (socket: net.Socket) => void): Promise<net.Server> {
@@ -53,7 +53,7 @@ export async function listenOnHostSocket(agentHome: string, onConnection: (socke
   const state = await probeSocket(paths.socket);
   if (state === "live") {
     const pid = await readHostPid(agentHome);
-    throw new HostError("agenthost_host_running", `An AgentHost host is already running${pid === undefined ? "" : ` (pid ${pid})`}.`, pid);
+    throw new HostError("osseo_host_running", `An Osseo host is already running${pid === undefined ? "" : ` (pid ${pid})`}.`, pid);
   }
   if (state === "stale") await rm(paths.socket, { force: true });
   const server = net.createServer(onConnection);

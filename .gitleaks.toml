@@ -1,6 +1,6 @@
-# Test fixtures that exercise AgentHost's own redaction deliberately contain fake secrets
+# Test fixtures that exercise Osseo's own redaction deliberately contain fake secrets
 # (tok_12345678, sk-abcdefghijklmnopqrstuvwxyz0123456789, a PEM header with no key). Nothing real is stored.
-title = "AgentHost gitleaks config"
+title = "Osseo gitleaks config"
 
 [extend]
 useDefault = true

@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { OverlayCapabilityReport, OverlayStateSnapshot, OverlayWidgetEvent } from "@agenthost/core";
+import type { OverlayCapabilityReport, OverlayStateSnapshot, OverlayWidgetEvent } from "@osseo/core";
 import {
   OVERLAY_IPC_MAX_BYTES,
   OVERLAY_IPC_MAX_IN_FLIGHT,
@@ -19,14 +19,14 @@ import type { OverlayOperationResult, OverlayRenderRecord, OverlayRenderer, Over
 import { WINDOWS_OVERLAY_SCRIPT } from "./windows-overlay-script.js";
 import type { OverlayVisualConfig } from "./linux-renderer.js";
 
-/** The Windows overlay is on when AGENTHOST_WINDOWS_OVERLAY=1 or overlay.windows is true in config.json. Off by default. */
+/** The Windows overlay is on when OSSEO_WINDOWS_OVERLAY=1 or overlay.windows is true in config.json. Off by default. */
 export function windowsOverlayEnabled(environment: NodeJS.ProcessEnv, configured?: boolean): boolean {
-  return environment.AGENTHOST_WINDOWS_OVERLAY === "1" || configured === true;
+  return environment.OSSEO_WINDOWS_OVERLAY === "1" || configured === true;
 }
 
 export interface WindowsOverlayRendererOptions {
-  /** AgentHost home: the script is written under <home>/run. */
-  agentHostDir: string;
+  /** Osseo home: the script is written under <home>/run. */
+  osseoDir: string;
   sessionId?: string;
   /** Test seam: the program and arguments that run the overlay process. */
   command?: { program: string; args: string[] };
@@ -202,7 +202,7 @@ export class WindowsOverlayRenderer implements OverlayRenderer {
       ...(this.#lastFailure === undefined ? {} : { lastFailure: this.#lastFailure }),
       recommendedAction: capabilities.supported
         ? "Windows overlay process healthy."
-        : "Set AGENTHOST_WINDOWS_OVERLAY=1 and run node scripts/windows-overlay-smoke.mjs on Windows; the reason says what failed."
+        : "Set OSSEO_WINDOWS_OVERLAY=1 and run node scripts/windows-overlay-smoke.mjs on Windows; the reason says what failed."
     };
   }
 
@@ -417,7 +417,7 @@ export class WindowsOverlayRenderer implements OverlayRenderer {
   }
 
   async #writeScript(): Promise<{ program: string; args: string[] }> {
-    const dir = path.join(this.#options.agentHostDir, "run");
+    const dir = path.join(this.#options.osseoDir, "run");
     await mkdir(dir, { recursive: true });
     const file = path.join(dir, "windows-overlay.ps1");
     await writeFile(file, WINDOWS_OVERLAY_SCRIPT, { encoding: "utf8" });

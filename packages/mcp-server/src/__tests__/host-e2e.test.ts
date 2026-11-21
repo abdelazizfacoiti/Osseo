@@ -12,7 +12,7 @@ const HOST = fileURLToPath(new URL("../../dist/host/main.js", import.meta.url));
 const built = existsSync(ENTRY) && existsSync(HOST);
 
 function env(home: string): NodeJS.ProcessEnv {
-  const e: NodeJS.ProcessEnv = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_HOST: "1", NODE_ENV: "test" };
+  const e: NodeJS.ProcessEnv = { ...process.env, OSSEO_HOME: home, OSSEO_HOST: "1", NODE_ENV: "test" };
   delete e.DISPLAY; delete e.WAYLAND_DISPLAY;
   return e;
 }
@@ -23,7 +23,7 @@ class Shim {
   private lines: any[] = [];
   exit: Promise<number | null>;
   constructor(home: string) {
-    this.child = spawn(process.execPath, [ENTRY], { env: { ...env(home), AGENTHOST_CLIENT: "e2e" }, stdio: ["pipe", "pipe", "pipe"] });
+    this.child = spawn(process.execPath, [ENTRY], { env: { ...env(home), OSSEO_CLIENT: "e2e" }, stdio: ["pipe", "pipe", "pipe"] });
     this.child.stdout.on("data", (c: Buffer) => { this.buffer += c.toString(); let i: number; while ((i = this.buffer.indexOf("\n")) >= 0) { this.lines.push(JSON.parse(this.buffer.slice(0, i))); this.buffer = this.buffer.slice(i + 1); } });
     this.exit = new Promise((r) => this.child.once("exit", (code) => r(code)));
   }

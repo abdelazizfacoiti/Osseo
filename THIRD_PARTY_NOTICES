@@ -1,7 +1,7 @@
-AgentHost Third-Party Notices
+Osseo Third-Party Notices
 
 This file is generated from package-lock.json production dependency entries.
-AgentHost does not modify third-party license terms. Complete license texts
+Osseo does not modify third-party license terms. Complete license texts
 remain alongside bundled packages under node_modules.
 
 Bundled npm production dependencies:
@@ -20,4 +20,4 @@ MIT:
 
 Optional system programs such as GTK3/PyGObject, xdotool, Tesseract,
 Bubblewrap, eSpeak NG, Piper, and Speech Dispatcher are not bundled by
-AgentHost. Their licenses and installation remain the operator's responsibility.
+Osseo. Their licenses and installation remain the operator's responsibility.

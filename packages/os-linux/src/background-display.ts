@@ -60,7 +60,7 @@ export async function startBackgroundDisplay(options: BackgroundDisplayOptions =
   const display = `:${number}`;
   const width = options.width ?? 1280;
   const height = options.height ?? 800;
-  const child: ChildProcess = spawn(executable, [display, "-screen", `${width}x${height}`, "-title", "AgentHost background desktop", "-no-host-grab", "-noreset", "-nolisten", "tcp"], { stdio: "ignore", env: base });
+  const child: ChildProcess = spawn(executable, [display, "-screen", `${width}x${height}`, "-title", "Osseo background desktop", "-no-host-grab", "-noreset", "-nolisten", "tcp"], { stdio: "ignore", env: base });
   let exited = false;
   child.once("exit", () => { exited = true; });
   child.once("error", () => { exited = true; });

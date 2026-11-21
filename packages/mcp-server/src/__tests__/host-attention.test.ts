@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { readAttention } from "@agenthost/core";
-import { selectHostWindow } from "@agenthost/os-linux";
+import { readAttention } from "@osseo/core";
+import { selectHostWindow } from "@osseo/os-linux";
 import { HostAttention, type HostAttentionDeps } from "../host-attention.js";
 
 const roots: string[] = [];
 async function tempHome(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-attention-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "osseo-attention-"));
   roots.push(root);
   return root;
 }
@@ -34,7 +34,7 @@ describe("host attention", () => {
     const attention = new HostAttention(home, desktop.deps);
     expect(await attention.requestConfirmation()).toEqual({ raised: true });
     expect(desktop.active()).toBe("100");
-    expect(await readAttention(home)).toMatchObject({ source: "agenthost", hostWindowId: "100", returnWindowId: "200" });
+    expect(await readAttention(home)).toMatchObject({ source: "osseo", hostWindowId: "100", returnWindowId: "200" });
 
     expect(await attention.resolveConfirmation()).toEqual({ restored: true });
     expect(desktop.active()).toBe("200");

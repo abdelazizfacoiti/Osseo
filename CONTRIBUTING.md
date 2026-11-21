@@ -1,6 +1,6 @@
 # Contributing
 
-AgentHost is provider-agnostic and safety-first. Changes must preserve schema validation, the policy file and its floors, dry-run and single-use confirmation boundaries, stop/takeover gates, target binding, redaction, and audit logging.
+Osseo is provider-agnostic and safety-first. Changes must preserve schema validation, the policy file and its floors, dry-run and single-use confirmation boundaries, stop/takeover gates, target binding, redaction, and audit logging.
 
 ## Workflow
 

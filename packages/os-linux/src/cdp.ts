@@ -4,7 +4,7 @@ import type { Socket } from "node:net";
 
 /*
  * A small Chrome DevTools Protocol client over a minimal RFC 6455 WebSocket.
- * It exists because Node 20 has no built-in WebSocket and AgentHost avoids a
+ * It exists because Node 20 has no built-in WebSocket and Osseo avoids a
  * new runtime dependency for one local loopback connection. It speaks only to
  * 127.0.0.1 and handles text frames, fragmentation, ping/pong, and close.
  */

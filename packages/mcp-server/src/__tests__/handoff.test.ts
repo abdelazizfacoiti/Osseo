@@ -2,14 +2,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { beginHandoff, beginTakeover, endHandoff, evaluateRunStateGate, readHandoff, readRunState } from "@agenthost/core";
-import { HeadlessOverlayRenderer, OverlayManager } from "@agenthost/app-overlay";
+import { beginHandoff, beginTakeover, endHandoff, evaluateRunStateGate, readHandoff, readRunState } from "@osseo/core";
+import { HeadlessOverlayRenderer, OverlayManager } from "@osseo/app-overlay";
 import { HandoffOverlay } from "../handoff-overlay.js";
 
 const SESSION = "handoff-test";
 const directories: string[] = [];
 async function tempHome(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "agenthost-handoff-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "osseo-handoff-"));
   directories.push(directory);
   return directory;
 }
@@ -36,7 +36,7 @@ describe("human handoff", () => {
     const home = await tempHome();
     const manager = new OverlayManager(new HeadlessOverlayRenderer(), { sessionId: SESSION }, { hideMarkerPath: null });
     const notices: string[] = [];
-    const overlay = new HandoffOverlay(manager, { agentHostDir: home, sessionId: SESSION, pollMs: 3_600_000, notify: (summary) => notices.push(summary) });
+    const overlay = new HandoffOverlay(manager, { osseoDir: home, sessionId: SESSION, pollMs: 3_600_000, notify: (summary) => notices.push(summary) });
     try {
       await overlay.tick();
       expect(overlay.visible).toBe(false);
@@ -44,7 +44,7 @@ describe("human handoff", () => {
       await overlay.tick();
       await overlay.tick();
       expect(overlay.visible).toBe(true);
-      expect(notices).toEqual(["AgentHost needs you"]);
+      expect(notices).toEqual(["Osseo needs you"]);
       const payload = manager.suppressionSnapshot().find((entry) => entry.overlayId === overlay.widgetId)?.payload as { title: string; components: Array<{ type: string; event?: string }> };
       expect(payload.title).toBe("Your turn: solve the CAPTCHA");
       expect(payload.components.find((component) => component.type === "button")?.event).toBe("continue");

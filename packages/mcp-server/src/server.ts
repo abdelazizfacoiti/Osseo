@@ -1,6 +1,6 @@
 import { triggerReplay } from "./replay-trigger.js";
 import { mkdir, rename, rm, writeFile } from "node:fs/promises";
-import { ensurePrivateDirectory } from "@agenthost/core";
+import { ensurePrivateDirectory } from "@osseo/core";
 import { createScreenTools } from "./tools/screen.js";
 import { createGuideTools } from "./tools/guide.js";
 import { createSeeTool } from "./tools/see.js";
@@ -12,8 +12,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 
 /** run/background-display.json holds {"display": ":N"} while a background display is up; removed when it is not. */
-async function writeBackgroundDisplayInfo(agentHostDir: string, display: string | undefined): Promise<void> {
-  const file = path.join(agentHostDir, "run", "background-display.json");
+async function writeBackgroundDisplayInfo(osseoDir: string, display: string | undefined): Promise<void> {
+  const file = path.join(osseoDir, "run", "background-display.json");
   if (display === undefined) {
     await rm(file, { force: true });
     return;
@@ -37,7 +37,7 @@ import {
   JsonlFailureLog,
   failureLogPath,
   JsonlTraceLogger,
-  loadAgentHostConfig,
+  loadOsseoConfig,
   ensurePolicyFile,
   describeDesktopPlatform,
   setUserBlockedApps,
@@ -49,14 +49,14 @@ import {
   requestStop,
   clearActiveTaskApproval,
   writeActivityStatus,
-  AGENTHOST_VERSION,
+  OSSEO_VERSION,
   type ActivityStatusOutcome,
-  type AgentHostConfig,
+  type OsseoConfig,
   type AuditLogger,
   type CapabilityRegistry,
   type RuntimePolicy,
   type ToolResult
-} from "@agenthost/core";
+} from "@osseo/core";
 import {
   checkLinuxDependency,
   captureLinuxScreenshot,
@@ -106,11 +106,11 @@ import {
   PortalSession,
   createPortalDesktop,
   shouldUseWaylandPortal
-} from "@agenthost/os-linux";
+} from "@osseo/os-linux";
 import { OVERLAY_FRAME_THICKNESS } from "./frame-trim.js";
-import { WindowsHelperProcess, createWindowsDesktop, openWindowsUrl } from "@agenthost/os-windows";
-import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator, WindowsOverlayRenderer, windowsOverlayEnabled, type OverlayRenderer } from "@agenthost/app-overlay";
-import type { AgentHostMcpContext, LinuxAutomation } from "./context.js";
+import { WindowsHelperProcess, createWindowsDesktop, openWindowsUrl } from "@osseo/os-windows";
+import { createOverlayRenderer, sweepOrphanedOverlayRenderers, VisualSurfaceCoordinator, WindowsOverlayRenderer, windowsOverlayEnabled, type OverlayRenderer } from "@osseo/app-overlay";
+import type { OsseoMcpContext, LinuxAutomation } from "./context.js";
 import { createDesktopTools } from "./tools/desktop.js";
 import { createAppTools } from "./tools/app.js";
 import { createUiTools } from "./tools/ui.js";
@@ -130,7 +130,7 @@ import { createTaskTools } from "./tools/tasks.js";
 import { createAgentTools } from "./tools/agent.js";
 import { applyProductionExecutionMetadata, materializeToolDefinitions, toolCapabilities } from "./tool-metadata.js";
 import { listResourceEntries, readResource } from "./resources.js";
-import { runTool, type AnyAgentHostToolDefinition } from "./tool-runner.js";
+import { runTool, type AnyOsseoToolDefinition } from "./tool-runner.js";
 import { ToolActionOverlay } from "./action-overlay.js";
 import { HostAttention } from "./host-attention.js";
 import { inputGuardPath } from "./input-guard.js";
@@ -143,19 +143,19 @@ import { askInChatDetailed, type ElicitFn } from "./chat-approval.js";
 import { TaskActivityOverlay } from "./task-overlay.js";
 import { shouldShowActionCard, shouldShowActivityCard } from "./activity.js";
 
-const SERVER_VERSION = AGENTHOST_VERSION;
+const SERVER_VERSION = OSSEO_VERSION;
 const ACTION_PAUSE_REASON = ACTION_CARD_PAUSE_PREFIX;
 
 const SERVER_INSTRUCTIONS =
-  "AgentHost is a universal local automation host. It provides desktop automation, file operations, shell commands, vision/OCR, and window management. Use GUI click/type as fallback when policy allows. Routine local actions execute directly. Consequential actions such as external sends/uploads, deletes, private-data reads, and financial effects require an exact dry-run preview and single-use confirmation token. Stop, takeover, and pause flags halt new state-changing calls. For fast decisions, inspect once, act, then verify; avoid repeating unchanged discovery.";
+  "Osseo is a universal local automation host. It provides desktop automation, file operations, shell commands, vision/OCR, and window management. Use GUI click/type as fallback when policy allows. Routine local actions execute directly. Consequential actions such as external sends/uploads, deletes, private-data reads, and financial effects require an exact dry-run preview and single-use confirmation token. Stop, takeover, and pause flags halt new state-changing calls. For fast decisions, inspect once, act, then verify; avoid repeating unchanged discovery.";
 
 const DESKTOP_INSTRUCTIONS =
-  "AgentHost gives an agent a permissioned body on a real computer. Loop: see (numbered list of what is on screen), act by number with click, type, key, scroll or drag, then see again. For web tasks open a url in the agent's own browser. Use guide.show for sensitive apps and ask for logins. Sends, uploads, deletes and payments return confirmation_required: repeat the same call with the confirmationToken after the person approves. Stop, takeover and pause flags halt actions.";
+  "Osseo gives an agent a permissioned body on a real computer. Loop: see (numbered list of what is on screen), act by number with click, type, key, scroll or drag, then see again. For web tasks open a url in the agent's own browser. Use guide.show for sensitive apps and ask for logins. Sends, uploads, deletes and payments return confirmation_required: repeat the same call with the confirmationToken after the person approves. Stop, takeover and pause flags halt actions.";
 
 let lastApprovalSignalAt = 0;
 let lastOverlaySignalAt = 0;
 
-function activitySummary(tool: AnyAgentHostToolDefinition, input: unknown): string {
+function activitySummary(tool: AnyOsseoToolDefinition, input: unknown): string {
   try {
     const summary = typeof tool.inputSummary === "function" ? tool.inputSummary(input) : tool.inputSummary;
     return summarizeForLog(summary) || "Computer action";
@@ -172,7 +172,7 @@ function activityOutcome(result: ToolResult): ActivityStatusOutcome {
 }
 
 function recordActivity(
-  agentHostDir: string,
+  osseoDir: string,
   sessionId: string,
   mode: "always" | "on_change" | "off",
   tool: string,
@@ -187,7 +187,7 @@ function recordActivity(
       ?? (snapshot.hidden ? "overlay_hidden_by_operator" : undefined)
       ?? (snapshot.started && !snapshot.visible ? "overlay_not_visible" : undefined);
     const error = rawError === undefined ? undefined : rawError.replace(/\s+/g, " ").trim().slice(0, 200) || "overlay_render_failed";
-    void writeActivityStatus(agentHostDir, {
+    void writeActivityStatus(osseoDir, {
       schemaVersion: 1,
       sessionId: sessionId.slice(0, 200) || "session_unknown",
       mode,
@@ -213,10 +213,10 @@ function signalApprovalRequired(): void {
   lastApprovalSignalAt = now;
   try {
     const child = spawn("notify-send", [
-      "-a", "AgentHost",
+      "-a", "Osseo",
       "-u", "normal",
-      "AgentHost approval required",
-      "Open the AgentHost card or run: agenthost confirmations"
+      "Osseo approval required",
+      "Open the Osseo card or run: osseo confirmations"
     ], { stdio: "ignore", detached: true });
     child.on("error", () => undefined);
     child.unref();
@@ -231,10 +231,10 @@ function signalOverlayUnavailable(): void {
   lastOverlaySignalAt = now;
   try {
     const child = spawn("notify-send", [
-      "-a", "AgentHost",
+      "-a", "Osseo",
       "-u", "low",
-      "AgentHost overlay unavailable",
-      "The action continued. Run: agenthost overlay status"
+      "Osseo overlay unavailable",
+      "The action continued. Run: osseo overlay status"
     ], { stdio: "ignore", detached: true });
     child.on("error", () => undefined);
     child.unref();
@@ -245,7 +245,7 @@ function signalOverlayUnavailable(): void {
 /** A guard paused the agent: one persistent desktop notification carrying the exact command that resumes it. */
 function signalSelfPause(reason: string): void {
   try {
-    const child = spawn("notify-send", ["-a", "AgentHost", "-u", "critical", "-t", "0", "AgentHost paused itself", `${reason.slice(0, 180)} Resume: agenthost agent resume`], { stdio: "ignore", detached: true });
+    const child = spawn("notify-send", ["-a", "Osseo", "-u", "critical", "-t", "0", "Osseo paused itself", `${reason.slice(0, 180)} Resume: osseo agent resume`], { stdio: "ignore", detached: true });
     child.on("error", () => undefined);
     child.unref();
   } catch {
@@ -253,12 +253,12 @@ function signalSelfPause(reason: string): void {
   }
 }
 
-export interface AgentHostServerOptions {
-  config?: AgentHostConfig;
+export interface OsseoServerOptions {
+  config?: OsseoConfig;
   policy?: RuntimePolicy;
   registry?: CapabilityRegistry;
   logger?: AuditLogger;
-  trace?: import("@agenthost/core").ToolTraceLogger;
+  trace?: import("@osseo/core").ToolTraceLogger;
   sessionId?: string;
   linux?: LinuxAutomation;
   /** Host service only: a renderer owned by the host and shared by its sessions. Never closed from here (closing a proxy is a no-op). */
@@ -283,20 +283,20 @@ function toMcpToolResult(result: ToolResult, verbosity: OutputVerbosity, stateHo
   };
 }
 
-export async function createAgentHostMcpServer(options: AgentHostServerOptions = {}): Promise<{
+export async function createOsseoMcpServer(options: OsseoServerOptions = {}): Promise<{
   server: Server;
-  context: AgentHostMcpContext;
+  context: OsseoMcpContext;
   closeResources: () => Promise<void>;
 }> {
-  const config = options.config ?? (await loadAgentHostConfig());
+  const config = options.config ?? (await loadOsseoConfig());
   // The last state fingerprint this session reported, so an unchanged state is not repeated.
   const resultState: StateHolder = {};
   setUserBlockedApps(config.blockedApps ?? []);
   // Desktop commands run with this as their working directory; on a fresh install it may not exist yet.
   // Owner-only: mode 0700 on POSIX, an access list (icacls) on Windows where file modes do nothing.
-  await ensurePrivateDirectory(config.agentHostDir).catch(() => undefined);
+  await ensurePrivateDirectory(config.osseoDir).catch(() => undefined);
   // The commented default policy.toml, written once and never over an existing file.
-  await ensurePolicyFile(config.agentHostDir).catch(() => undefined);
+  await ensurePolicyFile(config.osseoDir).catch(() => undefined);
   // Background placement: all desktop work happens on a nested display. If it
   // cannot start, fail loudly: quietly acting on the person's screen is what
   // they asked to avoid.
@@ -306,16 +306,16 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     if (!started.ok) throw new Error(`background_display_unavailable: ${started.reason}`);
     backgroundDisplay = started;
     // The viewer reads this to find the display; it holds only the display name.
-    await writeBackgroundDisplayInfo(config.agentHostDir, started.display).catch(() => undefined);
+    await writeBackgroundDisplayInfo(config.osseoDir, started.display).catch(() => undefined);
   }
-  const desktopContext = { agentHostDir: config.agentHostDir, ...(backgroundDisplay === undefined ? {} : { env: backgroundDisplay.env }) };
+  const desktopContext = { osseoDir: config.osseoDir, ...(backgroundDisplay === undefined ? {} : { env: backgroundDisplay.env }) };
   const sessionId = options.sessionId ?? createSessionId();
   const registry = options.registry ?? createBaseCapabilityRegistry();
   const logger = options.logger ?? new JsonlAuditLogger(config.logFile);
   const failureLog = new JsonlFailureLog(failureLogPath(config.logFile));
-  const trace = options.trace ?? (process.env.AGENTHOST_TRACE === "1"
+  const trace = options.trace ?? (process.env.OSSEO_TRACE === "1"
     ? new JsonlTraceLogger(path.join(
-        config.agentHostDir,
+        config.osseoDir,
         "logs",
         "traces",
         `${sessionId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120)}.jsonl`
@@ -328,7 +328,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const actionPill = config.overlay?.actionPill ?? !dockLayout;
   const pillAutoHideMs = config.overlay?.pillAutoHideMs ?? 30_000;
   const requestedRenderer = config.overlay?.rendererMode ?? config.overlayRendererMode ?? "auto";
-  // Opt-in Windows overlay (WPF, AGENTHOST_WINDOWS_OVERLAY=1). Every other platform and mode keeps the renderer factory.
+  // Opt-in Windows overlay (WPF, OSSEO_WINDOWS_OVERLAY=1). Every other platform and mode keeps the renderer factory.
   const windowsOverlay = describeDesktopPlatform().os === "windows" && windowsOverlayEnabled(process.env, config.overlay?.windows) && (requestedRenderer === "auto" || requestedRenderer === "gtk3-native");
   const overlayVisual = {
     layout: config.overlay?.layout ?? "dock",
@@ -338,23 +338,23 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     allowSyntheticControl: config.overlay?.allowSyntheticControl ?? false,
     maxWidth: config.overlay?.maxWidth ?? 520
   };
-  const overlay = new VisualSurfaceCoordinator(options.overlayRenderer ?? (windowsOverlay ? new WindowsOverlayRenderer({ agentHostDir: config.agentHostDir, sessionId, visual: overlayVisual }) : createOverlayRenderer(requestedRenderer, {
+  const overlay = new VisualSurfaceCoordinator(options.overlayRenderer ?? (windowsOverlay ? new WindowsOverlayRenderer({ osseoDir: config.osseoDir, sessionId, visual: overlayVisual }) : createOverlayRenderer(requestedRenderer, {
     sessionId,
-    inputGuardPath: inputGuardPath(config.agentHostDir),
+    inputGuardPath: inputGuardPath(config.osseoDir),
     visual: overlayVisual
   })), { sessionId }, { reducedMotion: config.overlay?.reducedMotion ?? false });
   let taskActivity: TaskActivityOverlay | undefined;
   // Injected Linux automation means a test or embedded host; never drive the real desktop then.
-  const hostAttention = options.linux === undefined ? new HostAttention(config.agentHostDir) : undefined;
+  const hostAttention = options.linux === undefined ? new HostAttention(config.osseoDir) : undefined;
   // A soft chime repeats while an approval or a hand-off waits for the person, until it is answered (max 5 minutes).
   const attentionChime = options.linux === undefined && process.env.NODE_ENV !== "test"
-    ? new AttentionChime({ agentHostDir: config.agentHostDir, enabled: attentionSoundEnabled(config), ...(config.attention?.soundIntervalMs === undefined ? {} : { intervalMs: config.attention.soundIntervalMs }) })
+    ? new AttentionChime({ osseoDir: config.osseoDir, enabled: attentionSoundEnabled(config), ...(config.attention?.soundIntervalMs === undefined ? {} : { intervalMs: config.attention.soundIntervalMs }) })
     : undefined;
   if (options.linux === undefined && process.env.NODE_ENV !== "test") {
-    void bootstrapRequirements(config.agentHostDir, config.autoInstallDependencies !== false).catch(() => undefined);
+    void bootstrapRequirements(config.osseoDir, config.autoInstallDependencies !== false).catch(() => undefined);
   }
   const actionOverlay = new ToolActionOverlay(overlay, {
-    widgetId: `agenthost-action-${sessionId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120)}`,
+    widgetId: `osseo-action-${sessionId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120)}`,
     // Dock layout: the action status is a bottom card inside the dock, so it never covers the work area.
     placement: actionPill ? "top_center" : dockLayout ? "bottom_right" : config.overlay?.preferredPosition ?? "top_right",
     persistent: actionPill || dockLayout ? pillAutoHideMs <= 0 : config.overlay?.persistent ?? true,
@@ -366,17 +366,17 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     targetRing: backgroundDisplay === undefined && (config.overlay?.targetRing ?? true),
     targetRingLeadMs: config.overlay?.targetRingLeadMs ?? 150,
     targetRingDurationMs: config.overlay?.targetRingDurationMs ?? 600,
-    onPause: async () => { await requestPause(config.agentHostDir, ACTION_PAUSE_REASON); },
+    onPause: async () => { await requestPause(config.osseoDir, ACTION_PAUSE_REASON); },
     onResume: async () => {
-      const state = await readRunState(config.agentHostDir);
-      if (state.pause.requested && state.pause.reason?.startsWith(ACTION_CARD_PAUSE_PREFIX) === true) await clearPause(config.agentHostDir);
+      const state = await readRunState(config.osseoDir);
+      if (state.pause.requested && state.pause.reason?.startsWith(ACTION_CARD_PAUSE_PREFIX) === true) await clearPause(config.osseoDir);
     },
     onStop: async () => {
-      await requestStop(config.agentHostDir, "Stop requested from the AgentHost action card");
-      await clearActiveTaskApproval(config.agentHostDir);
+      await requestStop(config.osseoDir, "Stop requested from the Osseo action card");
+      await clearActiveTaskApproval(config.osseoDir);
       await taskActivity?.operatorStopped();
     },
-    isPaused: async () => (await readRunState(config.agentHostDir)).pause.requested,
+    isPaused: async () => (await readRunState(config.osseoDir)).pause.requested,
     // Keep the action card, its frame and ring up between actions while an explicit task is open.
     holdVisible: () => taskActivity?.hasOpenTask() === true
   });
@@ -384,7 +384,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     ? new ActionTimeline(overlay, {
       sessionId: sessionId.replace(/[^A-Za-z0-9._-]/g, "_"),
       readAlerts: async () => {
-        const [state, attention] = await Promise.all([readRunState(config.agentHostDir), readAttention(config.agentHostDir)]);
+        const [state, attention] = await Promise.all([readRunState(config.osseoDir), readAttention(config.osseoDir)]);
         // Only approvals hold the timeline open; "done" and "idle" just raise the terminal.
         const approval = attention !== undefined && (attention.reason === "permission" || attention.reason === "confirmation");
         return {
@@ -397,18 +397,18 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     : undefined;
   const pushNotify = createPushNotifier(config.notifications?.pushUrl);
   const approvalOverlay = activityMode !== "off" && options.linux === undefined
-    ? new ApprovalOverlay(overlay, { agentHostDir: config.agentHostDir, sessionId })
+    ? new ApprovalOverlay(overlay, { osseoDir: config.osseoDir, sessionId })
     : undefined;
   const handoffOverlay = activityMode !== "off" && options.linux === undefined
     ? new HandoffOverlay(overlay, {
-      agentHostDir: config.agentHostDir,
+      osseoDir: config.osseoDir,
       sessionId: sessionId.replace(/[^A-Za-z0-9._-]/g, "_"),
       notify: (summary, body) => {
         void pushNotify("handoff");
         void hostAttention?.bringHostForward();
-        attentionChime?.start(async () => (await readHandoff(config.agentHostDir)).active);
+        attentionChime?.start(async () => (await readHandoff(config.osseoDir)).active);
         try {
-          const child = spawn("notify-send", ["-a", "AgentHost", "-u", "normal", summary, body.slice(0, 200)], { stdio: "ignore", detached: true });
+          const child = spawn("notify-send", ["-a", "Osseo", "-u", "normal", summary, body.slice(0, 200)], { stdio: "ignore", detached: true });
           child.on("error", () => undefined);
           child.unref();
         } catch { /* Desktop notifications are best effort. */ }
@@ -419,7 +419,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   if (activityMode !== "off") {
     taskActivity = new TaskActivityOverlay({
       manager: overlay,
-      agentHostDir: config.agentHostDir,
+      osseoDir: config.osseoDir,
       sessionId,
       placement: "bottom_right",
       persistent: config.overlay?.persistent ?? true,
@@ -472,7 +472,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       getClipboard: () => getLinuxClipboard(desktopContext),
       // In a nested display nobody is competing for the cursor, so there is nothing to yield to.
       ...(config.execution?.yieldToUser === false || backgroundDisplay !== undefined ? {} : { userIdleMs: () => readUserIdleMs() }),
-      browser: getBrowserSession(config.agentHostDir, backgroundDisplay?.env),
+      browser: getBrowserSession(config.osseoDir, backgroundDisplay?.env),
       focusWindow: (input) => focusLinuxWindow(input, desktopContext),
       hotkey: (input) => sendLinuxHotkey(input, desktopContext),
       typeText: (input, options) => typeLinuxText(input, desktopContext, options),
@@ -492,8 +492,8 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
         focusLinuxAccessibilityElement(input, desktopContext)
     };
   // On Windows the desktop methods come from the PowerShell helper; files, shell and the browser stay as they are.
-  const windowsHelper = options.linux === undefined && platformReport.os === "windows" ? new WindowsHelperProcess({ agentHostDir: config.agentHostDir }) : undefined;
-  // Opt-in (AGENTHOST_WAYLAND_PORTAL=1) on a Wayland session, when no background display is in use: input and
+  const windowsHelper = options.linux === undefined && platformReport.os === "windows" ? new WindowsHelperProcess({ osseoDir: config.osseoDir }) : undefined;
+  // Opt-in (OSSEO_WAYLAND_PORTAL=1) on a Wayland session, when no background display is in use: input and
   // screenshots go through the RemoteDesktop and ScreenCast portals after one consent. Tests that inject linux skip it.
   const waylandPortal = options.linux === undefined && windowsHelper === undefined && backgroundDisplay === undefined && shouldUseWaylandPortal(process.env)
     ? new PortalSession()
@@ -514,7 +514,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     && (config.overlay?.dockReserveSpace ?? true)
     && !actionPill
     && (config.overlay?.frame ?? !dockLayout) !== true;
-  const context: AgentHostMcpContext = {
+  const context: OsseoMcpContext = {
     sessionId,
     config,
     policy,
@@ -571,7 +571,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
   const toolProfile = config.tools?.profile ?? "desktop";
   const server = new Server(
     {
-      name: "agenthost",
+      name: "osseo",
       version: SERVER_VERSION
     },
     {
@@ -649,7 +649,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     const rawInput = request.params.arguments ?? {};
     const showActionCard = shouldShowActionCard(tool.name, tool.execution?.executionClass, activityMode);
     const trackActivity = shouldShowActivityCard(tool.name, activityMode);
-    if (showActionCard) recordActivity(config.agentHostDir, sessionId, activityMode, tool.name, "started", actionOverlay);
+    if (showActionCard) recordActivity(config.osseoDir, sessionId, activityMode, tool.name, "started", actionOverlay);
     if (trackActivity) void taskActivity?.noteActivity({ toolName: tool.name, summary: activitySummary(tool, rawInput) });
     if (typeof (rawInput as Record<string, unknown>).confirmationToken === "string") {
       attentionChime?.stop();
@@ -664,11 +664,11 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       void hostAttention?.requestConfirmation();
       const tokenId = result.confirmation?.tokenId;
       if (tokenId !== undefined) {
-        attentionChime?.start(async () => (await listConfirmations(config.agentHostDir)).some((record) => record.tokenId === tokenId && record.status === "pending"));
+        attentionChime?.start(async () => (await listConfirmations(config.osseoDir)).some((record) => record.tokenId === tokenId && record.status === "pending"));
       }
       if (tokenId !== undefined && config.approvals?.chat !== false && server.getClientCapabilities()?.elicitation !== undefined) {
         const { outcome, policy } = await askInChatDetailed({
-          agentHostDir: config.agentHostDir,
+          osseoDir: config.osseoDir,
           sessionId: context.sessionId,
           tokenId,
           elicit: (params) => server.elicitInput(params as Parameters<typeof server.elicitInput>[0], { timeout: 120_000 }) as ReturnType<ElicitFn>
@@ -685,7 +685,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
     }
     else if (result.overlay?.startsWith("unavailable:") === true) signalOverlayUnavailable();
     if (showActionCard || (result.error?.code === "confirmation_required" && activityMode !== "off")) {
-      recordActivity(config.agentHostDir, sessionId, activityMode, tool.name, "finished", actionOverlay, activityOutcome(result));
+      recordActivity(config.osseoDir, sessionId, activityMode, tool.name, "finished", actionOverlay, activityOutcome(result));
     }
     if (trackActivity) {
       void taskActivity?.noteActivity({
@@ -708,7 +708,7 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
       await context.linux.browser?.close().catch(() => undefined);
       await waylandPortal?.close().catch(() => undefined);
       await backgroundDisplay?.stop().catch(() => undefined);
-      if (backgroundDisplay !== undefined) await writeBackgroundDisplayInfo(config.agentHostDir, undefined).catch(() => undefined);
+      if (backgroundDisplay !== undefined) await writeBackgroundDisplayInfo(config.osseoDir, undefined).catch(() => undefined);
       await actionOverlay.close();
       await actionTimeline?.close();
       await overlay.close();
@@ -729,9 +729,9 @@ export async function createAgentHostMcpServer(options: AgentHostServerOptions =
 const STDIO_EXIT_DEADLINE_MS = 6_000;
 
 export async function startStdioServer(): Promise<void> {
-  const { server, closeResources } = await createAgentHostMcpServer();
+  const { server, closeResources } = await createOsseoMcpServer();
   const transport = new StdioServerTransport();
-  const exitOnStdinEnd = process.env.AGENTHOST_STDIO_EXIT_ON_STDIN_END === "1";
+  const exitOnStdinEnd = process.env.OSSEO_STDIO_EXIT_ON_STDIN_END === "1";
   let stopping = false;
 
   // The MCP stdio contract ends a session by closing the client's stdin, so exit then. An idle

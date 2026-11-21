@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /*
- * Live check of this AgentHost build, end to end.
+ * Live check of this Osseo build, end to end.
  *
  *   npm run build && npm run check:live
  *
- * It runs in a throwaway AGENTHOST_HOME, so your ~/.agenthost is never touched.
+ * It runs in a throwaway OSSEO_HOME, so your ~/.osseo is never touched.
  *   1. CLI: --help is read-only, the stop flag is respected, bare `agent resume` works.
  *   2. Desktop: a nested X display (Xephyr) opens as a small window on your screen for
  *      about a minute, with a GTK probe app. The MCP server drives it over stdio:
@@ -31,10 +31,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { startPrivateBus } from "./private-bus.mjs";
 
 // These scripts list and count tools, so they run the full tool list.
-process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
+process.env.OSSEO_TOOLS_PROFILE ??= "full";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const CLI = path.join(REPO, "packages/agenthost-cli/dist/index.js");
+const CLI = path.join(REPO, "packages/osseo-cli/dist/index.js");
 const SERVER = path.join(REPO, "packages/mcp-server/dist/index.js");
 const HOST_DISPLAY = process.env.DISPLAY ?? ":0";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -198,7 +198,7 @@ async function terminalChecks(mcp, work, display) {
   await sleep(2500);
   const listed = await mcp.call("window.list", { includeTitles: true });
   const win = listed.body?.data?.windows?.find((item) => item.title === "VTE probe");
-  check("AgentHost lists the terminal window", Boolean(win));
+  check("Osseo lists the terminal window", Boolean(win));
   if (win) {
     const origin = win.bounds ?? { x: 0, y: 0 };
     const activeWindow = { windowId: win.windowId };
@@ -215,14 +215,14 @@ async function terminalChecks(mcp, work, display) {
 }
 
 function cliChecks(env) {
-  const stopFile = path.join(env.AGENTHOST_HOME, "run", "stop.requested");
+  const stopFile = path.join(env.OSSEO_HOME, "run", "stop.requested");
   mkdirSync(path.dirname(stopFile), { recursive: true });
   writeFileSync(stopFile, JSON.stringify({ requested: true, reason: "live-check" }));
   const before = readFileSync(stopFile, "utf8");
   for (const args of [["agent", "resume", "--help"], ["overlay", "check-input", "--help"], ["doctor", "--help"], ["workflow", "run", "--help"]]) {
     const started = Date.now();
     const result = runCli(env, args);
-    check(`agenthost ${args.join(" ")} prints usage and runs nothing`, result.code === 0 && result.out.startsWith("usage: agenthost") && Date.now() - started < 10_000, result.out.split("\n")[0].slice(0, 80));
+    check(`osseo ${args.join(" ")} prints usage and runs nothing`, result.code === 0 && result.out.startsWith("usage: osseo") && Date.now() - started < 10_000, result.out.split("\n")[0].slice(0, 80));
   }
   check("help left the stop flag untouched", readFileSync(stopFile, "utf8") === before);
   const cleared = cli(env, ["agent", "resume", "--stop"]);
@@ -290,7 +290,7 @@ function mcpClient(server) {
 async function desktopChecks(mcp, entryFile, display) {
   const listed = await mcp.call("window.list", { includeTitles: true });
   const win = listed.body?.data?.windows?.find((item) => item.title === "Live probe");
-  check("AgentHost lists the probe window", Boolean(win), win ? `bounds ${JSON.stringify(win.bounds)}` : JSON.stringify(listed.body?.error ?? "not listed"));
+  check("Osseo lists the probe window", Boolean(win), win ? `bounds ${JSON.stringify(win.bounds)}` : JSON.stringify(listed.body?.error ?? "not listed"));
   if (!win) return undefined;
   const origin = win.bounds ?? { x: 0, y: 0 };
   await mcp.call("window.focus", { windowId: win.windowId });
@@ -471,7 +471,7 @@ async function browserChecks(mcp, work, env) {
   const uploadToken = uploadPreview.body?.confirmation?.tokenId;
   check("the upload preview mints a one-time token", Boolean(uploadToken));
   const uploadApproved = uploadToken ? cli(env, ["confirm", uploadToken]) : { ok: false };
-  check("the operator confirms the upload with `agenthost confirm`", uploadApproved.ok === true);
+  check("the operator confirms the upload with `osseo confirm`", uploadApproved.ok === true);
   const uploaded = await mcp.call("browser.upload", { ref: refs.cv, files: [cvPath], confirmationToken: uploadToken });
   check("the confirmed upload attaches the file", uploaded.ok, uploaded.error ?? "");
   const seen = await mcp.call("browser.wait_for", { text: "files:1", timeoutMs: 5000 });
@@ -538,7 +538,7 @@ async function sessionExitChecks(root) {
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const config = path.join(home, "config.json");
   writeFileSync(config, JSON.stringify({ schemaVersion: 1, autoInstallDependencies: false }));
-  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config, DISPLAY: display, XDG_SESSION_TYPE: "x11" };
+  const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: config, DISPLAY: display, XDG_SESSION_TYPE: "x11" };
   const started = [];
   try {
     started.push(spawn("Xephyr", [display, "-screen", "640x480", "-no-host-grab"], { env: { ...process.env, DISPLAY: HOST_DISPLAY }, stdio: "ignore" }));
@@ -627,7 +627,7 @@ async function fileDialogChecks(root) {
   try {
     started.push(spawn("Xephyr", [display, "-screen", "800x600", "-no-host-grab"], { env: { ...process.env, DISPLAY: HOST_DISPLAY }, stdio: "ignore" }));
     for (let attempt = 0; attempt < 60 && !existsSync(`/tmp/.X11-unix/X${display.slice(1)}`); attempt += 1) await sleep(100);
-    const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config, DISPLAY: display, XDG_SESSION_TYPE: "x11" };
+    const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: config, DISPLAY: display, XDG_SESSION_TYPE: "x11" };
     const openOut = path.join(work, "opened.txt");
     started.push(spawn("python3", ["-W", "ignore", dialogScript, openOut, "Open File"], { env: { ...process.env, DISPLAY: display }, stdio: "ignore" }));
     await sleep(2000);
@@ -637,7 +637,7 @@ async function fileDialogChecks(root) {
     await mcp.initialize();
     const listed = await mcp.call("window.list", { includeTitles: true });
     const dialog = listed.body?.data?.windows?.find((item) => item.title === "Open File");
-    check("AgentHost lists the open file dialog with its window id", Boolean(dialog), dialog ? `window ${dialog.windowId}` : JSON.stringify(listed.body?.error ?? "not listed"));
+    check("Osseo lists the open file dialog with its window id", Boolean(dialog), dialog ? `window ${dialog.windowId}` : JSON.stringify(listed.body?.error ?? "not listed"));
     if (dialog) {
       const bare = await mcp.call("desktop.file_dialog_select", { path: picked, windowId: dialog.windowId });
       check("file_dialog_select asks for confirmation before typing a path", !bare.ok && !existsSync(openOut), bare.error ?? "ran without a token");
@@ -709,14 +709,14 @@ async function numberedChecks(mcp, work) {
 // The numbered-action section runs on its own server with no DISPLAY: the agent's browser page counts as the
 // active window only when there is no window system, and the desktop probe would otherwise be the active window.
 async function numberedSection() {
-  const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-live-numbered-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "osseo-live-numbered-"));
   const home = path.join(root, "home");
   const work = path.join(root, "work");
   mkdirSync(home, { recursive: true, mode: 0o700 });
   mkdirSync(work, { recursive: true });
   const config = path.join(home, "config.json");
   writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
-  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config, AGENTHOST_TOOLS_PROFILE: "full" };
+  const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: config, OSSEO_TOOLS_PROFILE: "full" };
   delete env.DISPLAY;
   const server = spawn(process.execPath, [SERVER], { env, stdio: ["pipe", "pipe", "pipe"] });
   try {
@@ -754,14 +754,14 @@ async function main() {
   const bus = startPrivateBus();
   if (bus.shared) console.log("(dbus-daemon not found: sharing your session bus, so a crashed run could leave AT-SPI services behind)");
   const chrome = ["google-chrome-stable", "google-chrome", "chromium-browser", "chromium"].some(hasCommand);
-  const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-live-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "osseo-live-"));
   const home = path.join(root, "home");
   const work = path.join(root, "work");
   mkdirSync(home, { recursive: true, mode: 0o700 });
   mkdirSync(work, { recursive: true });
   const config = path.join(home, "config.json");
   writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
-  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config };
+  const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: config };
   const children = [];
   try {
     console.log("== CLI");

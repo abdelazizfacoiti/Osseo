@@ -1,21 +1,21 @@
 import {
-  AGENTHOST_VERSION,
+  OSSEO_VERSION,
   buildCapabilitiesJson,
   buildCapabilityMarkdown,
   readActiveTaskApproval,
   readActivityStatus,
   readRunState,
-  type AgentHostConfig,
+  type OsseoConfig,
   type CapabilityRegistrySnapshot,
   type ToolCapability
-} from "@agenthost/core";
+} from "@osseo/core";
 import { COMPUTER_ACTION_FAMILIES } from "./activity.js";
 import { DEFAULT_TOOL_NAMES } from "./tool-profile.js";
 
 const CAPABILITY_MIME = "application/json";
 const MARKDOWN_MIME = "text/markdown";
 
-function capabilityInput(registry: CapabilityRegistrySnapshot, config: AgentHostConfig) {
+function capabilityInput(registry: CapabilityRegistrySnapshot, config: OsseoConfig) {
   const profile = config.tools?.profile ?? "desktop";
   const listed = new Set<string>(DEFAULT_TOOL_NAMES);
   // The desktop profile lists only the default tools; the rest stay callable but are not advertised.
@@ -27,47 +27,47 @@ function capabilityInput(registry: CapabilityRegistrySnapshot, config: AgentHost
   }, {});
   const mode = config.overlay?.mode ?? "always";
   return {
-    version: AGENTHOST_VERSION,
+    version: OSSEO_VERSION,
     toolCount: tools.length,
     toolProfile: profile,
     byExecutionClass,
     overlay: {
       mode,
       triggers: mode === "off" ? [] : mode === "on_change" ? ["state-changing actions"] : COMPUTER_ACTION_FAMILIES.map((family) => `${family}.*`),
-      fallback: "agenthost overlay status"
+      fallback: "osseo overlay status"
     }
   };
 }
 
 export function listResourceEntries(): Array<{ uri: string; name: string; mimeType: string; description: string }> {
   return [
-    { uri: "agenthost://capabilities", name: "AgentHost capabilities (JSON)", mimeType: CAPABILITY_MIME, description: "Live tool inventory, execution classes, and capability families." },
-    { uri: "agenthost://capabilities.md", name: "AgentHost capabilities (Markdown)", mimeType: MARKDOWN_MIME, description: "Compact agent-facing capability brief generated from the live tool inventory." },
-    { uri: "agenthost://status", name: "AgentHost run status", mimeType: CAPABILITY_MIME, description: "Live stop, takeover, pause, active task approval, and last activity overlay state." }
+    { uri: "osseo://capabilities", name: "Osseo capabilities (JSON)", mimeType: CAPABILITY_MIME, description: "Live tool inventory, execution classes, and capability families." },
+    { uri: "osseo://capabilities.md", name: "Osseo capabilities (Markdown)", mimeType: MARKDOWN_MIME, description: "Compact agent-facing capability brief generated from the live tool inventory." },
+    { uri: "osseo://status", name: "Osseo run status", mimeType: CAPABILITY_MIME, description: "Live stop, takeover, pause, active task approval, and last activity overlay state." }
   ];
 }
 
 export async function readResource(
-  context: { registry: CapabilityRegistrySnapshot; config: AgentHostConfig },
+  context: { registry: CapabilityRegistrySnapshot; config: OsseoConfig },
   uri: string
 ): Promise<{ mimeType: string; text: string }> {
   const input = capabilityInput(context.registry, context.config);
-  if (uri === "agenthost://capabilities") {
+  if (uri === "osseo://capabilities") {
     return { mimeType: CAPABILITY_MIME, text: JSON.stringify(buildCapabilitiesJson(input), null, 2) };
   }
-  if (uri === "agenthost://capabilities.md") {
+  if (uri === "osseo://capabilities.md") {
     return { mimeType: MARKDOWN_MIME, text: buildCapabilityMarkdown(input) };
   }
-  if (uri === "agenthost://status") {
+  if (uri === "osseo://status") {
     const [runState, approval, activity] = await Promise.all([
-      readRunState(context.config.agentHostDir),
-      readActiveTaskApproval(context.config.agentHostDir),
-      readActivityStatus(context.config.agentHostDir)
+      readRunState(context.config.osseoDir),
+      readActiveTaskApproval(context.config.osseoDir),
+      readActivityStatus(context.config.osseoDir)
     ]);
     return {
       mimeType: CAPABILITY_MIME,
       text: JSON.stringify({
-        version: AGENTHOST_VERSION,
+        version: OSSEO_VERSION,
         runState,
         activeTaskApproval: approval ?? null,
         lastActivity: activity ?? null

@@ -64,8 +64,8 @@ async function runningCommands(): Promise<Set<string>> {
  * Isolated background browser profile. Background automation must never reuse
  * the user's foreground profile: separate cookies, windows, and focus.
  */
-export function backgroundBrowserProfileDir(agentHostDir: string): string {
-  return path.join(agentHostDir, "browser", "profiles", "background");
+export function backgroundBrowserProfileDir(osseoDir: string): string {
+  return path.join(osseoDir, "browser", "profiles", "background");
 }
 
 export interface BackgroundChromiumLaunch {
@@ -136,7 +136,7 @@ function workerFile(profileDir: string): string {
  * the profile dir for status checks. Never touches the foreground profile.
  */
 export async function spawnBackgroundChromium(input: {
-  agentHostDir: string;
+  osseoDir: string;
   profileDir?: string;
   extensionDir?: string;
   headless?: boolean;
@@ -145,7 +145,7 @@ export async function spawnBackgroundChromium(input: {
   const env = input.env ?? process.env;
   const executable = await firstExecutable(CHROMIUM_EXECUTABLES, env);
   if (executable === undefined) throw new Error("chromium_not_installed:No Chromium executable was found on PATH.");
-  const profileDir = input.profileDir ?? backgroundBrowserProfileDir(input.agentHostDir);
+  const profileDir = input.profileDir ?? backgroundBrowserProfileDir(input.osseoDir);
   await mkdir(profileDir, { recursive: true, mode: 0o700 });
   const launch = backgroundChromiumArgs({ profileDir, ...(input.extensionDir === undefined ? {} : { extensionDir: input.extensionDir }), headless: input.headless ?? true });
   let child: ReturnType<typeof spawn>;
@@ -163,10 +163,10 @@ export async function spawnBackgroundChromium(input: {
 
 /** Reads the recorded background worker and checks pid aliveness via /proc. */
 export async function backgroundWorkerStatus(
-  agentHostDir: string,
+  osseoDir: string,
   procfsRoot = "/proc"
 ): Promise<BackgroundWorkerStatus> {
-  const profileDir = backgroundBrowserProfileDir(agentHostDir);
+  const profileDir = backgroundBrowserProfileDir(osseoDir);
   let record: BackgroundWorkerRecord;
   try {
     record = JSON.parse(await readFile(workerFile(profileDir), "utf8")) as BackgroundWorkerRecord;

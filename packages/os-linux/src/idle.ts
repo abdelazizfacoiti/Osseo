@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 
 /*
  * Milliseconds since the last keyboard or pointer input on the X display, from
- * the XScreenSaver extension. XTEST input injected by AgentHost counts too, so
+ * the XScreenSaver extension. XTEST input injected by Osseo counts too, so
  * callers must compare against their own last injection time.
  */
 const SCRIPT = `

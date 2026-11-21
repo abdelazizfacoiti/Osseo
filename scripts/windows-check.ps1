@@ -1,10 +1,10 @@
-# AgentHost Windows check (W1: the headless path).
+# Osseo Windows check (W1: the headless path).
 #
 #   powershell -ExecutionPolicy Bypass -File scripts\windows-check.ps1
 #   (add -SkipInstall to reuse an existing node_modules folder)
 #
 # It runs from the repository folder. It installs nothing system-wide, changes no system settings,
-# and writes only inside the repository and a temporary AgentHost home that it removes afterwards.
+# and writes only inside the repository and a temporary Osseo home that it removes afterwards.
 # Paste the whole output back; the last line says PASSED or FAILED.
 
 param([switch]$SkipInstall)
@@ -24,13 +24,13 @@ function Invoke-Step([string]$Name, [scriptblock]$Body) {
     }
 }
 
-Write-Host "AgentHost Windows check (W1, headless)"
+Write-Host "Osseo Windows check (W1, headless)"
 Write-Host ("Windows: " + [System.Environment]::OSVersion.VersionString)
 Write-Host ("PowerShell: " + $PSVersionTable.PSVersion.ToString())
 Write-Host ("Folder: " + (Get-Location).Path)
 
 if (-not (Test-Path "package.json")) {
-    Write-Host "FAIL: run this from the AgentHost repository folder (package.json not found)."
+    Write-Host "FAIL: run this from the Osseo repository folder (package.json not found)."
     exit 1
 }
 

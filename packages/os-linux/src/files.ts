@@ -10,7 +10,7 @@ import {
   type FileReadResult,
   type FileWriteResult,
   type SafetyEvaluationContext
-} from "@agenthost/core";
+} from "@osseo/core";
 
 const DEFAULT_MAX_READ_BYTES = 64 * 1024;
 const MAX_READ_BYTES = 1024 * 1024;

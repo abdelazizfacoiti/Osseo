@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { toolSuccess, type OverlayWidget } from "@agenthost/core";
-import type { OverlayManager } from "@agenthost/app-overlay";
+import { toolSuccess, type OverlayWidget } from "@osseo/core";
+import type { OverlayManager } from "@osseo/app-overlay";
 import { ToolActionOverlay } from "../action-overlay.js";
 import { ActionTimeline } from "../action-timeline.js";
 

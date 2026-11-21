@@ -21,7 +21,7 @@ import {
 
 const dirs: string[] = [];
 async function temp(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-policy-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-policy-"));
   dirs.push(dir);
   return dir;
 }

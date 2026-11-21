@@ -14,7 +14,7 @@ import {
   runSafeLinuxCommand,
   writeLinuxFile
 } from "../index.js";
-import { getDefaultPolicy } from "@agenthost/core";
+import { getDefaultPolicy } from "@osseo/core";
 
 describe("Linux helpers", () => {
   it("caches PATH lookups for repeated input actions", async () => {
@@ -29,7 +29,7 @@ describe("Linux helpers", () => {
   });
 
   it("checks commands without executing them", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-dep-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-dep-"));
     const commandPath = path.join(dir, "sample-command");
     await writeFile(commandPath, "#!/bin/sh\nexit 0\n", "utf8");
     await chmod(commandPath, 0o700);
@@ -45,9 +45,9 @@ describe("Linux helpers", () => {
 
   it("detects unknown apps as guide-only", async () => {
     await expect(
-      detectLinuxApp({ appName: "definitely-not-installed-agenthost-test" }, getDefaultPolicy(), {
+      detectLinuxApp({ appName: "definitely-not-installed-osseo-test" }, getDefaultPolicy(), {
         env: { PATH: "" },
-        homeDir: path.join(os.tmpdir(), "agenthost-empty-home")
+        homeDir: path.join(os.tmpdir(), "osseo-empty-home")
       })
     ).resolves.toMatchObject({
       found: false,
@@ -66,7 +66,7 @@ describe("Linux helpers", () => {
     await expect(
       detectLinuxApp({ appName: "Gmail" }, getDefaultPolicy(), {
         env: { PATH: "" },
-        homeDir: path.join(os.tmpdir(), "agenthost-empty-home")
+        homeDir: path.join(os.tmpdir(), "osseo-empty-home")
       })
     ).resolves.toMatchObject({
       recommendedStrategy: "guide_only",
@@ -86,7 +86,7 @@ describe("Linux helpers", () => {
   });
 
   it("writes, reads, checks, lists, and ensures directories", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-files-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-files-"));
     const filePath = path.join(dir, "nested", "hello.txt");
 
     await expect(writeLinuxFile({ path: filePath, content: "hello", createParents: true })).resolves.toMatchObject({
@@ -120,7 +120,7 @@ describe("Linux helpers", () => {
   });
 
   it("does not overwrite existing files", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-no-overwrite-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-no-overwrite-"));
     const filePath = path.join(dir, "hello.txt");
     await writeFile(filePath, "already here", "utf8");
 

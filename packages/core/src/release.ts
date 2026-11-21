@@ -1,14 +1,19 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { LEGACY_CONFIG_DIRNAME, LEGACY_HOME_DIRNAME } from "./legacy.js";
 
 /** Single public version used by packaged components and diagnostics. */
-export const AGENTHOST_VERSION = "0.1.0";
-export const AGENTHOST_CONFIG_SCHEMA_VERSION = 1 as const;
+export const OSSEO_VERSION = "0.1.0";
+export const OSSEO_CONFIG_SCHEMA_VERSION = 1 as const;
 
-export function defaultAgentHostHome(homeDir = os.homedir()): string {
-  return path.join(homeDir, ".agenthost");
+export function defaultOsseoHome(homeDir = os.homedir()): string {
+  const home = path.join(homeDir, ".osseo");
+  // An install from before the rename keeps its data where it is until the new folder exists.
+  const legacy = path.join(homeDir, LEGACY_HOME_DIRNAME);
+  return !existsSync(home) && existsSync(legacy) ? legacy : home;
 }
 
 export function defaultPublicConfigPath(homeDir = os.homedir(), options: { platform?: NodeJS.Platform; env?: Record<string, string | undefined> } = {}): string {
@@ -16,13 +21,15 @@ export function defaultPublicConfigPath(homeDir = os.homedir(), options: { platf
     // Windows keeps per-user settings under %APPDATA% (Roaming); fall back to the standard folder under the home directory.
     const env = options.env ?? process.env;
     const appData = env.APPDATA !== undefined && env.APPDATA !== "" ? env.APPDATA : path.win32.join(homeDir, "AppData", "Roaming");
-    return path.win32.join(appData, "agenthost", "config.json");
+    return path.win32.join(appData, "osseo", "config.json");
   }
-  return path.join(homeDir, ".config", "agenthost", "config.json");
+  const current = path.join(homeDir, ".config", "osseo", "config.json");
+  const legacy = path.join(homeDir, ".config", LEGACY_CONFIG_DIRNAME, "config.json");
+  return !existsSync(current) && existsSync(legacy) ? legacy : current;
 }
 
 export function legacyConfigPath(homeDir = os.homedir()): string {
-  return path.join(defaultAgentHostHome(homeDir), "config.json");
+  return path.join(defaultOsseoHome(homeDir), "config.json");
 }
 
 export function redactLocalPath(value: string, homeDir = os.homedir()): string {

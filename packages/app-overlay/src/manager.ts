@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { redactOverlayText, validateOverlayAnimation, validateOverlayInteractionPolicy, validateOverlayStyleTokens, validateOverlayTargetBinding, validateOverlayWidget, type OverlayCapabilityReport, type OverlayPrimitive, type OverlaySensitivity, type OverlayStateSnapshot, type OverlayStateSummary, type OverlayTargetBinding, type OverlayTargetSummary, type OverlayWidget, type OverlayWidgetEvent } from "@agenthost/core";
+import { defaultOsseoHome, redactOverlayText, validateOverlayAnimation, validateOverlayInteractionPolicy, validateOverlayStyleTokens, validateOverlayTargetBinding, validateOverlayWidget, type OverlayCapabilityReport, type OverlayPrimitive, type OverlaySensitivity, type OverlayStateSnapshot, type OverlayStateSummary, type OverlayTargetBinding, type OverlayTargetSummary, type OverlayWidget, type OverlayWidgetEvent } from "@osseo/core";
 import type { OverlayOperationResult, OverlayRenderRecord, OverlayRenderer, OverlayRendererDiagnostics, OverlayRendererRestartResult } from "./renderer.js";
 
 export interface OverlayTargetResolution { ok: boolean; summary?: OverlayTargetSummary; reason?: string; }
@@ -35,7 +35,7 @@ export class OverlayManager {
   constructor(renderer: OverlayRenderer, owner: OverlayOwner, options: OverlayManagerOptions = {}) {
     this.#renderer = renderer;
     this.#owner = owner;
-    this.#hideMarkerPath = options.hideMarkerPath === undefined ? path.join(process.env.AGENTHOST_HOME ?? path.join(os.homedir(), ".agenthost"), "run", "overlay.hide") : options.hideMarkerPath;
+    this.#hideMarkerPath = options.hideMarkerPath === undefined ? path.join(process.env.OSSEO_HOME ?? defaultOsseoHome(os.homedir()), "run", "overlay.hide") : options.hideMarkerPath;
     // TTLs must hide windows even when nobody polls state(). Without this
     // sweeper, an expired overlay stayed mapped on screen indefinitely while
     // the runtime sat idle. Unref'd so test/CLi processes exit cleanly.

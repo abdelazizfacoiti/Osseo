@@ -1,8 +1,8 @@
-# AgentHost Security, Permissions, and Logging
+# Osseo Security, Permissions, and Logging
 
 ## Security goal
 
-AgentHost is local-first, visible, permissioned, previewable, confirmation-bound,
+Osseo is local-first, visible, permissioned, previewable, confirmation-bound,
 bounded, auditable, and conservative. It must never behave like malware,
 spyware, credential theft software, stealth remote control, or an unattended
 automation service.
@@ -37,7 +37,7 @@ Confirmation-bearing tools accept:
 
 Routine local actions do not need either field.
 
-Tokens are stored under `~/.agenthost/run/confirmations/` with mode `0600`,
+Tokens are stored under `~/.osseo/run/confirmations/` with mode `0600`,
 expire after 15 minutes, and are bound to:
 
 - tool name;
@@ -59,9 +59,9 @@ checks.
 
 The runtime flags are:
 
-- `~/.agenthost/run/stop.requested`;
-- `~/.agenthost/run/takeover.active`;
-- `~/.agenthost/run/pause.requested`.
+- `~/.osseo/run/stop.requested`;
+- `~/.osseo/run/takeover.active`;
+- `~/.osseo/run/pause.requested`.
 
 An unreadable flag fails closed. The central runner checks stop and takeover
 before every state-changing call. A requested stop returns
@@ -71,11 +71,11 @@ observation remains available.
 Control paths:
 
 - MCP: `agent.status`, `agent.stop`, `agent.takeover_begin`, `agent.request_handoff`.
-- CLI: `agenthost agent status|pause|stop|takeover-begin`.
-- Clearing is operator-only: `agenthost agent resume --stop`,
-  `agenthost agent resume --takeover`, `agenthost agent resume --pause`, or a
+- CLI: `osseo agent status|pause|stop|takeover-begin`.
+- Clearing is operator-only: `osseo agent resume --stop`,
+  `osseo agent resume --takeover`, `osseo agent resume --pause`, or a
   combination of flags.
-- `agenthost stop` writes the stop flag and terminates an AgentHost-managed
+- `osseo stop` writes the stop flag and terminates an Osseo-managed
   background process if one exists.
 - There is intentionally no MCP tool to clear a stop or takeover.
 
@@ -104,17 +104,17 @@ safety against the same arguments and target.
 
 ## Control-plane protection
 
-AgentHost protects its own control plane from agent writes and deletes:
+Osseo protects its own control plane from agent writes and deletes:
 
-- `$AGENTHOST_HOME/run/`;
-- `$AGENTHOST_HOME/logs/`;
-- `$AGENTHOST_HOME/setup/`;
-- `$AGENTHOST_HOME/tasks/approvals/`;
-- `$AGENTHOST_HOME/config.json`;
+- `$OSSEO_HOME/run/`;
+- `$OSSEO_HOME/logs/`;
+- `$OSSEO_HOME/setup/`;
+- `$OSSEO_HOME/tasks/approvals/`;
+- `$OSSEO_HOME/config.json`;
 - the configured config and log paths.
 
 Reads are medium risk; writes and deletes are blocked. Shell commands that
-touch these paths or run mutating `agenthost` commands
+touch these paths or run mutating `osseo` commands
 (`task approve|pause|stop`, `confirm`, `deny`, `pause`, `resume`, `stop`,
 `takeover`, `overlay hide`, `integrations --apply`) are blocked. Inline interpreter code
 (`python -c`, `node -e`, and similar) is high risk. Wrapper shells,
@@ -127,11 +127,11 @@ blocked or high risk.
 
 ## Policy
 
-AgentHost has one autonomous runtime policy. It permits routine local shell,
+Osseo has one autonomous runtime policy. It permits routine local shell,
 file, GUI input, and screenshot directly.
 Communication, private-data, external, destructive, and financial effects are
 gated as `approval_required`; credential/security apps, secret data, protected
-system paths, and the AgentHost control plane stay blocked. No policy bypasses
+system paths, and the Osseo control plane stay blocked. No policy bypasses
 schema validation, preview, token, stop/takeover, or audit requirements.
 
 Capability grants were removed. Rules that change what asks, runs, or is
@@ -143,7 +143,7 @@ external effects still need an exact confirmation.
 
 ## Policy file
 
-`~/.agenthost/policy.toml` lets a person change which actions ask, run, or are
+`~/.osseo/policy.toml` lets a person change which actions ask, run, or are
 refused. It is plain text with `[[rule]]` tables. Each rule has an `action`
 (`any`, `send`, `upload`, `delete`, `pay`, `navigate`, `type`, `click`), a
 `decision` (`allow`, `ask`, `never`), and optionally `app`, `site` (browser
@@ -159,43 +159,43 @@ Precedence is fixed:
 An `allow` rule removes a prompt only when it names `send`, `upload`, `delete`
 or `pay` exactly. `allow` with `action = "any"` never removes one. Without a
 file, those four ask. A file with a syntax error is ignored from that point:
-the last good rules stay in use, and `agenthost policy list` shows the error and
+the last good rules stay in use, and `osseo policy list` shows the error and
 its line. Every audit entry has `policySource`: `floor`, `policy_rule:<line>`
 or `classifier`, plus the rule's note when it has one.
 
 Only the host process writes the file, by writing a temporary file in the same
 directory and renaming it over `policy.toml`. Its path is in the control plane,
 so file tools cannot write it, and shell commands that edit it or run
-`agenthost policy add|remove` are blocked.
+`osseo policy add|remove` are blocked.
 
 "Always allow here" is the one way a prompt writes a rule. The person chooses
 it on the approval card (button), in chat (checkbox) or with
-`agenthost confirm <id> --always`. The action is approved once, and one
+`osseo confirm <id> --always`. The action is approved once, and one
 `allow` rule is added with the app (and site, for browser tools), the action,
 and the note "added from an approval prompt". Nothing is written for `any`,
 `navigate`, `type` or `click`, when the app and site are unknown, for a
 blocked action, or when the same rule already exists. The card button counts as
 an approval press: only a physical pointer press is accepted. Remove a rule
-with `agenthost policy remove <line> --apply`.
+with `osseo policy remove <line> --apply`.
 
 ## Task approval
 
-`agenthost task approve <taskId> [--max-risk low|medium]` creates a 30-minute
+`osseo task approve <taskId> [--max-risk low|medium]` creates a 30-minute
 approval for an **active** task. It is operator-only. The runner may auto-chain
 low/medium effects covered by that approval, but:
 
 - high, external, destructive, private-data, and blocked effects still require
-  `agenthost confirm <tokenId>`;
+  `osseo confirm <tokenId>`;
 - paused, completed, cancelled, missing, or expired tasks do not get
   auto-chain;
 - creating a new task clears active approval;
 - completing or cancelling a task clears active approval;
-- `agenthost stop`, `agenthost task stop`, MCP/CLI agent stop, and human
+- `osseo stop`, `osseo task stop`, MCP/CLI agent stop, and human
   takeover clear active approval.
 
 ## Audit logging
 
-Every governed tool call is logged as JSONL under `~/.agenthost/logs/` with
+Every governed tool call is logged as JSONL under `~/.osseo/logs/` with
 `0700` directory and `0600` file permissions. Each entry includes:
 
 - timestamp, session ID, tool, risk level, and strategy;
@@ -215,8 +215,8 @@ A local audit write failure is swallowed so a completed action is not repeated.
 nested tool call. Only the wrapper mints the plan token; preview-only nested
 calls never mint, consume, or log confirmation tokens.
 
-Set `AGENTHOST_TRACE=1` to additionally write timestamped phase events to
-`~/.agenthost/logs/traces/<session>.jsonl` with the same `0700`/`0600`
+Set `OSSEO_TRACE=1` to additionally write timestamped phase events to
+`~/.osseo/logs/traces/<session>.jsonl` with the same `0700`/`0600`
 permissions. Traces contain tool name, phase, elapsed time, risk, result code,
 and bounded redacted summaries — never tool arguments, confirmation-token
 values, file contents, OCR text, or screenshots. Trace writes are best-effort
@@ -231,7 +231,7 @@ time, and error codes; they never display confirmation-token IDs. The action
 card is click-through. Interactive card windows are reserved for
 Pause/Resume/Stop; fullscreen pointer, highlight, and spotlight surfaces remain
 click-through and never intercept clicks. Screenshots suppress and restore
-overlays around capture. `agenthost overlay hide` writes a timestamped
+overlays around capture. `osseo overlay hide` writes a timestamped
 `run/overlay.hide` marker that only already-running managers honor, and sweeps
 orphaned renderers.
 
@@ -239,8 +239,8 @@ orphaned renderers.
 families, `on_change` covers state-changing actions plus confirmation fallback,
 and `off` disables automatic cards. No mode bypasses validation, risk, policy,
 stop/takeover, preview/token, or audit. Renderer startup is prewarmed and
-bounded; `run/activity.json`, `agenthost overlay status`, and
-`agenthost://status` expose the effective overlay mode and the last card's
+bounded; `run/activity.json`, `osseo overlay status`, and
+`osseo://status` expose the effective overlay mode and the last card's
 started/visible/error state. A failed card reports
 `overlay: "unavailable:<reason>"` and sends one rate-limited best-effort
 notification without failing the action. Headless/Wayland fallback reports
@@ -252,5 +252,5 @@ Control Room, the Browser Bridge (paired browser extension), the extension-based
 browser DOM tools, the runtime-activity service, receipts/replay, checkpoints,
 Forge, workflow/scheduler tools, speech tools, and `task.execute_plan` are not
 registered in the current minimal-v2 tree. (`ui.*` accessibility tools and the
-`browser.*` tools for AgentHost's own dedicated Chrome profile are live.) Sections in other documents that describe them are
+`browser.*` tools for Osseo's own dedicated Chrome profile are live.) Sections in other documents that describe them are
 historical.

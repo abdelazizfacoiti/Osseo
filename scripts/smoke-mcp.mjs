@@ -2,25 +2,25 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { createAgentHostMcpServer } from "../packages/mcp-server/dist/server.js";
+import { createOsseoMcpServer } from "../packages/mcp-server/dist/server.js";
 import { runTool } from "../packages/mcp-server/dist/tool-runner.js";
 import { listResourceEntries, readResource } from "../packages/mcp-server/dist/resources.js";
 
 // These scripts list and count tools, so they run the full tool list.
-process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
+process.env.OSSEO_TOOLS_PROFILE ??= "full";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const serverPath = path.join(rootDir, "packages", "mcp-server", "dist", "index.js");
-const smokeDir = path.join(rootDir, ".agenthost", "smoke");
+const smokeDir = path.join(rootDir, ".osseo", "smoke");
 
 if (!existsSync(serverPath)) {
   console.error("Built MCP server not found. Run `npm run build` first.");
   process.exit(1);
 }
 
-process.env.AGENTHOST_HOME = smokeDir;
+process.env.OSSEO_HOME = smokeDir;
 
-const { context, closeResources } = await createAgentHostMcpServer();
+const { context, closeResources } = await createOsseoMcpServer();
 
 try {
   const toolNames = [...(context.tools?.keys() ?? [])].sort();
@@ -37,14 +37,14 @@ try {
   if (result.serverVersion === undefined || result.serverPath === undefined) throw new Error("system.get_info is missing runtime provenance.");
 
   const resources = listResourceEntries().map((entry) => entry.uri);
-  if (resources.join(",") !== "agenthost://capabilities,agenthost://capabilities.md,agenthost://status") {
+  if (resources.join(",") !== "osseo://capabilities,osseo://capabilities.md,osseo://status") {
     throw new Error(`Unexpected MCP resources: ${resources.join(", ")}`);
   }
-  const status = await readResource(context, "agenthost://status");
+  const status = await readResource(context, "osseo://status");
   const statusJson = JSON.parse(status.text);
-  if (typeof statusJson.runState?.stop?.requested !== "boolean") throw new Error("agenthost://status is missing run state.");
+  if (typeof statusJson.runState?.stop?.requested !== "boolean") throw new Error("osseo://status is missing run state.");
 
-  console.log("AgentHost smoke test passed.");
+  console.log("Osseo smoke test passed.");
   console.log(JSON.stringify({ toolCount: toolNames.length, resources, capabilityTools: toolNames }, null, 2));
 } finally {
   await closeResources();

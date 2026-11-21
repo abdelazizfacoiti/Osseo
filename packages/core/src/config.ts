@@ -3,9 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { z } from "zod";
 import { getDefaultPolicy } from "./policies.js";
-import type { AgentHostConfig, ForgeRuntimeSandboxMode } from "./types.js";
+import type { OsseoConfig, ForgeRuntimeSandboxMode } from "./types.js";
 import type { OverlayRendererMode, OverlayPublicConfig } from "./overlay.js";
 import { stripBom } from "./text.js";
+import { defaultOsseoHome } from "./release.js";
 
 const forgeRuntimeSandboxModeSchema = z.enum(["auto", "none", "bubblewrap", "firejail", "unshare"]);
 const overlayRendererModeSchema = z.enum(["headless", "auto", "gtk3-x11", "gtk3-native", "webkit-gtk-react", "disabled"]);
@@ -26,7 +27,7 @@ const overlaySchema = z.object({
   dockSide: z.enum(["left", "right"]).optional(),
   dockWidthPercent: z.number().int().min(10).max(40).optional(),
   dockReserveSpace: z.boolean().optional(),
-  /** Turns the Windows cards on (WPF). The same as AGENTHOST_WINDOWS_OVERLAY=1; default off. */
+  /** Turns the Windows cards on (WPF). The same as OSSEO_WINDOWS_OVERLAY=1; default off. */
   windows: z.boolean().optional(),
   allowSyntheticControl: z.boolean().optional(),
   timeline: z.boolean().optional(),
@@ -55,6 +56,8 @@ const speechSchema = z.object({
 const configFileSchema = z
   .object({
     schemaVersion: z.literal(1).optional(),
+    osseoDir: z.string().min(1).optional(),
+    /** Old name of `osseoDir`, still read from config files written before the rename. */
     agentHostDir: z.string().min(1).optional(),
     logFile: z.string().min(1).optional(),
     forgeRuntimeSandboxMode: forgeRuntimeSandboxModeSchema.optional(),
@@ -129,20 +132,20 @@ async function readConfigFile(configPath: string): Promise<z.infer<typeof config
   }
 }
 
-export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Promise<AgentHostConfig> {
+export async function loadOsseoConfig(options: LoadConfigOptions = {}): Promise<OsseoConfig> {
   const env = options.env ?? process.env;
   const homeDir = options.homeDir ?? os.homedir();
-  const defaultAgentHostDir = path.join(homeDir, ".agenthost");
-  const initialAgentHostDir = resolveLocalPath(env.AGENTHOST_HOME ?? defaultAgentHostDir, homeDir);
-  const configPath = resolveLocalPath(options.configPath ?? env.AGENTHOST_CONFIG ?? path.join(initialAgentHostDir, "config.json"), homeDir);
+  const defaultOsseoDir = defaultOsseoHome(homeDir);
+  const initialOsseoDir = resolveLocalPath(env.OSSEO_HOME ?? defaultOsseoDir, homeDir);
+  const configPath = resolveLocalPath(options.configPath ?? env.OSSEO_CONFIG ?? path.join(initialOsseoDir, "config.json"), homeDir);
   const fileConfig = await readConfigFile(configPath);
 
-  const agentHostDir = resolveLocalPath(env.AGENTHOST_HOME ?? fileConfig.agentHostDir ?? initialAgentHostDir, homeDir);
+  const osseoDir = resolveLocalPath(env.OSSEO_HOME ?? fileConfig.osseoDir ?? fileConfig.agentHostDir ?? initialOsseoDir, homeDir);
   const forgeRuntimeSandboxMode = forgeRuntimeSandboxModeSchema.parse(
-    (env.AGENTHOST_FORGE_RUNTIME_SANDBOX_MODE ?? fileConfig.forgeRuntimeSandboxMode ?? "auto") as ForgeRuntimeSandboxMode
+    (env.OSSEO_FORGE_RUNTIME_SANDBOX_MODE ?? fileConfig.forgeRuntimeSandboxMode ?? "auto") as ForgeRuntimeSandboxMode
   );
   const overlayRendererMode = overlayRendererModeSchema.parse(
-    (env.AGENTHOST_OVERLAY_MODE ?? fileConfig.overlay?.rendererMode ?? fileConfig.overlayRendererMode ?? "auto") as OverlayRendererMode
+    (env.OSSEO_OVERLAY_MODE ?? fileConfig.overlay?.rendererMode ?? fileConfig.overlayRendererMode ?? "auto") as OverlayRendererMode
   );
   // In dock layout nothing floats over the work area by default (see workWindowCaptureClean in server.ts).
   const dockLayout = (fileConfig.overlay?.layout ?? "dock") !== "ambient";
@@ -172,7 +175,7 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     targetRingDurationMs: fileConfig.overlay?.targetRingDurationMs ?? 600,
     pillAutoHideMs: fileConfig.overlay?.pillAutoHideMs ?? 30_000
   };
-  const placement = z.enum(["foreground", "background"]).parse(env.AGENTHOST_EXECUTION_PLACEMENT ?? fileConfig.execution?.placement ?? "foreground");
+  const placement = z.enum(["foreground", "background"]).parse(env.OSSEO_EXECUTION_PLACEMENT ?? fileConfig.execution?.placement ?? "foreground");
   const execution = { placement, yieldToUser: fileConfig.execution?.yieldToUser ?? true, maxActionsPerTask: fileConfig.execution?.maxActionsPerTask ?? 500 };
   const speech = {
     enabled: fileConfig.speech?.enabled ?? true,
@@ -186,13 +189,13 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
     playbackTimeoutMs: fileConfig.speech?.playbackTimeoutMs ?? 300_000
   };
   const logFile = resolveLocalPath(
-    env.AGENTHOST_LOG_FILE ?? fileConfig.logFile ?? path.join(agentHostDir, "logs", "agenthost.jsonl"),
+    env.OSSEO_LOG_FILE ?? fileConfig.logFile ?? path.join(osseoDir, "logs", "osseo.jsonl"),
     homeDir
   );
 
   return {
     schemaVersion: 1,
-    agentHostDir,
+    osseoDir,
     configPath,
     logFile,
     forgeRuntimeSandboxMode,
@@ -208,7 +211,7 @@ export async function loadAgentHostConfig(options: LoadConfigOptions = {}): Prom
       ...(fileConfig.attention.soundIntervalMs === undefined ? {} : { soundIntervalMs: fileConfig.attention.soundIntervalMs })
     } }),
     replay: { onTaskFinish: fileConfig.replay?.onTaskFinish ?? false },
-    tools: { profile: z.enum(["desktop", "full"]).parse(env.AGENTHOST_TOOLS_PROFILE ?? fileConfig.tools?.profile ?? "desktop") },
+    tools: { profile: z.enum(["desktop", "full"]).parse(env.OSSEO_TOOLS_PROFILE ?? fileConfig.tools?.profile ?? "desktop") },
     autoInstallDependencies: fileConfig.autoInstallDependencies ?? true,
     speech,
     policy: getDefaultPolicy()

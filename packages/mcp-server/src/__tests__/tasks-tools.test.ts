@@ -2,13 +2,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { getDefaultPolicy, loadTask, type AuditLogEntry } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy, loadTask, type AuditLogEntry } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 import { createTaskTools } from "../tools/tasks.js";
 
 const roots: string[] = [];
 async function tempHome(): Promise<string> {
-  const root = await mkdtemp(path.join(os.tmpdir(), "agenthost-tasks-tools-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "osseo-tasks-tools-"));
   roots.push(root);
   return root;
 }
@@ -17,13 +17,13 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-function makeContext(home: string): AgentHostMcpContext {
+function makeContext(home: string): OsseoMcpContext {
   return {
     sessionId: "tasks-tools-session",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async (_entry: AuditLogEntry) => undefined }
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
 function tool(name: string) {

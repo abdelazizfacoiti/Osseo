@@ -6,8 +6,8 @@ import { JsonlAuditLogger, summarizeForLog } from "../index.js";
 
 describe("JsonlAuditLogger", () => {
   it("writes audit entries as JSONL", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-logger-"));
-    const logFile = path.join(dir, "agenthost.jsonl");
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-logger-"));
+    const logFile = path.join(dir, "osseo.jsonl");
     const logger = new JsonlAuditLogger(logFile);
 
     await logger.log({
@@ -38,8 +38,8 @@ describe("JsonlAuditLogger", () => {
 
   it("creates restrictive log directory and file permissions and repairs broad files", async () => {
     if (process.platform === "win32") return;
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-logger-perms-"));
-    const logFile = path.join(dir, "nested", "agenthost.jsonl");
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-logger-perms-"));
+    const logFile = path.join(dir, "nested", "osseo.jsonl");
     const logger = new JsonlAuditLogger(logFile);
     await logger.log({
       timestamp: "2026-07-07T21:00:00.000Z",

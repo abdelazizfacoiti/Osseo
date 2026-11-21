@@ -111,7 +111,7 @@ function warningForSensitivity(sensitivity: AppSensitivity): string | undefined 
     case "system_settings":
       return "Avoid changing security, network, update, or account settings unless you understand the effect.";
     case "unknown":
-      return "This app or workflow is unknown, so AgentHost cannot verify the safest automation path yet.";
+      return "This app or workflow is unknown, so Osseo cannot verify the safest automation path yet.";
     case "normal":
       return undefined;
   }
@@ -271,7 +271,7 @@ function createSteps(
         riskLevel,
         {
           expectedResult: "You have verified the communication content yourself.",
-          warning: "AgentHost guide mode does not send, post, or type messages."
+          warning: "Osseo guide mode does not send, post, or type messages."
         }
       )
     );

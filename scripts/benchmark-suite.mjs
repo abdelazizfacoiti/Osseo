@@ -6,13 +6,13 @@
  *   node scripts/benchmark-suite.mjs [--tasks id,id] [--runs n] [--out file]
  *
  * Every task is a local HTML page (benchmarks/suite/tasks/) and a scripted driver that makes the tool
- * calls an agent would make. Each task gets its own server process, its own AGENTHOST_HOME in a temp
+ * calls an agent would make. Each task gets its own server process, its own OSSEO_HOME in a temp
  * directory, and its own headless Chrome (--headless=new, through browser.open). No display is used:
  * DISPLAY is removed from the server's environment, so the real screen is never touched.
  *
  * Per task:  success (the harness's own check of the page), tool calls, result bytes (the byte length of
  * each reply's JSON text, summed), wall-clock seconds, and refused (the task's expected refusal happened).
- * Not counted: the harness's final page snapshot, the `agenthost confirm` the operator runs for the two
+ * Not counted: the harness's final page snapshot, the `osseo confirm` the operator runs for the two
  * tasks that need a confirmation token, and writing the fixture file for the upload task.
  *
  * An unverified success is a task whose driver finished without an error (it would have reported
@@ -24,7 +24,7 @@
  * The drivers are scripts, not a model: the numbers measure the tool surface on these pages and are a
  * regression gate, not a claim about any one agent.
  *
- * AGENTHOST_REPO points at another built tree (default: this one). The fixtures always come from this tree.
+ * OSSEO_REPO points at another built tree (default: this one). The fixtures always come from this tree.
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -34,12 +34,12 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { GATES, aggregate, evaluateGate, markdownTable, mergeRuns } from "./benchmark-suite-aggregate.mjs";
 
 // The task definitions call tools by their full names.
-process.env.AGENTHOST_TOOLS_PROFILE = "full";
+process.env.OSSEO_TOOLS_PROFILE = "full";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const BUILT = path.resolve(process.env.AGENTHOST_REPO ?? REPO);
+const BUILT = path.resolve(process.env.OSSEO_REPO ?? REPO);
 const SERVER = path.join(BUILT, "packages/mcp-server/dist/index.js");
-const CLI = path.join(BUILT, "packages/agenthost-cli/dist/index.js");
+const CLI = path.join(BUILT, "packages/osseo-cli/dist/index.js");
 const FIXTURES = path.join(REPO, "benchmarks/suite/tasks");
 const DEFAULT_OUT = path.join(REPO, "benchmarks/suite/results/latest.json");
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -208,7 +208,7 @@ async function runTask(task, root) {
   const work = mkdtempSync(path.join(root, "work-"));
   const config = path.join(home, "config.json");
   writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
-  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config, AGENTHOST_TOOLS_PROFILE: "full" };
+  const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: config, OSSEO_TOOLS_PROFILE: "full" };
   // Headless Chrome needs no display; leaving it out makes touching the real screen impossible.
   delete env.DISPLAY;
   delete env.WAYLAND_DISPLAY;
@@ -293,7 +293,7 @@ async function main() {
     }
   }
   const version = JSON.parse(readFileSync(path.join(REPO, "package.json"), "utf8")).version;
-  const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-suite-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "osseo-suite-"));
   const perTask = [];
   try {
     for (const task of selected) {
@@ -315,7 +315,7 @@ async function main() {
 
   const output = {
     header: {
-      agenthostVersion: version,
+      osseoVersion: version,
       toolProfile: "full",
       chrome: chromeVersion(),
       date: new Date().toISOString(),
@@ -337,7 +337,7 @@ async function main() {
   mkdirSync(path.dirname(options.out), { recursive: true });
   writeFileSync(options.out, `${JSON.stringify(output, null, 2)}\n`);
 
-  console.log(`AgentHost ${version}, tools profile full, ${output.header.chrome}, ${output.header.date}, ${options.runs} run(s) per task`);
+  console.log(`Osseo ${version}, tools profile full, ${output.header.chrome}, ${output.header.date}, ${options.runs} run(s) per task`);
   console.log("");
   console.log(markdownTable(rows));
   console.log("");

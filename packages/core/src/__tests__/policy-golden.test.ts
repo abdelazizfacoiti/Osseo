@@ -13,7 +13,7 @@ interface GoldenCase {
 }
 
 const fixture = JSON.parse(readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "policy-golden.json"), "utf8")) as {
-  context: { homeDir: string; agentHostDir: string; platform: NodeJS.Platform };
+  context: { homeDir: string; osseoDir: string; platform: NodeJS.Platform };
   cases: GoldenCase[];
 };
 
@@ -42,7 +42,7 @@ describe("policy golden fixture with the policy layer and no policy.toml", () =>
     const { mkdtemp, rm } = await import("node:fs/promises");
     const os = await import("node:os");
     const { loadPolicy, decidePolicy, DEFAULT_POLICY_RULES } = await import("../policy-file.js");
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-golden-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-golden-"));
     try {
       const loaded = await loadPolicy(dir);
       expect(loaded.exists).toBe(false);
@@ -66,10 +66,10 @@ describe("policy golden fixture with the policy layer and no policy.toml", () =>
 describe("policy.toml is control plane", () => {
   it("is write-blocked and read-medium like config.json", () => {
     for (const access of ["file_write", "file_delete"] as const) {
-      const result = evaluateSafety({ tool: "file.write", actionType: access, filePath: "/home/tester/.agenthost/policy.toml" }, getDefaultPolicy(), fixture.context);
+      const result = evaluateSafety({ tool: "file.write", actionType: access, filePath: "/home/tester/.osseo/policy.toml" }, getDefaultPolicy(), fixture.context);
       expect(result.blocked, access).toBe(true);
     }
-    const read = evaluateSafety({ tool: "file.read", actionType: "file_read", filePath: "/home/tester/.agenthost/policy.toml" }, getDefaultPolicy(), fixture.context);
+    const read = evaluateSafety({ tool: "file.read", actionType: "file_read", filePath: "/home/tester/.osseo/policy.toml" }, getDefaultPolicy(), fixture.context);
     expect(read.riskLevel).toBe("medium");
   });
 });

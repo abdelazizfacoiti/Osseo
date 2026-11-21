@@ -3,8 +3,8 @@ import path from "node:path";
 
 const INPUT_TOOLS = new Set(["desktop.click", "desktop.pointer", "desktop.hotkey", "desktop.type_text", "ui.activate", "ui.set_text"]);
 
-export function inputGuardPath(agentHostDir: string): string {
-  return path.join(agentHostDir, "run", "input-active");
+export function inputGuardPath(osseoDir: string): string {
+  return path.join(osseoDir, "run", "input-active");
 }
 
 export function injectsInput(toolName: string): boolean {
@@ -13,12 +13,12 @@ export function injectsInput(toolName: string): boolean {
 
 /**
  * Refreshes the marker the overlay renderer checks before honoring a
- * Pause/Resume/Stop press: presses that land while AgentHost is injecting
+ * Pause/Resume/Stop press: presses that land while Osseo is injecting
  * input are the agent's, not the operator's. The marker lives in the
  * control plane (run/), which agent file and shell tools cannot write.
  */
-export async function markAgentInput(agentHostDir: string): Promise<void> {
-  const target = inputGuardPath(agentHostDir);
+export async function markAgentInput(osseoDir: string): Promise<void> {
+  const target = inputGuardPath(osseoDir);
   try {
     await writeFile(target, "", { mode: 0o600 });
   } catch {

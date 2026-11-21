@@ -1,10 +1,10 @@
-import { evaluateSafety, classifyAppSensitivity, toolFailure, toolSuccess, type AccessibilityTreeNode, type ToolResult } from "@agenthost/core";
-import type { BrowserElement } from "@agenthost/os-linux";
+import { evaluateSafety, classifyAppSensitivity, toolFailure, toolSuccess, type AccessibilityTreeNode, type ToolResult } from "@osseo/core";
+import type { BrowserElement } from "@osseo/os-linux";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
+import type { OsseoMcpContext } from "../context.js";
 import { safetyContext } from "../context.js";
 import { callGoverned } from "../nested.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { rememberView, type Box, type SeenView, type ViewTarget } from "../view-registry.js";
 import { drawMarks, MAX_MARKS, type PictureMark } from "./see-marks.js";
 import { findScreenTextMatches } from "./vision.js";
@@ -134,14 +134,14 @@ export function flattenTree(root: AccessibilityTreeNode | undefined, outer: Box 
   return found;
 }
 
-async function currentActive(context: AgentHostMcpContext): Promise<{ id?: string; title: string; app: string; pid?: number } | undefined> {
+async function currentActive(context: OsseoMcpContext): Promise<{ id?: string; title: string; app: string; pid?: number } | undefined> {
   const active = (await context.linux.getActiveWindow().catch(() => undefined))?.activeWindow;
   if (active === undefined) return undefined;
   return { ...(active.windowId === undefined ? {} : { id: active.windowId }), title: active.title ?? "", app: active.appName ?? "", ...(active.pid === undefined ? {} : { pid: active.pid }) };
 }
 
 /** Bounds of a window by id, now. Used for the stale check on screen targets. */
-export async function currentWindowBounds(context: AgentHostMcpContext, windowId: string): Promise<Box | undefined> {
+export async function currentWindowBounds(context: OsseoMcpContext, windowId: string): Promise<Box | undefined> {
   const listed = await context.linux.listWindows({ limit: 200 }).catch(() => undefined);
   const found = listed?.windows.find((window) => window.windowId === windowId);
   if (found?.bounds !== undefined) return found.bounds;
@@ -150,7 +150,7 @@ export async function currentWindowBounds(context: AgentHostMcpContext, windowId
   return undefined;
 }
 
-export async function resolveWindow(context: AgentHostMcpContext, windowId: string | undefined): Promise<SeenWindow | undefined> {
+export async function resolveWindow(context: OsseoMcpContext, windowId: string | undefined): Promise<SeenWindow | undefined> {
   const active = await currentActive(context);
   if (windowId === undefined || windowId === active?.id) {
     if (active === undefined || active.id === undefined) return undefined;
@@ -168,7 +168,7 @@ function domRole(element: BrowserElement): string {
   return element.role;
 }
 
-async function domElements(context: AgentHostMcpContext, elements: BrowserElement[], filter: string | undefined, max: number): Promise<{ list: Array<Element & { ref: string }>; total: number }> {
+async function domElements(context: OsseoMcpContext, elements: BrowserElement[], filter: string | undefined, max: number): Promise<{ list: Array<Element & { ref: string }>; total: number }> {
   const browser = context.linux.browser;
   const base = elements.map((element): Element & { ref: string } => {
     const textual = /^(textbox|searchbox|combobox|entry|input)$/.test(element.role) || element.tag === "input" || element.tag === "textarea";
@@ -201,7 +201,7 @@ async function domElements(context: AgentHostMcpContext, elements: BrowserElemen
   return { list: shown, total: matching.length };
 }
 
-async function ocrElements(context: AgentHostMcpContext, outer: Box | undefined): Promise<Element[]> {
+async function ocrElements(context: OsseoMcpContext, outer: Box | undefined): Promise<Element[]> {
   // Read only the window's rectangle (a small picture is much faster to read), not the whole screen.
   const ocr = await findScreenTextMatches(context, { query: "", match: "contains", limit: 400, region: outer }).catch(() => undefined);
   if (ocr === undefined || !ocr.ok) return [];
@@ -221,7 +221,7 @@ interface Picture {
   origin?: { x: number; y: number };
 }
 
-async function takePicture(context: AgentHostMcpContext, source: Source, window: SeenWindow | undefined): Promise<Picture | undefined> {
+async function takePicture(context: OsseoMcpContext, source: Source, window: SeenWindow | undefined): Promise<Picture | undefined> {
   if (source === "dom") {
     const result = await callGoverned(context, "browser.screenshot", {});
     const image = (result.data as { inlineImage?: { data: string; mimeType: string } } | null)?.inlineImage;
@@ -243,15 +243,15 @@ async function takePicture(context: AgentHostMcpContext, source: Source, window:
 }
 
 /** Whether the agent's own browser page is what the caller means: it is open and its window is active (or there is no window system). */
-export async function browserIsTarget(context: AgentHostMcpContext): Promise<boolean> {
+export async function browserIsTarget(context: OsseoMcpContext): Promise<boolean> {
   const page = await context.linux.browser?.state().catch(() => undefined);
   if (page === undefined) return false;
   const active = await currentActive(context);
   return active === undefined || (page.title.length > 0 && active.title.includes(page.title));
 }
 
-export function createSeeTool(): AnyAgentHostToolDefinition<AgentHostMcpContext> {
-  const see: AgentHostToolDefinition<SeeInput, unknown, AgentHostMcpContext> = {
+export function createSeeTool(): AnyOsseoToolDefinition<OsseoMcpContext> {
+  const see: OsseoToolDefinition<SeeInput, unknown, OsseoMcpContext> = {
     name: "see",
     description: "Lists what can be acted on in a window as numbered lines: [1] button \"Save\", [2] entry \"Name\" = \"Ada\". Use the numbers with click, type, scroll and drag. Call see again after anything changes. Sources: the agent's own browser page, the accessibility tree, then OCR. Sensitive fields show as (blocked) with no value. picture: auto (default), none, plain, or marked (numbers drawn on the window).",
     riskLevel: "medium",
@@ -409,7 +409,7 @@ export function createSeeTool(): AnyAgentHostToolDefinition<AgentHostMcpContext>
                   height: target.bounds.height * picture.scale!
                 });
               }
-              const drawn = await drawMarks(context.config.agentHostDir, picture.data, marks);
+              const drawn = await drawMarks(context.config.osseoDir, picture.data, marks);
               if (drawn === undefined) {
                 observations.push("Could not draw the numbers (ffmpeg with drawtext is needed); showing the plain picture.");
               } else {
@@ -442,5 +442,5 @@ export function createSeeTool(): AnyAgentHostToolDefinition<AgentHostMcpContext>
       });
     }
   };
-  return see as AnyAgentHostToolDefinition<AgentHostMcpContext>;
+  return see as AnyOsseoToolDefinition<OsseoMcpContext>;
 }

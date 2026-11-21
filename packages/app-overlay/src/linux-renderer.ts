@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { OverlayCapabilityReport, OverlayDockSide, OverlayLayout, OverlayRendererMode, OverlayStateSnapshot, OverlayWidgetEvent } from "@agenthost/core";
+import { defaultOsseoHome, type OverlayCapabilityReport, type OverlayDockSide, OverlayLayout, OverlayRendererMode, OverlayStateSnapshot, OverlayWidgetEvent } from "@osseo/core";
 import { HeadlessOverlayRenderer } from "./headless-renderer.js";
 import { probeGtk3, probeLinuxOverlay, type OverlayEnvironment } from "./linux-probe.js";
 import { OVERLAY_IPC_MAX_BYTES, OVERLAY_IPC_MAX_IN_FLIGHT, OVERLAY_IPC_VERSION, serializeRendererMessage, validateRendererHandshake, validateRendererOperationData, validateRendererReply, type OverlayRendererCommand, type OverlayRendererReply, type OverlayRendererRequest } from "./linux-renderer-protocol.js";
@@ -20,7 +20,7 @@ export interface OverlayVisualConfig {
   /** Let XTEST (synthetic) clicks press control buttons. Off by default; remote-desktop users may need it. */
   allowSyntheticControl?: boolean;
 }
-export interface LinuxOverlayRendererOptions { environment?: OverlayEnvironment; mode?: OverlayRendererMode; sessionId?: string; pythonCommand?: string; scriptPath?: string; commandTimeoutMs?: number; startupTimeoutMs?: number; renderAckTimeoutMs?: number; maxRestarts?: number; probe?: () => Promise<OverlayCapabilityReport> | OverlayCapabilityReport; spawnProcess?: LinuxOverlaySpawn; pidFilePath?: string | null; visual?: Partial<OverlayVisualConfig>; /** File AgentHost touches while it injects pointer/keyboard input; control buttons ignore clicks while it is fresh. */ inputGuardPath?: string; }
+export interface LinuxOverlayRendererOptions { environment?: OverlayEnvironment; mode?: OverlayRendererMode; sessionId?: string; pythonCommand?: string; scriptPath?: string; commandTimeoutMs?: number; startupTimeoutMs?: number; renderAckTimeoutMs?: number; maxRestarts?: number; probe?: () => Promise<OverlayCapabilityReport> | OverlayCapabilityReport; spawnProcess?: LinuxOverlaySpawn; pidFilePath?: string | null; visual?: Partial<OverlayVisualConfig>; /** File Osseo touches while it injects pointer/keyboard input; control buttons ignore clicks while it is fresh. */ inputGuardPath?: string; }
 
 const RENDERER_PROCESS_PATTERN = "app-overlay/runtime/gtk3-renderer.py --protocol";
 export interface OverlayOrphanSweepResult { killed: number[]; skippedLive: number[]; }
@@ -133,12 +133,12 @@ export class LinuxOverlayRenderer implements OverlayRenderer {
     this.#spawnProcess = options.spawnProcess ?? ((command, args, spawnOptions) => spawn(command, args, spawnOptions));
     this.#visual = options.visual ?? {};
     this.#inputGuardPath = options.inputGuardPath;
-    // PID registry lets `agenthost overlay hide/status` find live renderers.
+    // PID registry lets `osseo overlay hide/status` find live renderers.
     // Unit tests pass a minimal environment without PATH; skip the registry
     // there so tests never write into the operator's home directory.
     if (options.pidFilePath === null) this.#pidFilePath = null;
     else if (typeof options.pidFilePath === "string") this.#pidFilePath = options.pidFilePath;
-    else if (this.#environment.PATH !== undefined) this.#pidFilePath = path.join(this.#environment.AGENTHOST_HOME ?? path.join(this.#environment.HOME ?? os.homedir(), ".agenthost"), "run", "overlay-renderer.pid");
+    else if (this.#environment.PATH !== undefined) this.#pidFilePath = path.join(this.#environment.OSSEO_HOME ?? defaultOsseoHome(this.#environment.HOME ?? os.homedir()), "run", "overlay-renderer.pid");
     else this.#pidFilePath = null;
   }
 

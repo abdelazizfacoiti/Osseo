@@ -1,5 +1,5 @@
 {
-  "name": "@agenthost/os-windows",
+  "name": "@osseo/os-windows",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
@@ -14,6 +14,6 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@agenthost/core": "file:../core"
+    "@osseo/core": "file:../core"
   }
 }

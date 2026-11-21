@@ -39,7 +39,7 @@ describe("host socket", () => {
   it("refuses a second host while one is live", async () => {
     const home = tempHome();
     hosts.push(await startHost({ agentHome: home, createSession: fakeSession }));
-    await expect(startHost({ agentHome: home, createSession: fakeSession })).rejects.toMatchObject({ code: "agenthost_host_running", pid: process.pid });
+    await expect(startHost({ agentHome: home, createSession: fakeSession })).rejects.toMatchObject({ code: "osseo_host_running", pid: process.pid });
     // The first host is still serving.
     expect(await probeSocket(hostPaths(home).socket)).toBe("live");
   });

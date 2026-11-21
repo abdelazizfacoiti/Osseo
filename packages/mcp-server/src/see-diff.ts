@@ -1,5 +1,5 @@
-import { evaluateSafety } from "@agenthost/core";
-import type { AgentHostMcpContext } from "./context.js";
+import { evaluateSafety } from "@osseo/core";
+import type { OsseoMcpContext } from "./context.js";
 import { safetyContext } from "./context.js";
 import { flattenTree, formatLine, matchesFilter, resolveWindow } from "./tools/see.js";
 import { setOutline, type SeenView } from "./view-registry.js";
@@ -160,7 +160,7 @@ const unavailable = (reason: StructureReason): StructureResult => ({ structure: 
  * guesses: when it cannot compare it says why and the pixel check stays the judge.
  */
 export async function observeStructure(
-  context: AgentHostMcpContext,
+  context: OsseoMcpContext,
   view: SeenView | undefined,
   windowId: string | undefined,
   budgetMs = STRUCTURE_BUDGET_MS

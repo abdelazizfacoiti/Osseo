@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { findChromeExecutable } from "@agenthost/os-linux";
+import { findChromeExecutable } from "@osseo/os-linux";
 import { describe, expect, it } from "vitest";
 
 // Runs the built stdio server headless (no display), so `npm run build` must come first.
@@ -19,8 +19,8 @@ const FORM = `<!doctype html><html><head><title>Numbers form</title></head><body
 
 async function connect(home: string) {
   const env: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) if (value !== undefined && key !== "DISPLAY" && key !== "WAYLAND_DISPLAY" && key !== "AGENTHOST_TOOLS_PROFILE") env[key] = value;
-  env.AGENTHOST_HOME = home;
+  for (const [key, value] of Object.entries(process.env)) if (value !== undefined && key !== "DISPLAY" && key !== "WAYLAND_DISPLAY" && key !== "OSSEO_TOOLS_PROFILE") env[key] = value;
+  env.OSSEO_HOME = home;
   env.NODE_ENV = "test";
   const client = new Client({ name: "see-e2e", version: "1" }, { capabilities: {} });
   await client.connect(new StdioClientTransport({ command: process.execPath, args: [SERVER], env }));
@@ -40,7 +40,7 @@ function dataOf(result: unknown): any {
 describe("see and numbered actions (built server, headless)", () => {
   it("lists exactly the fourteen default tools", async () => {
     expect(existsSync(SERVER), "Build first: npm run build").toBe(true);
-    const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-see-e2e-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "osseo-see-e2e-"));
     const client = await connect(home);
     try {
       const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
@@ -53,8 +53,8 @@ describe("see and numbered actions (built server, headless)", () => {
 
   const chrome = findChromeExecutable();
   it.skipIf(chrome === undefined)("opens a form, types by number, clicks by number and sees the new value", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-see-e2e-"));
-    const work = mkdtempSync(path.join(os.tmpdir(), "agenthost-see-e2e-page-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "osseo-see-e2e-"));
+    const work = mkdtempSync(path.join(os.tmpdir(), "osseo-see-e2e-page-"));
     const client = await connect(home);
     try {
       const file = path.join(work, "form.html");

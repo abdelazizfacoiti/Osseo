@@ -47,7 +47,7 @@ function pidsUsing(runtimeDir) {
 
 export function startPrivateBus(env = process.env) {
   if (process.platform !== "linux" || !hasCommand("dbus-daemon")) return { shared: true, stop() {} };
-  const runtimeDir = mkdtempSync(path.join(os.tmpdir(), "agenthost-bus-"));
+  const runtimeDir = mkdtempSync(path.join(os.tmpdir(), "osseo-bus-"));
   const childEnv = { ...env, XDG_RUNTIME_DIR: runtimeDir };
   delete childEnv.DBUS_SESSION_BUS_ADDRESS;
   let address;

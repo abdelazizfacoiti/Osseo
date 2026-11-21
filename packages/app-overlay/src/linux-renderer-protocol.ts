@@ -1,4 +1,4 @@
-import type { OverlayCapabilityReport } from "@agenthost/core";
+import type { OverlayCapabilityReport } from "@osseo/core";
 
 export const OVERLAY_IPC_VERSION = 1 as const;
 export const OVERLAY_IPC_MAX_BYTES = 256 * 1024;

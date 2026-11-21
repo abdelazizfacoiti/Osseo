@@ -1,5 +1,5 @@
-import type { OverlayManager } from "@agenthost/app-overlay";
-import type { OverlayPlacement, OverlayTargetBinding, OverlayWidget, OverlayWidgetComponent, RiskLevel, ToolResult } from "@agenthost/core";
+import type { OverlayManager } from "@osseo/app-overlay";
+import type { OverlayPlacement, OverlayTargetBinding, OverlayWidget, OverlayWidgetComponent, RiskLevel, ToolResult } from "@osseo/core";
 
 export type ToolActionPhase = "running" | "paused" | "waiting_approval" | "preview" | "done" | "halted" | "error";
 
@@ -125,7 +125,7 @@ function settlePhase(result: ToolResult): Exclude<ToolActionPhase, "running"> {
   return "done";
 }
 
-/** One in-place status card for every state-changing AgentHost action.
+/** One in-place status card for every state-changing Osseo action.
  * The card is best-effort: renderer failures never change tool outcomes. */
 export class ToolActionOverlay {
   readonly #manager: OverlayManager;
@@ -186,7 +186,7 @@ export class ToolActionOverlay {
 
   constructor(manager: OverlayManager, options: ToolActionOverlayOptions = {}) {
     this.#manager = manager;
-    this.#widgetId = options.widgetId ?? "agenthost-action";
+    this.#widgetId = options.widgetId ?? "osseo-action";
     this.#placement = options.placement ?? "top_right";
     this.#persistent = options.persistent ?? true;
     this.#autoHideMs = options.autoHideMs ?? 15_000;
@@ -425,7 +425,7 @@ export class ToolActionOverlay {
   #detailText(phase: ToolActionPhase, current: ActiveAction | undefined): string {
     const summary = current?.summary ?? this.#last?.summary ?? "Working";
     if (phase === "paused") return `${summary} Paused by the operator. Resume to allow the next state-changing action.`;
-    if (phase === "waiting_approval") return `${summary} No action executed. Run "agenthost confirmations" to review and approve.`;
+    if (phase === "waiting_approval") return `${summary} No action executed. Run "osseo confirmations" to review and approve.`;
     if (phase === "preview") return `${summary} No action executed.`;
     if (phase === "halted" && this.#stopRequested) return `${summary} Stop requested. The current action may finish, but no new state-changing action will start.`;
     if (phase === "halted") return `${summary} Halted by the operator or safety policy.`;
@@ -448,9 +448,9 @@ export class ToolActionOverlay {
       { type: "status_badge", status: badge.status, text: this.#compact ? `${badge.text} · ${riskLabel(risk)}` : badge.text },
       { type: "text", text: this.#detailText(phase, current) }
     ];
-    if (phase === "waiting_approval") components.push({ type: "warning", text: "Approval required. Press Approve on the approval card, or run: agenthost confirmations" });
-    if (phase === "paused") components.push({ type: "warning", text: "Paused. Press Resume here, or run: agenthost agent resume" });
-    if (phase === "halted" && this.#stopRequested) components.push({ type: "warning", text: "Stop is active. Dismiss this card or run: agenthost agent resume --stop" });
+    if (phase === "waiting_approval") components.push({ type: "warning", text: "Approval required. Press Approve on the approval card, or run: osseo confirmations" });
+    if (phase === "paused") components.push({ type: "warning", text: "Paused. Press Resume here, or run: osseo agent resume" });
+    if (phase === "halted" && this.#stopRequested) components.push({ type: "warning", text: "Stop is active. Dismiss this card or run: osseo agent resume --stop" });
     if (this.#controlError !== undefined) components.push({ type: "warning", text: this.#controlError });
     if (this.#active.size > 1) components.push({ type: "key_value", key: "Actions", value: `${this.#active.size} running` });
     if (stepLabel !== undefined && !this.#compact) components.push({ type: "key_value", key: "Step", value: stepLabel.replace("Step ", "") });
@@ -460,16 +460,16 @@ export class ToolActionOverlay {
     }
     for (const [label, event] of this.#buttons(phase)) components.push({ type: "button", label, event });
     const title = phase === "waiting_approval"
-      ? "AgentHost · Approval required"
+      ? "Osseo · Approval required"
       : phase === "paused"
-        ? "AgentHost · Paused"
+        ? "Osseo · Paused"
         : phase === "halted"
-          ? "AgentHost · Halted"
+          ? "Osseo · Halted"
           : this.#active.size > 1
-            ? `AgentHost · ${this.#active.size} actions running`
+            ? `Osseo · ${this.#active.size} actions running`
             : stepLabel !== undefined
-              ? `AgentHost · ${stepLabel}`
-              : `AgentHost · ${tool}`;
+              ? `Osseo · ${stepLabel}`
+              : `Osseo · ${tool}`;
     return {
       widgetId: this.#widgetId,
       title,

@@ -38,7 +38,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { startPrivateBus } from "./private-bus.mjs";
 
 // These scripts list and count tools, so they run the full tool list.
-process.env.AGENTHOST_TOOLS_PROFILE ??= "full";
+process.env.OSSEO_TOOLS_PROFILE ??= "full";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER = path.join(REPO, "packages/mcp-server/dist/index.js");
@@ -257,7 +257,7 @@ async function runPixelRoute(name, display, run, root) {
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const config = path.join(home, "config.json");
   writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
-  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config, DISPLAY: display, XDG_SESSION_TYPE: "x11" };
+  const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: config, DISPLAY: display, XDG_SESSION_TYPE: "x11" };
   const xephyr = spawn("Xephyr", [display, "-screen", "800x600", "-no-host-grab"], { env: { ...process.env, DISPLAY: HOST_DISPLAY }, stdio: "ignore", detached: true });
   xephyr.unref();
   for (let attempt = 0; attempt < 60 && !existsSync(`/tmp/.X11-unix/X${display.slice(1)}`); attempt += 1) await sleep(100);
@@ -298,7 +298,7 @@ async function runBrowserRoute(root) {
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const config = path.join(home, "config.json");
   writeFileSync(config, JSON.stringify({ schemaVersion: 1, overlay: { mode: "off" }, autoInstallDependencies: false }));
-  const env = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: config };
+  const env = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: config };
   const server = spawn(process.execPath, [SERVER], { env, stdio: ["pipe", "pipe", "pipe"] });
   const mcp = client(server);
   try {
@@ -367,7 +367,7 @@ async function main() {
       return;
     }
   }
-  const root = mkdtempSync(path.join(os.tmpdir(), "agenthost-form-bench-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "osseo-form-bench-"));
   const results = [];
   // Private session bus: the nested displays' accessibility services never touch the real AT-SPI socket.
   const bus = startPrivateBus();

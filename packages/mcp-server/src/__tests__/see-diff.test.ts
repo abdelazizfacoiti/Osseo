@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getDefaultPolicy } from "@agenthost/core";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy } from "@osseo/core";
+import type { OsseoMcpContext } from "../context.js";
 
 const calls: Array<{ name: string; input: Record<string, any> }> = [];
 vi.mock("../nested.js", () => ({
@@ -22,9 +22,9 @@ const treeOf = (...children: unknown[]) => ({ supported: true, backend: "t", roo
 
 let current: unknown;
 let never = false;
-function fake(): AgentHostMcpContext {
+function fake(): OsseoMcpContext {
   return {
-    config: { agentHostDir: "/tmp/agenthost-see-diff-test" },
+    config: { osseoDir: "/tmp/osseo-see-diff-test" },
     policy: getDefaultPolicy(),
     linux: {
       getActiveWindow: async () => ({ activeWindow: { windowId: "w1", title: "Form - App", appName: "App", pid: 7 } }),
@@ -32,13 +32,13 @@ function fake(): AgentHostMcpContext {
       listWindows: async () => ({ supported: true, backend: "t", truncated: false, reason: "ok", windows: [{ windowId: "w1", title: "Form - App", appName: "App", pid: 7, bounds: WIN }] }),
       getAccessibilityTree: () => never ? new Promise(() => undefined) : Promise.resolve(current)
     }
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
-const see = createSeeTool() as unknown as { inputSchema: { parse(v: unknown): unknown }; handler(input: unknown, context: AgentHostMcpContext): Promise<any> };
-const numbered = new Map((createNumberedTools() as unknown as Array<{ name: string; inputSchema: { parse(v: unknown): unknown }; auditOutputSummary?: (r: any) => string; handler(i: unknown, c: AgentHostMcpContext): Promise<any> }>).map((t) => [t.name, t]));
-const act = (name: string, input: unknown, ctx: AgentHostMcpContext) => numbered.get(name)!.handler(numbered.get(name)!.inputSchema.parse(input), ctx);
-const look = (ctx: AgentHostMcpContext) => see.handler(see.inputSchema.parse({ picture: "none" }), ctx);
+const see = createSeeTool() as unknown as { inputSchema: { parse(v: unknown): unknown }; handler(input: unknown, context: OsseoMcpContext): Promise<any> };
+const numbered = new Map((createNumberedTools() as unknown as Array<{ name: string; inputSchema: { parse(v: unknown): unknown }; auditOutputSummary?: (r: any) => string; handler(i: unknown, c: OsseoMcpContext): Promise<any> }>).map((t) => [t.name, t]));
+const act = (name: string, input: unknown, ctx: OsseoMcpContext) => numbered.get(name)!.handler(numbered.get(name)!.inputSchema.parse(input), ctx);
+const look = (ctx: OsseoMcpContext) => see.handler(see.inputSchema.parse({ picture: "none" }), ctx);
 
 beforeEach(() => { calls.length = 0; never = false; });
 afterEach(() => forgetViews());

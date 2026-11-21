@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import path from "node:path";
-import { getDefaultPolicy } from "@agenthost/core";
-import { openLinuxUrl } from "@agenthost/os-linux";
-import type { AgentHostMcpContext } from "../context.js";
+import { getDefaultPolicy } from "@osseo/core";
+import { openLinuxUrl } from "@osseo/os-linux";
+import type { OsseoMcpContext } from "../context.js";
 import { createAppTools } from "../tools/app.js";
 
-function makeContext(linux: Record<string, unknown>): AgentHostMcpContext {
-  const home = "/tmp/agenthost-app-tools";
+function makeContext(linux: Record<string, unknown>): OsseoMcpContext {
+  const home = "/tmp/osseo-app-tools";
   return {
     sessionId: "app-tools",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     linux
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
 describe("app tools", () => {

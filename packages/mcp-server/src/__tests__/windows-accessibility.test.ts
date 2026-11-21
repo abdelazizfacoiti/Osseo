@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createWindowsDesktop } from "@agenthost/os-windows";
-import type { AgentHostMcpContext } from "../context.js";
+import { createWindowsDesktop } from "@osseo/os-windows";
+import type { OsseoMcpContext } from "../context.js";
 import { resolveLabelTarget } from "../label-target.js";
 import { outlineOf } from "../tools/screen.js";
 
@@ -9,7 +9,7 @@ import { outlineOf } from "../tools/screen.js";
  * the screen outline, and the field read-back, with a fake helper standing in for UI Automation.
  */
 
-const FORM = { hwnd: "1001", title: "AgentHost Check Window", pid: 10, process: "powershell", x: 200, y: 200, width: 400, height: 140, minimized: false };
+const FORM = { hwnd: "1001", title: "Osseo Check Window", pid: 10, process: "powershell", x: 200, y: 200, width: 400, height: 140, minimized: false };
 const SAVE = { x: 220, y: 270, width: 120, height: 40 };
 const BOX = { x: 220, y: 220, width: 360, height: 24 };
 
@@ -45,7 +45,7 @@ function helper(requests: Array<{ method: string; params: Record<string, unknown
 
 function contextOf() {
   const desktop = createWindowsDesktop(helper());
-  return { linux: desktop } as unknown as AgentHostMcpContext;
+  return { linux: desktop } as unknown as OsseoMcpContext;
 }
 
 describe("Windows accessibility through the shared tools", () => {
@@ -63,7 +63,7 @@ describe("Windows accessibility through the shared tools", () => {
     const tree = await createWindowsDesktop(helper()).getAccessibilityTree({ pid: 10, maxDepth: 14, maxNodes: 600, includeText: false });
     const outline = outlineOf(tree.root as never, 2048);
     expect(outline.lines).toEqual([
-      "window \"AgentHost Check Window\"",
+      "window \"Osseo Check Window\"",
       "  entry \"Name\" @220,220 360x24",
       "  push button \"Save\" @220,270 120x40"
     ]);

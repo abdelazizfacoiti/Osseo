@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { checkLinuxRequirements, missingAptPackages, planAptInstall, type InstallPlan, type RequirementStatus } from "@agenthost/os-linux";
+import { checkLinuxRequirements, missingAptPackages, planAptInstall, type InstallPlan, type RequirementStatus } from "@osseo/os-linux";
 
 export interface RequirementsBootstrapDeps {
   check(): Promise<RequirementStatus[]>;
@@ -29,19 +29,19 @@ const linuxDeps: RequirementsBootstrapDeps = {
   check: async () => await checkLinuxRequirements(),
   plan: async (packages) => await planAptInstall(packages, false),
   launch: (plan) => detached(plan.command[0]!, plan.command.slice(1)),
-  notify: (summary, body) => detached("notify-send", ["-a", "AgentHost", summary, body])
+  notify: (summary, body) => detached("notify-send", ["-a", "Osseo", summary, body])
 };
 
 /**
  * First-start dependency check. Installing system packages needs root, so it
  * is never silent: pkexec shows the desktop password dialog and the user
  * decides. The offer is recorded per missing-package set, so declining does
- * not re-prompt on every start; `agenthost setup deps --apply` retries.
+ * not re-prompt on every start; `osseo setup deps --apply` retries.
  */
-export async function bootstrapRequirements(agentHostDir: string, enabled: boolean, deps: RequirementsBootstrapDeps = linuxDeps): Promise<RequirementsBootstrapResult> {
+export async function bootstrapRequirements(osseoDir: string, enabled: boolean, deps: RequirementsBootstrapDeps = linuxDeps): Promise<RequirementsBootstrapResult> {
   // The desktop packages are Linux packages: there is nothing to install on Windows or macOS.
   if (deps === linuxDeps && process.platform !== "linux") return { missing: [], action: "none" };
-  const marker = path.join(agentHostDir, "run", "requirements.json");
+  const marker = path.join(osseoDir, "run", "requirements.json");
   const missing = missingAptPackages(await deps.check());
   if (missing.length === 0) return { missing, action: "none" };
   if (!enabled) return { missing, action: "disabled" };
@@ -52,10 +52,10 @@ export async function bootstrapRequirements(agentHostDir: string, enabled: boole
   await writeFile(marker, `${JSON.stringify({ offered: key, at: new Date().toISOString() })}\n`, { mode: 0o600 });
   const plan = await deps.plan(missing);
   if (plan === undefined) {
-    deps.notify("AgentHost needs desktop packages", `Install with: sudo apt install ${missing.join(" ")}`);
+    deps.notify("Osseo needs desktop packages", `Install with: sudo apt install ${missing.join(" ")}`);
     return { missing, action: "advice_only" };
   }
-  deps.notify("AgentHost is installing desktop packages", `Approve the password prompt to install: ${missing.join(" ")}`);
+  deps.notify("Osseo is installing desktop packages", `Approve the password prompt to install: ${missing.join(" ")}`);
   deps.launch(plan);
   return { missing, action: "install_prompted" };
 }

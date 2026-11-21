@@ -1,8 +1,8 @@
 import type { OverlayOwner, OverlayTargetResolver } from "./manager.js";
 import type { OverlayRenderer, OverlayOperationResult, OverlayRendererRestartResult } from "./renderer.js";
 import { OverlayManager as BaseOverlayManager } from "./manager.js";
-import type { OverlayPrimitive, OverlayPrimitiveType, OverlayWidget, OverlayWidgetComponent, VisualSurfaceProtocolEnvelope, VisualSurfaceType } from "@agenthost/core";
-import { redactVisualSurface, validateVisualSurface, visualSurfacePriorityValue } from "@agenthost/core";
+import type { OverlayPrimitive, OverlayPrimitiveType, OverlayWidget, OverlayWidgetComponent, VisualSurfaceProtocolEnvelope, VisualSurfaceType } from "@osseo/core";
+import { redactVisualSurface, validateVisualSurface, visualSurfacePriorityValue } from "@osseo/core";
 import { normalizeTrustedVisualComponents } from "./component-registry.js";
 
 export interface VisualSurfaceCoordinatorOptions { maxActiveSurfaces?: number; reducedMotion?: boolean; targetResolver?: OverlayTargetResolver | undefined; }

@@ -6,7 +6,7 @@ import { addRule, alwaysAllowFromConfirmation, invalidatePolicyCache, loadPolicy
 
 const dirs: string[] = [];
 async function tempHome(): Promise<string> {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-policy-write-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-policy-write-"));
   dirs.push(dir);
   return dir;
 }

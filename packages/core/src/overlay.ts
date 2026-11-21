@@ -29,13 +29,13 @@ export interface OverlayPublicConfig {
   dockSide: OverlayDockSide;
   dockWidthPercent: number;
   dockReserveSpace: boolean;
-  /** Windows cards (WPF), the same as AGENTHOST_WINDOWS_OVERLAY=1. Default false. */
+  /** Windows cards (WPF), the same as OSSEO_WINDOWS_OVERLAY=1. Default false. */
   windows?: boolean;
   /** Let synthetic (XTEST) clicks press control buttons such as Approve and Stop. Default false. */
   allowSyntheticControl?: boolean;
   /** Newest-first list of agent actions inside the dock (dock layout only). */
   timeline: boolean;
-  /** `true`: a frame while an action runs. `"always"`: a quiet gray frame whenever AgentHost is on, coloured by state. */
+  /** `true`: a frame while an action runs. `"always"`: a quiet gray frame whenever Osseo is on, coloured by state. */
   frame: boolean | "always";
   /** With `"always"`: hide the gray frame after this many ms with no action (0 keeps it). Default 120000. */
   frameIdleMs?: number;

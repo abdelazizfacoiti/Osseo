@@ -71,7 +71,7 @@ if (active?.supported === true && active.activeWindow?.windowId !== undefined) {
 }
 rows.push(await measure("screen_geometry", () => getLinuxScreenGeometry(context)));
 rows.push(await measure("window_bounds", () => getLinuxActiveWindowBounds(context)));
-const shotDir = await mkdtemp(path.join(os.tmpdir(), "agenthost-benchmark-"));
+const shotDir = await mkdtemp(path.join(os.tmpdir(), "osseo-benchmark-"));
 try {
   rows.push(await measure("screenshot_tmp", (i) => captureLinuxScreenshot({ path: path.join(shotDir, `bench-${i}.png`) }, context), { iterations: 5 }));
 } finally {

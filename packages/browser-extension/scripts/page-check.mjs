@@ -49,13 +49,13 @@ const freePort = () => new Promise((res) => { const s = net.createServer(); s.li
 const SHIM = `(() => {
   let listener = null;
   window.chrome = { runtime: { onMessage: { addListener(fn) { listener = fn; } } } };
-  window.__agenthostCall = (msg) => new Promise((resolve) => {
+  window.__osseoCall = (msg) => new Promise((resolve) => {
     if (!listener) { resolve({ shim: "no listener registered" }); return; }
     const kept = listener(msg, {}, resolve);
     if (kept !== true && kept !== undefined) { /* ignore */ }
     setTimeout(() => resolve({ shim: "no reply" }), 2000);
   });
-  window.__agenthostHasListener = () => listener !== null;
+  window.__osseoHasListener = () => listener !== null;
 })();`;
 
 const PAGE = `<!doctype html><meta charset="utf-8"><title>Page check</title>
@@ -108,8 +108,8 @@ async function main() {
     for (let i = 0; i < 30; i++) { if ((await ev("document.readyState + ':' + document.title").catch(() => "")) === "complete:Page check") break; await sleep(200); }
     // Run content.js in the page (main world; the shim stands in for chrome.runtime).
     await ev(contentSrc);
-    if (!(await ev("window.__agenthostHasListener()"))) { record("setup", "FAIL", "content.js did not register an onMessage listener"); return; }
-    const call = (msg) => ev(`window.__agenthostCall(${JSON.stringify({ agenthost: true, ...msg })})`);
+    if (!(await ev("window.__osseoHasListener()"))) { record("setup", "FAIL", "content.js did not register an onMessage listener"); return; }
+    const call = (msg) => ev(`window.__osseoCall(${JSON.stringify({ osseo: true, ...msg })})`);
 
     const snap = await call({ type: "snapshot", max: 50 });
     if (!snap || !snap.ok) { record("setup", "FAIL", "snapshot " + JSON.stringify(snap)); return; }

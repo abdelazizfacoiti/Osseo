@@ -3,21 +3,21 @@ import os from "node:os";
 import path from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { loadAgentHostConfig } from "@agenthost/core";
+import { loadOsseoConfig } from "@osseo/core";
 import { describe, expect, it } from "vitest";
-import { createAgentHostMcpServer } from "../server.js";
+import { createOsseoMcpServer } from "../server.js";
 import { DEFAULT_TOOL_NAMES, hiddenToolHint, listedTools } from "../tool-profile.js";
 import { readResource } from "../resources.js";
 
 const FOURTEEN = ["see", "click", "type", "key", "scroll", "drag", "open", "windows", "wait", "ask", "steps", "status", "guide.show", "guide.clear"];
 
-async function withServer(profile: string | undefined, run: (client: Client, home: string, server: Awaited<ReturnType<typeof createAgentHostMcpServer>>) => Promise<void>) {
-  const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-profile-"));
-  const env: NodeJS.ProcessEnv = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_OVERLAY_MODE: "disabled", AGENTHOST_CONFIG: path.join(home, "none.json") };
-  delete env.AGENTHOST_TOOLS_PROFILE;
-  if (profile !== undefined) env.AGENTHOST_TOOLS_PROFILE = profile;
-  const config = await loadAgentHostConfig({ env, homeDir: home });
-  const server = await createAgentHostMcpServer({ config });
+async function withServer(profile: string | undefined, run: (client: Client, home: string, server: Awaited<ReturnType<typeof createOsseoMcpServer>>) => Promise<void>) {
+  const home = mkdtempSync(path.join(os.tmpdir(), "osseo-profile-"));
+  const env: NodeJS.ProcessEnv = { ...process.env, OSSEO_HOME: home, OSSEO_OVERLAY_MODE: "disabled", OSSEO_CONFIG: path.join(home, "none.json") };
+  delete env.OSSEO_TOOLS_PROFILE;
+  if (profile !== undefined) env.OSSEO_TOOLS_PROFILE = profile;
+  const config = await loadOsseoConfig({ env, homeDir: home });
+  const server = await createOsseoMcpServer({ config });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "profile-test", version: "1" }, { capabilities: {} });
   await Promise.all([server.server.connect(a), client.connect(b)]);
@@ -32,13 +32,13 @@ async function withServer(profile: string | undefined, run: (client: Client, hom
 
 describe("config", () => {
   it("defaults to the desktop profile, reads the env override and rejects other values", async () => {
-    const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-profile-cfg-"));
+    const home = mkdtempSync(path.join(os.tmpdir(), "osseo-profile-cfg-"));
     try {
-      const base: NodeJS.ProcessEnv = { ...process.env, AGENTHOST_HOME: home, AGENTHOST_CONFIG: path.join(home, "none.json") };
-      delete base.AGENTHOST_TOOLS_PROFILE;
-      expect((await loadAgentHostConfig({ env: base, homeDir: home })).tools?.profile).toBe("desktop");
-      expect((await loadAgentHostConfig({ env: { ...base, AGENTHOST_TOOLS_PROFILE: "full" }, homeDir: home })).tools?.profile).toBe("full");
-      await expect(loadAgentHostConfig({ env: { ...base, AGENTHOST_TOOLS_PROFILE: "huge" }, homeDir: home })).rejects.toThrow();
+      const base: NodeJS.ProcessEnv = { ...process.env, OSSEO_HOME: home, OSSEO_CONFIG: path.join(home, "none.json") };
+      delete base.OSSEO_TOOLS_PROFILE;
+      expect((await loadOsseoConfig({ env: base, homeDir: home })).tools?.profile).toBe("desktop");
+      expect((await loadOsseoConfig({ env: { ...base, OSSEO_TOOLS_PROFILE: "full" }, homeDir: home })).tools?.profile).toBe("full");
+      await expect(loadOsseoConfig({ env: { ...base, OSSEO_TOOLS_PROFILE: "huge" }, homeDir: home })).rejects.toThrow();
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -94,14 +94,14 @@ describe("tool profiles", () => {
 
   it("the capability resources follow the profile", async () => {
     await withServer(undefined, async (_client, _home, server) => {
-      const json = JSON.parse((await readResource({ registry: server.context.registry, config: server.context.config }, "agenthost://capabilities")).text);
+      const json = JSON.parse((await readResource({ registry: server.context.registry, config: server.context.config }, "osseo://capabilities")).text);
       expect(json.toolCount).toBe(14);
-      const markdown = (await readResource({ registry: server.context.registry, config: server.context.config }, "agenthost://capabilities.md")).text;
+      const markdown = (await readResource({ registry: server.context.registry, config: server.context.config }, "osseo://capabilities.md")).text;
       expect(markdown).toContain("profile desktop");
       expect(markdown).toContain("see");
     });
     await withServer("full", async (_client, _home, server) => {
-      const json = JSON.parse((await readResource({ registry: server.context.registry, config: server.context.config }, "agenthost://capabilities")).text);
+      const json = JSON.parse((await readResource({ registry: server.context.registry, config: server.context.config }, "osseo://capabilities")).text);
       expect(json.toolCount).toBeGreaterThan(70);
     });
   });

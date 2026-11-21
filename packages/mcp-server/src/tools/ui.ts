@@ -9,10 +9,10 @@ import {
   type AccessibilityTreeResult,
   type ActionType,
   type ToolResult
-} from "@agenthost/core";
+} from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { safetyContext } from "../context.js";
 
 /*
@@ -65,7 +65,7 @@ const setTextInput = z.object({
 type Scope = { appName?: string | undefined; windowId?: string | undefined; pid?: number | undefined };
 
 /** Without an explicit app/window/pid, target the app that owns the active window. */
-async function resolveScope(input: Scope, context: AgentHostMcpContext): Promise<{ appName?: string; windowId?: string; pid?: number } | undefined> {
+async function resolveScope(input: Scope, context: OsseoMcpContext): Promise<{ appName?: string; windowId?: string; pid?: number } | undefined> {
   if (input.appName !== undefined || input.windowId !== undefined || input.pid !== undefined) {
     return {
       ...(input.appName === undefined ? {} : { appName: input.appName }),
@@ -78,7 +78,7 @@ async function resolveScope(input: Scope, context: AgentHostMcpContext): Promise
   return { pid: active.pid, ...(active.appName === undefined ? {} : { appName: active.appName }) };
 }
 
-function check(tool: string, actionType: ActionType, context: AgentHostMcpContext, appName: string | undefined, dataSensitivity?: "none" | "low" | "sensitive" | "secret") {
+function check(tool: string, actionType: ActionType, context: OsseoMcpContext, appName: string | undefined, dataSensitivity?: "none" | "low" | "sensitive" | "secret") {
   // The core engine allows high-risk *inspection* of credential apps, but an
   // accessibility tree of a password manager exposes entry names and fields,
   // so UI reads are blocked there just like UI writes.
@@ -110,8 +110,8 @@ function unsupported(tool: string, reason: string): ToolResult<never> {
   return toolFailure({ tool, riskLevel: "low", error: { code: "accessibility_unavailable", message: reason }, observations: ["Fall back to desktop.screenshot plus desktop.click for this app."] });
 }
 
-export function createUiTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const tree: AgentHostToolDefinition<z.infer<typeof treeInput>, AccessibilityTreeResult, AgentHostMcpContext> = {
+export function createUiTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const tree: OsseoToolDefinition<z.infer<typeof treeInput>, AccessibilityTreeResult, OsseoMcpContext> = {
     name: "ui.tree",
     description: "Reads the accessibility tree (roles, names, screen bounds, element ids) of an app or the active window. Prefer this over screenshots to understand UI structure; bounds are absolute screen coordinates usable by desktop.click.",
     riskLevel: "low",
@@ -130,7 +130,7 @@ export function createUiTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>
     }
   };
 
-  const find: AgentHostToolDefinition<z.infer<typeof findInput>, AccessibilityFindElementResult, AgentHostMcpContext> = {
+  const find: OsseoToolDefinition<z.infer<typeof findInput>, AccessibilityFindElementResult, OsseoMcpContext> = {
     name: "ui.find",
     description: "Finds UI elements by visible name/label (and optional role such as 'push button', 'entry', 'link') in an app or the active window. Returns element ids and screen bounds.",
     riskLevel: "low",
@@ -149,7 +149,7 @@ export function createUiTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>
     }
   };
 
-  const activate: AgentHostToolDefinition<z.infer<typeof activateInput>, AccessibilityInvokeActionResult, AgentHostMcpContext> = {
+  const activate: OsseoToolDefinition<z.infer<typeof activateInput>, AccessibilityInvokeActionResult, OsseoMcpContext> = {
     name: "ui.activate",
     description: "Invokes an accessibility action (default 'click'/'press'/'activate') on one element found by elementId or query. Works without moving the mouse and without exact coordinates.",
     riskLevel: "medium",
@@ -179,7 +179,7 @@ export function createUiTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>
     }
   };
 
-  const setText: AgentHostToolDefinition<z.infer<typeof setTextInput>, AccessibilitySetValueResult, AgentHostMcpContext> = {
+  const setText: OsseoToolDefinition<z.infer<typeof setTextInput>, AccessibilitySetValueResult, OsseoMcpContext> = {
     name: "ui.set_text",
     description: "Sets the text of an editable element (entry, text area, search box) through accessibility. Layout-independent, so punctuation and non-ASCII text are exact. Mark secrets with dataSensitivity.",
     riskLevel: "medium",

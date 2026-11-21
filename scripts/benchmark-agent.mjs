@@ -3,7 +3,7 @@
 /*
  * Repeatable agent-level overhead benchmark. Each sample enters the real MCP
  * runner (schema, policy, gates, preview, handler, audit) in an isolated
- * AGENTHOST_HOME with overlays disabled. The workload is non-destructive:
+ * OSSEO_HOME with overlays disabled. The workload is non-destructive:
  * observation, window listing, temporary file write/read, and a governed plan.
  */
 import { mkdtemp, rm } from "node:fs/promises";
@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 
-const ITERATIONS = Number.parseInt(process.env.AGENTHOST_BENCH_ITERATIONS ?? "7", 10);
+const ITERATIONS = Number.parseInt(process.env.OSSEO_BENCH_ITERATIONS ?? "7", 10);
 const WARMUP = 2;
 
 function percentile(values, fraction) {
@@ -28,14 +28,14 @@ function summarize(values) {
 }
 
 async function main() {
-  const home = await mkdtemp(path.join(os.tmpdir(), "agenthost-bench-"));
-  process.env.AGENTHOST_HOME = home;
+  const home = await mkdtemp(path.join(os.tmpdir(), "osseo-bench-"));
+  process.env.OSSEO_HOME = home;
   process.env.NODE_ENV = "test";
-  const { loadAgentHostConfig } = await import("../packages/core/dist/index.js");
-  const { createAgentHostMcpServer } = await import("../packages/mcp-server/dist/server.js");
+  const { loadOsseoConfig } = await import("../packages/core/dist/index.js");
+  const { createOsseoMcpServer } = await import("../packages/mcp-server/dist/server.js");
   const { runTool } = await import("../packages/mcp-server/dist/tool-runner.js");
-  const config = await loadAgentHostConfig();
-  const server = await createAgentHostMcpServer({
+  const config = await loadOsseoConfig();
+  const server = await createOsseoMcpServer({
     config: { ...config, overlay: { ...config.overlay, mode: "off" } },
     sessionId: "session_benchmark"
   });
@@ -80,7 +80,7 @@ async function main() {
     await rm(home, { recursive: true, force: true });
   }
 
-  console.log(`AgentHost runner benchmark (${ITERATIONS} iterations, isolated home, overlay off)`);
+  console.log(`Osseo runner benchmark (${ITERATIONS} iterations, isolated home, overlay off)`);
   console.table(rows.map((row) => ({
     tool: row.tool,
     median_ms: row.medianMs.toFixed(1),

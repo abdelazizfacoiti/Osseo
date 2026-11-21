@@ -48,7 +48,7 @@ describe.skipIf(!available)("nested display (real Xephyr, no window manager)", (
   const realPointer = () => execFileSync("xdotool", ["getmouselocation", "--shell"], { encoding: "utf8" }).split("\n").slice(0, 2).join(",");
 
   beforeAll(async () => {
-    home = await mkdtemp(path.join(os.tmpdir(), "agenthost-nested-"));
+    home = await mkdtemp(path.join(os.tmpdir(), "osseo-nested-"));
     out = path.join(home, "probe.txt");
     const started = await startBackgroundDisplay({ width: 800, height: 600, firstDisplay: 100 });
     if (!started.ok) throw new Error(started.reason);
@@ -63,7 +63,7 @@ describe.skipIf(!available)("nested display (real Xephyr, no window manager)", (
   });
 
   it("lists, focuses, inspects, screenshots, and drives an app without touching the real pointer", async () => {
-    const context = { agentHostDir: home, env: nested.env };
+    const context = { osseoDir: home, env: nested.env };
     const before = realPointer();
     const listed = await listLinuxWindows({ includeTitles: true }, context);
     expect(listed.supported).toBe(true);
@@ -92,7 +92,7 @@ describe.skipIf(!available)("nested display (real Xephyr, no window manager)", (
   }, 60_000);
 
   it("sets and reads the clipboard without hanging on xclip's background owner", async () => {
-    const context = { agentHostDir: home, env: nested.env };
+    const context = { osseoDir: home, env: nested.env };
     const started = Date.now();
     const set = await setLinuxClipboard("hello: world (1), \"quoted\"", context);
     expect(set.supported).toBe(true);

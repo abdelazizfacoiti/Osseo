@@ -1,11 +1,11 @@
 {
-  "name": "@agenthost/mcp-server",
+  "name": "@osseo/mcp-server",
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "agenthost-mcp": "./dist/index.js"
+    "osseo-mcp": "./dist/index.js"
   },
   "exports": {
     ".": {
@@ -18,10 +18,10 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@agenthost/app-overlay": "file:../app-overlay",
-    "@agenthost/core": "file:../core",
-    "@agenthost/os-linux": "file:../os-linux",
-    "@agenthost/os-windows": "file:../os-windows",
+    "@osseo/app-overlay": "file:../app-overlay",
+    "@osseo/core": "file:../core",
+    "@osseo/os-linux": "file:../os-linux",
+    "@osseo/os-windows": "file:../os-windows",
     "@modelcontextprotocol/sdk": "^1.13.0",
     "zod": "^3.25.76"
   }

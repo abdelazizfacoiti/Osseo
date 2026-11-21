@@ -3,7 +3,7 @@
 **Status: IMPLEMENTED 2026-11-18 (all five phases).** Results at the end of this file.
 
 Goal: any desktop app (a browser, a design tool, an API client, an editor) feels smooth to drive, without
-losing what makes AgentHost trustworthy: verified effects, approvals, Stop, audit. Measure before and after
+losing what makes Osseo trustworthy: verified effects, approvals, Stop, audit. Measure before and after
 with the same commands.
 
 ## Baseline (2026-11-18, this Linux machine, tool time only, model time excluded)
@@ -35,7 +35,7 @@ accessibility tree (screen text recognition), typing short text 2 to 4 s (clipbo
 - New `npm run benchmark:desktop-actions`: on a nested display, with a small test app, time 20 clicks, 20 keys,
   a 20-key sequence, 5 typed fields, `see` on an accessible window and `see` through text recognition. Report
   median and p90 per action and the share of each phase.
-- Use the existing `AGENTHOST_TRACE=1` phase traces (overlay, safety, preview, handler, settle, audit) to split
+- Use the existing `OSSEO_TRACE=1` phase traces (overlay, safety, preview, handler, settle, audit) to split
   each action's time. Output: a table of where the 1.45 s goes.
 - Decide the order of phases 1 to 5 from that table, not from guesses.
 
@@ -167,9 +167,9 @@ Codex computer use, so these are third-party or competitor claims. Treat as roug
 | Claude computer use | about 2.1 s per action in one blog; 5 to 10 s for an older model in another article | blogs, no method |
 | Claude Cowork | no figure found | |
 | Computer-use agents in general | model calls for planning and reflection dominate; later steps take up to 3x longer than early ones | OSWorld-Human, 16 agents |
-| AgentHost (tool time only) | 0.05 s `see` with an accessibility tree; 0.2 to 0.4 s `see` by OCR; 0.4 to 0.8 s per verified action; 0.07 s per key inside a sequence | this document |
+| Osseo (tool time only) | 0.05 s `see` with an accessibility tree; 0.2 to 0.4 s `see` by OCR; 0.4 to 0.8 s per verified action; 0.07 s per key inside a sequence | this document |
 
-Reading: a screenshot-and-vision step costs seconds before the action happens. AgentHost reads an accessibility
+Reading: a screenshot-and-vision step costs seconds before the action happens. Osseo reads an accessibility
 tree when the app has one (about 50 ms) and adds 0.4 to 0.8 s of verified action. Without a tree it falls back to
 OCR, the same class of cost others pay. Model time per step is the same for everyone. A proper comparison needs the
 same task run end to end with each agent, counting steps and wall time.

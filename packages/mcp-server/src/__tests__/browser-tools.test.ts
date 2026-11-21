@@ -3,16 +3,16 @@ import { pathToFileURL } from "node:url";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { acceptConfirmation, getDefaultPolicy, type AuditLogEntry } from "@agenthost/core";
-import { BrowserSession, findChromeExecutable, type BrowserAutomation, type BrowserElementInfo } from "@agenthost/os-linux";
-import type { AgentHostMcpContext } from "../context.js";
+import { acceptConfirmation, getDefaultPolicy, type AuditLogEntry } from "@osseo/core";
+import { BrowserSession, findChromeExecutable, type BrowserAutomation, type BrowserElementInfo } from "@osseo/os-linux";
+import type { OsseoMcpContext } from "../context.js";
 import { applyProductionExecutionMetadata } from "../tool-metadata.js";
 import { runTool } from "../tool-runner.js";
 import { createBrowserTools } from "../tools/browser.js";
 
 const directories: string[] = [];
 async function tempHome(): Promise<string> {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "agenthost-browser-tools-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "osseo-browser-tools-"));
   directories.push(directory);
   return directory;
 }
@@ -44,14 +44,14 @@ function fakeBrowser(options: { url?: string; elements?: Record<string, BrowserE
   return { browser, calls };
 }
 
-function context(home: string, browser: BrowserAutomation | undefined): AgentHostMcpContext {
+function context(home: string, browser: BrowserAutomation | undefined): OsseoMcpContext {
   return {
     sessionId: "browser-test",
-    config: { agentHostDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
+    config: { osseoDir: home, configPath: path.join(home, "config.json"), logFile: path.join(home, "logs", "audit.jsonl") },
     policy: getDefaultPolicy(),
     logger: { log: async (_entry: AuditLogEntry) => undefined },
     linux: browser === undefined ? {} : { browser }
-  } as unknown as AgentHostMcpContext;
+  } as unknown as OsseoMcpContext;
 }
 
 const element = (overrides: Partial<BrowserElementInfo>): BrowserElementInfo => ({ name: "Add one", role: "button", tag: "button", isSubmit: false, formHasPassword: false, formHasPayment: false, sensitiveField: false, ...overrides });
@@ -143,7 +143,7 @@ describe.skipIf(findChromeExecutable() === undefined)("browser tools end to end 
     await writeFile(page, `<!doctype html><title>Shop</title>
       <input placeholder="Search"><button onclick="document.title='added'">Add to list</button>
       <button onclick="document.title='ordered'">Place order</button>`);
-    const session = new BrowserSession({ agentHostDir: home });
+    const session = new BrowserSession({ osseoDir: home });
     const ctx = context(home, session);
     try {
       const opened = await runTool(tool("browser.open"), { url: pathToFileURL(page).toString(), headless: true }, ctx);

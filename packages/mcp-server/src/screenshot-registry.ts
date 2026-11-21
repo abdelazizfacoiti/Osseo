@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 
 /**
  * Screenshots an agent can click on. A desktop.screenshot returns an id; a later click may name
- * that id plus a point in the picture, and AgentHost maps the point to screen coordinates.
+ * that id plus a point in the picture, and Osseo maps the point to screen coordinates.
  *
  * The mapping is only valid while the picture still matches the screen: the reference window
  * (the active window when the picture was taken) must still be where it was. Entries expire, and

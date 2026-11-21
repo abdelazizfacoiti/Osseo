@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { findXephyr, startBackgroundDisplay } from "../background-display.js";
 import { captureDisplayFrame } from "../viewer-frames.js";
 
-const tmp = () => mkdtempSync(path.join(os.tmpdir(), "agenthost-frames-"));
+const tmp = () => mkdtempSync(path.join(os.tmpdir(), "osseo-frames-"));
 function fakeCommand(body: string): string {
   const file = path.join(tmp(), "fake-scrot");
   writeFileSync(file, `#!/bin/sh\n${body}\n`);

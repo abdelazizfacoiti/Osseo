@@ -1,12 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { readRunState, toolFailure, toolSuccess, type OverlayTargetBinding, type RunStateSnapshot, type ToolResult } from "@agenthost/core";
+import { readRunState, toolFailure, toolSuccess, type OverlayTargetBinding, type RunStateSnapshot, type ToolResult } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostMcpContext } from "../context.js";
+import type { OsseoMcpContext } from "../context.js";
 import { inputGuardPath } from "../input-guard.js";
 import { resolveLabelTarget } from "../label-target.js";
 import { imagePointToScreen, recallScreen } from "../screenshot-registry.js";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 
 /**
  * Guide mode: highlight boxes with a text label, drawn where the person should click. The agent
@@ -69,18 +69,18 @@ const DEFAULT_TTL_SECONDS = 600;
 type GuideState = { ids: string[]; until: number; stopWatch?: ReturnType<typeof setInterval> };
 type GuideWait = { controller: AbortController; reason?: "cleared" | "stopped" };
 
-const shown = new WeakMap<AgentHostMcpContext, GuideState>();
-const waits = new WeakMap<AgentHostMcpContext, GuideWait>();
+const shown = new WeakMap<OsseoMcpContext, GuideState>();
+const waits = new WeakMap<OsseoMcpContext, GuideWait>();
 
 const STOP_POLL_MS = 1000;
 const INJECTED_PRESS_WINDOW_MS = 1000;
 const DEFAULT_WAIT_SECONDS = 120;
 
 /** Test seam: how the stop flag is read. */
-export const guideHooks: { readRunState: (agentHostDir: string) => Promise<RunStateSnapshot> } = { readRunState };
+export const guideHooks: { readRunState: (osseoDir: string) => Promise<RunStateSnapshot> } = { readRunState };
 
-async function stopRequested(context: AgentHostMcpContext): Promise<boolean> {
-  const dir = context.config?.agentHostDir;
+async function stopRequested(context: OsseoMcpContext): Promise<boolean> {
+  const dir = context.config?.osseoDir;
   if (dir === undefined) return false;
   try {
     return (await guideHooks.readRunState(dir)).stop.requested;
@@ -90,17 +90,17 @@ async function stopRequested(context: AgentHostMcpContext): Promise<boolean> {
 }
 
 /** True while a guide is on screen and not expired. Marks over a window corrupt window-only captures. */
-export function guideActive(context: AgentHostMcpContext, now = Date.now()): boolean {
+export function guideActive(context: OsseoMcpContext, now = Date.now()): boolean {
   const state = shown.get(context);
   return state !== undefined && state.ids.length > 0 && now < state.until;
 }
 
-/** Whether a window-only capture may skip card suppression: no AgentHost mark may sit over the work area. */
-export function windowCaptureClean(context: AgentHostMcpContext): boolean {
+/** Whether a window-only capture may skip card suppression: no Osseo mark may sit over the work area. */
+export function windowCaptureClean(context: OsseoMcpContext): boolean {
   return (context.workWindowCaptureClean === true || context.captureCleanNow?.() === true) && !guideActive(context);
 }
 
-async function clearGuide(context: AgentHostMcpContext, reason: "cleared" | "stopped" = "cleared"): Promise<number> {
+async function clearGuide(context: OsseoMcpContext, reason: "cleared" | "stopped" = "cleared"): Promise<number> {
   const state = shown.get(context);
   shown.delete(context);
   if (state?.stopWatch !== undefined) clearInterval(state.stopWatch);
@@ -123,9 +123,9 @@ async function clearGuide(context: AgentHostMcpContext, reason: "cleared" | "sto
   return cleared;
 }
 
-/** Whether an injected input marker was touched recently, so a press now is AgentHost's own. */
-async function recentInjectedInput(context: AgentHostMcpContext): Promise<boolean> {
-  const dir = context.config?.agentHostDir;
+/** Whether an injected input marker was touched recently, so a press now is Osseo's own. */
+async function recentInjectedInput(context: OsseoMcpContext): Promise<boolean> {
+  const dir = context.config?.osseoDir;
   if (dir === undefined) return false;
   try {
     return Date.now() - (await stat(inputGuardPath(dir))).mtimeMs < INJECTED_PRESS_WINDOW_MS;
@@ -136,7 +136,7 @@ async function recentInjectedInput(context: AgentHostMcpContext): Promise<boolea
 
 type Placed = { ok: true; bounds: Bounds; source: "bounds" | "screenshot" | "label" } | { ok: false; code: string; message: string };
 
-async function placeStep(context: AgentHostMcpContext, step: Step, windowId: string, activeWindow: { windowId?: string; title?: string; appName?: string; pid?: number }, index: number): Promise<Placed> {
+async function placeStep(context: OsseoMcpContext, step: Step, windowId: string, activeWindow: { windowId?: string; title?: string; appName?: string; pid?: number }, index: number): Promise<Placed> {
   const which = `Step ${index + 1}`;
   if (step.bounds !== undefined) return { ok: true, bounds: { ...step.bounds }, source: "bounds" };
   if (step.screenshotId !== undefined) {
@@ -170,7 +170,7 @@ type PressOutcome =
   | { kind: "clicked"; index: number; x: number; y: number }
   | { kind: "timeout" | "unavailable" | "cleared" | "stopped" };
 
-async function waitForPress(context: AgentHostMcpContext, regions: Bounds[], timeoutMs: number, wait: GuideWait): Promise<PressOutcome> {
+async function waitForPress(context: OsseoMcpContext, regions: Bounds[], timeoutMs: number, wait: GuideWait): Promise<PressOutcome> {
   const watch = context.linux.waitForPointerPress;
   if (watch === undefined) return { kind: "unavailable" };
   const deadline = Date.now() + timeoutMs;
@@ -207,7 +207,7 @@ type TeachDraw = {
  * 1 s of an agent input). A press inside a box also moves on. The loop ends at Done, at the last box press,
  * on timeout, on guide.clear and on Stop.
  */
-async function teachLoop(context: AgentHostMcpContext, draw: TeachDraw, wait: GuideWait, timeoutMs: number): Promise<TeachOutcome> {
+async function teachLoop(context: OsseoMcpContext, draw: TeachDraw, wait: GuideWait, timeoutMs: number): Promise<TeachOutcome> {
   const overlay = context.overlay!;
   const deadline = Date.now() + timeoutMs;
   let current = 0;
@@ -283,8 +283,8 @@ async function teachLoop(context: AgentHostMcpContext, draw: TeachDraw, wait: Gu
   }
 }
 
-export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const show: AgentHostToolDefinition<ShowInput, unknown, AgentHostMcpContext> = {
+export function createGuideTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const show: OsseoToolDefinition<ShowInput, unknown, OsseoMcpContext> = {
     name: "guide.show",
     description: "Guide mode: draws a highlight box and a text label on each place the person should click. It never clicks; the person does. Use it when the person asks to be shown how, or when the app is sensitive or blocked for automation. Place each step by screen bounds, by a rectangle in a desktop.screenshot picture (screenshotId + imageX/imageY/imageWidth/imageHeight), or by the visible name of a control (label, optional role). Replaces any guide already shown. Screenshots taken by desktop.screenshot do not show the guide marks. For a step-by-step guide, show one step at a time with waitForClick: true. The call then waits until the person clicks inside the box and returns which step was clicked, so you stay in the same turn: wait about a second, take a new desktop.screenshot, and call guide.show again for the next place. Do not end your turn between steps. With several steps and waitForClick the person gets a Teach card (Step n of m, Back, Next/Done) beside the box and the call runs the whole walkthrough, ending at Done, at a click in the last box, on timeout, or on guide.clear; the result then has finished: true. If the wait times out, ask the person. Call guide.clear when done.",
     riskLevel: "low",
@@ -501,7 +501,7 @@ export function createGuideTools(): AnyAgentHostToolDefinition<AgentHostMcpConte
     }
   };
 
-  const clear: AgentHostToolDefinition<z.infer<typeof clearInput>, unknown, AgentHostMcpContext> = {
+  const clear: OsseoToolDefinition<z.infer<typeof clearInput>, unknown, OsseoMcpContext> = {
     name: "guide.clear",
     description: "Removes every mark guide.show drew in this session. Succeeds with cleared 0 when nothing is shown. It never clicks.",
     riskLevel: "low",

@@ -54,10 +54,10 @@ describe("portal flags and buttons", () => {
   });
 
   it("uses the portal only when it was requested on a Wayland session", () => {
-    expect(portalRequested({ AGENTHOST_WAYLAND_PORTAL: "1" })).toBe(true);
-    expect(portalRequested({ AGENTHOST_WAYLAND_PORTAL: "yes" })).toBe(false);
-    expect(shouldUseWaylandPortal({ AGENTHOST_WAYLAND_PORTAL: "1", XDG_SESSION_TYPE: "wayland" })).toBe(true);
-    expect(shouldUseWaylandPortal({ AGENTHOST_WAYLAND_PORTAL: "1", XDG_SESSION_TYPE: "x11" })).toBe(false);
+    expect(portalRequested({ OSSEO_WAYLAND_PORTAL: "1" })).toBe(true);
+    expect(portalRequested({ OSSEO_WAYLAND_PORTAL: "yes" })).toBe(false);
+    expect(shouldUseWaylandPortal({ OSSEO_WAYLAND_PORTAL: "1", XDG_SESSION_TYPE: "wayland" })).toBe(true);
+    expect(shouldUseWaylandPortal({ OSSEO_WAYLAND_PORTAL: "1", XDG_SESSION_TYPE: "x11" })).toBe(false);
     expect(shouldUseWaylandPortal({ XDG_SESSION_TYPE: "wayland" })).toBe(false);
   });
 });

@@ -1,8 +1,8 @@
-import type { CapabilityList, DependencyCheckResult, DependencyKind, SystemInfo, ToolResult } from "@agenthost/core";
-import { toolSuccess } from "@agenthost/core";
+import type { CapabilityList, DependencyCheckResult, DependencyKind, SystemInfo, ToolResult } from "@osseo/core";
+import { toolSuccess } from "@osseo/core";
 import { z } from "zod";
-import type { AgentHostToolDefinition, AnyAgentHostToolDefinition } from "../tool-runner.js";
-import type { AgentHostMcpContext } from "../context.js";
+import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
+import type { OsseoMcpContext } from "../context.js";
 
 const emptyInputSchema = z.object({}).strict();
 
@@ -23,10 +23,10 @@ const checkDependencyInputSchema = z
 
 type CheckDependencyInput = z.infer<typeof checkDependencyInputSchema>;
 
-export function createSystemTools(): AnyAgentHostToolDefinition<AgentHostMcpContext>[] {
-  const getInfo: AgentHostToolDefinition<EmptyInput, SystemInfo, AgentHostMcpContext> = {
+export function createSystemTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
+  const getInfo: OsseoToolDefinition<EmptyInput, SystemInfo, OsseoMcpContext> = {
     name: "system.get_info",
-    description: "Returns local system information and AgentHost runtime details.",
+    description: "Returns local system information and Osseo runtime details.",
     riskLevel: "observe",
     inputSchema: emptyInputSchema,
     mcpInputSchema: emptyMcpInputSchema,
@@ -51,13 +51,13 @@ export function createSystemTools(): AnyAgentHostToolDefinition<AgentHostMcpCont
     }
   };
 
-  const listCapabilities: AgentHostToolDefinition<EmptyInput, CapabilityList, AgentHostMcpContext> = {
+  const listCapabilities: OsseoToolDefinition<EmptyInput, CapabilityList, OsseoMcpContext> = {
     name: "system.list_capabilities",
-    description: "Lists AgentHost strategies, tools, and registered app capabilities.",
+    description: "Lists Osseo strategies, tools, and registered app capabilities.",
     riskLevel: "observe",
     inputSchema: emptyInputSchema,
     mcpInputSchema: emptyMcpInputSchema,
-    inputSummary: "List AgentHost capabilities",
+    inputSummary: "List Osseo capabilities",
     safety: {
       actionType: "observe"
     },
@@ -70,12 +70,12 @@ export function createSystemTools(): AnyAgentHostToolDefinition<AgentHostMcpCont
           tools: context.registry.listTools(),
           appCapabilities: context.registry.listAppCapabilities()
         },
-        observations: ["Returned registered AgentHost capabilities."]
+        observations: ["Returned registered Osseo capabilities."]
       });
     }
   };
 
-  const checkDependency: AgentHostToolDefinition<CheckDependencyInput, DependencyCheckResult, AgentHostMcpContext> = {
+  const checkDependency: OsseoToolDefinition<CheckDependencyInput, DependencyCheckResult, OsseoMcpContext> = {
     name: "system.check_dependency",
     description: "Checks whether a command or desktop app appears to be available.",
     riskLevel: "low",

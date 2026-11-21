@@ -59,7 +59,7 @@ CHECK_GLYPHS = {"done": "✓", "failed": "✕", "active": "●", "pending": "○
 TIMELINE_GLYPHS = {"done": "✓", "failed": "✕", "waiting": "!", "halted": "■", "running": "●"}
 TIMELINE_STYLE = {"done": "ah-success", "failed": "ah-failed", "waiting": "ah-warning", "halted": "ah-failed", "running": "ah-active"}
 TIMELINE_MAX_ROWS = 40
-TIMELINE_ID_PREFIX = "agenthost-timeline-"
+TIMELINE_ID_PREFIX = "osseo-timeline-"
 
 
 def is_timeline_id(overlay_id):
@@ -451,7 +451,7 @@ class Renderer:
         x, y, width, height = area
         window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
         window.set_decorated(False)
-        window.set_title("AgentHost Sidebar")
+        window.set_title("Osseo Sidebar")
         window.set_keep_above(True)
         window.set_skip_taskbar_hint(True)
         window.set_skip_pager_hint(True)
@@ -535,7 +535,7 @@ class Renderer:
         x, y, width, height = rects["collapsed"]
         window = Gtk.Window(type=Gtk.WindowType.TOPLEVEL)
         window.set_decorated(False)
-        window.set_title("AgentHost Rail")
+        window.set_title("Osseo Rail")
         window.set_keep_above(True)
         window.set_skip_taskbar_hint(True)
         window.set_skip_pager_hint(True)
@@ -785,7 +785,7 @@ class Renderer:
         # are ignored, so automation cannot pause or stop by accident.
         if event in CONTROL_EVENTS and (not pointer_activated() or self.agent_input_active()):
             return
-        # An XTEST click is synthetic even when AgentHost did not inject it (for
+        # An XTEST click is synthetic even when Osseo did not inject it (for
         # example `xdotool` run through the shell tool). Control buttons, and
         # approvals above all, must come from a real device.
         if event in CONTROL_EVENTS and synthetic_pointer_source() and not self.visual.get("allowSyntheticControl", False):
@@ -796,7 +796,7 @@ class Renderer:
 
     def agent_input_active(self):
         # A synthetic XTEST click from the agent is indistinguishable from a
-        # human one, so AgentHost marks its own input injection; a control
+        # human one, so Osseo marks its own input injection; a control
         # press during that window came from the agent, not the operator.
         if self.input_guard_path is None:
             return False
@@ -893,7 +893,7 @@ class Renderer:
     def new_popup(self, focus_required, click_through=False):
         window = Gtk.Window(type=Gtk.WindowType.POPUP)
         window.set_decorated(False)
-        window.set_title("AgentHost Overlay")
+        window.set_title("Osseo Overlay")
         window.set_keep_above(True)
         window.set_skip_taskbar_hint(True)
         window.set_accept_focus(focus_required)
@@ -1255,7 +1255,7 @@ class Renderer:
 
     def build_header(self, card, record):
         payload = record.get("payload") or {}
-        title_text = safe_text(payload.get("title") or payload.get("label") or "AgentHost", 200)
+        title_text = safe_text(payload.get("title") or payload.get("label") or "Osseo", 200)
         close_event = self.dismiss_event(record)
         semantic = self.semantic_style(record)
         signature = (title_text, close_event, semantic)

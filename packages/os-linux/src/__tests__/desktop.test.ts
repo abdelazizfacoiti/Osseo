@@ -31,7 +31,7 @@ describe("Linux desktop helpers", () => {
   });
 
   it("returns unsupported screenshots when no backend is installed", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-shot-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-shot-"));
 
     await expect(
       captureLinuxScreenshot(
@@ -156,7 +156,7 @@ describe("Linux desktop helpers", () => {
   });
 
   it("preserves caller-provided screenshot paths", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-path-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-path-"));
     const screenshotPath = path.join(dir, "screen.png");
     await writeFile(screenshotPath, "fake", "utf8");
 
@@ -186,7 +186,7 @@ describe("Linux desktop helpers", () => {
   });
 
   it("reports the previous window on focus and pastes text by default", async () => {
-    const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-bin-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-bin-"));
     // Emulates real xdotool: getactivewindow prints the wid on its own, while
     // getwindowpid/getwindowname print with an explicit wid. (Chained
     // `getactivewindow getwindowpid getwindowname` prints pid/title only.)
@@ -205,7 +205,7 @@ describe("Linux desktop helpers", () => {
   });
 
   it("refuses layout-unsafe typing without a clipboard backend", async () => {
-    const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-bin-clip-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-bin-clip-"));
     await writeFile(bin + "/xdotool", "#!/bin/sh\necho \"99999\"\nexit 0\n", "utf8");
     await chmod(bin + "/xdotool", 0o700);
     const result = await typeLinuxText(
@@ -217,7 +217,7 @@ describe("Linux desktop helpers", () => {
   });
 
   it("restores the clipboard after layout-safe paste", async () => {
-    const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-bin-restore-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-bin-restore-"));
     await writeFile(bin + "/xdotool", "#!/bin/sh\nif [ \"$1\" = \"getactivewindow\" ]; then echo 99999; fi\nexit 0\n", "utf8");
     await writeFile(bin + "/xclip", "#!/bin/sh\nSTATE=\"$(/usr/bin/dirname \"$0\")/clipboard\"\nif [ \"$3\" = \"-o\" ]; then /usr/bin/cat \"$STATE\"; else /usr/bin/cat > \"$STATE\"; fi\nexit 0\n", "utf8");
     await writeFile(bin + "/clipboard", "previous\n", "utf8");
@@ -233,7 +233,7 @@ describe("Linux desktop helpers", () => {
   });
 
   it("reads wid/pid/title from separate spawns and normalizes wmctrl hex ids", async () => {
-    const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-ids-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-ids-"));
     await writeFile(
       bin + "/xdotool",
       "#!/bin/sh\nSTATE=\"$(dirname \"$0\")/active-window\"\nif [ \"$1\" = \"getactivewindow\" ]; then\n  if [ -f \"$STATE\" ]; then cat \"$STATE\"; else echo \"77777\"; fi\n  exit 0\nfi\nif [ \"$1\" = \"windowactivate\" ]; then\n  shift\n  [ \"$1\" = \"--sync\" ] && shift\n  echo \"$1\" > \"$STATE\"\n  exit 0\nfi\nif [ \"$1\" = \"getwindowpid\" ]; then\n  echo \"4242\"\n  if [ \"$3\" = \"getwindowname\" ]; then\n    echo \"Some Title\"\n  fi\n  exit 0\nfi\nexit 0\n",
@@ -264,10 +264,10 @@ describe("Linux desktop helpers", () => {
   });
 
   it("creates screenshot output directories before capture", async () => {
-    const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-shot-bin-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-shot-bin-"));
     await writeFile(bin + "/scrot", "#!/bin/sh\nprintf 'png' > \"$1\"\n", "utf8");
     await chmod(bin + "/scrot", 0o700);
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-shot-parent-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-shot-parent-"));
     const outputPath = path.join(dir, "nested", "screen.png");
 
     await expect(
@@ -284,10 +284,10 @@ describe("Linux desktop helpers", () => {
   });
 
   it("does not treat a stale screenshot file as a successful capture", async () => {
-    const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-shot-fail-bin-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-shot-fail-bin-"));
     await writeFile(bin + "/scrot", "#!/bin/sh\nexit 1\n", "utf8");
     await chmod(bin + "/scrot", 0o700);
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-shot-fail-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-shot-fail-"));
     const outputPath = path.join(dir, "screen.png");
     await writeFile(outputPath, "stale", "utf8");
 
@@ -304,7 +304,7 @@ describe("Linux desktop helpers", () => {
   });
 
   it("reports focus failure when neither backend changes the active window", async () => {
-    const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-focus-fail-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-focus-fail-"));
     await writeFile(bin + "/xdotool", "#!/bin/sh\nif [ \"$1\" = \"getactivewindow\" ]; then echo \"99999\"; fi\nexit 0\n", "utf8");
     await writeFile(bin + "/wmctrl", "#!/bin/sh\nexit 0\n", "utf8");
     await chmod(bin + "/xdotool", 0o700);
@@ -324,7 +324,7 @@ describe("Linux desktop helpers", () => {
 
   it("caches desktop capability probes between repeated observations", async () => {
     clearDesktopCapabilitiesCache();
-    const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-cache-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-cache-"));
     const counter = path.join(bin, "python-count");
     await writeFile(
       bin + "/python3",
@@ -334,8 +334,8 @@ describe("Linux desktop helpers", () => {
     await chmod(bin + "/python3", 0o700);
     const env = { PATH: bin, DISPLAY: ":0", XDG_SESSION_TYPE: "x11" };
     // This counts python3 starts, so the long-lived accessibility worker (one extra start) is off for it.
-    const savedWorker = process.env.AGENTHOST_NO_PY_WORKER;
-    process.env.AGENTHOST_NO_PY_WORKER = "1";
+    const savedWorker = process.env.OSSEO_NO_PY_WORKER;
+    process.env.OSSEO_NO_PY_WORKER = "1";
     try {
       await getLinuxDesktopCapabilities({ env });
       await getLinuxDesktopCapabilities({ env });
@@ -345,11 +345,11 @@ describe("Linux desktop helpers", () => {
       await getLinuxDesktopCapabilities({ env });
       await expect(readFile(counter, "utf8")).resolves.toBe("x\nx\n");
     } finally {
-      if (savedWorker === undefined) delete process.env.AGENTHOST_NO_PY_WORKER; else process.env.AGENTHOST_NO_PY_WORKER = savedWorker;
+      if (savedWorker === undefined) delete process.env.OSSEO_NO_PY_WORKER; else process.env.OSSEO_NO_PY_WORKER = savedWorker;
     }
   });
   it("captures a scrot region natively and post-processes JPEG scale with ffmpeg", async () => {
-    const bin = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-shot-options-"));
+    const bin = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-shot-options-"));
     await writeFile(
       bin + "/scrot",
       "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/scrot-args\"\nfor last; do :; done\nprintf 'png' > \"$last\"\n",
@@ -388,7 +388,7 @@ describe("Linux desktop helpers", () => {
   });
 
   it("rejects incompatible screenshot capture options before invoking a backend", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-desktop-shot-invalid-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-desktop-shot-invalid-"));
     await expect(
       captureLinuxScreenshot(
         { path: path.join(dir, "screen.png"), includeActiveWindowOnly: true, region: { x: 0, y: 0, width: 10, height: 10 } },

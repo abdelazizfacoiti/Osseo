@@ -8,9 +8,9 @@ import {
   type PolicyAction,
   type PolicyClassification,
   type PolicyTarget
-} from "@agenthost/core";
-import type { AgentHostMcpContext } from "./context.js";
-import type { AnyAgentHostToolDefinition, ToolPreviewEffect } from "./tool-runner.js";
+} from "@osseo/core";
+import type { OsseoMcpContext } from "./context.js";
+import type { AnyOsseoToolDefinition, ToolPreviewEffect } from "./tool-runner.js";
 
 /**
  * Where policy.toml meets the tool runner.
@@ -54,10 +54,10 @@ function stringField(value: unknown, key: string): string | undefined {
 }
 
 async function resolveTarget(
-  tool: AnyAgentHostToolDefinition,
+  tool: AnyOsseoToolDefinition,
   input: unknown,
   effect: ToolPreviewEffect,
-  context: AgentHostMcpContext
+  context: OsseoMcpContext
 ): Promise<{ target: PolicyTarget; url: string | undefined; safetyInput: Record<string, unknown> }> {
   let safetyInput: Record<string, unknown> = {};
   try {
@@ -88,10 +88,10 @@ async function resolveTarget(
 }
 
 export async function applyFilePolicy(
-  tool: AnyAgentHostToolDefinition,
+  tool: AnyOsseoToolDefinition,
   input: unknown,
   effect: ToolPreviewEffect,
-  context: AgentHostMcpContext
+  context: OsseoMcpContext
 ): Promise<PolicyGateResult> {
   const family = tool.name.split(".", 1)[0] ?? "";
   if (EXEMPT_FAMILIES.has(family)) return { effect, source: "classifier", allowedByRule: false };
@@ -123,7 +123,7 @@ export async function applyFilePolicy(
     actionType: tool.safety.actionType,
     ...(effect.summary === undefined ? {} : { summary: effect.summary })
   };
-  const loaded = await loadPolicy(context.config.agentHostDir);
+  const loaded = await loadPolicy(context.config.osseoDir);
   const outcome = decidePolicy(loaded.rules, { tool: tool.name, input, target, classification });
   const source = auditPolicySource(outcome);
   const policyTarget: ConfirmationPolicyTarget = {

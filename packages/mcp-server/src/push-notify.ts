@@ -1,16 +1,16 @@
 /*
  * Optional push notification: one generic POST to a URL the operator chose
- * (for example a private ntfy.sh topic). It says only that AgentHost is waiting.
+ * (for example a private ntfy.sh topic). It says only that Osseo is waiting.
  * It carries no preview, app name, task text, or token, because that URL belongs
  * to a third party. It cannot approve anything: approval stays at the computer,
- * behind the real-pointer check, and AgentHost opens no listener.
+ * behind the real-pointer check, and Osseo opens no listener.
  */
 
 const MIN_INTERVAL_MS = 30_000;
 
 export const PUSH_MESSAGES = {
-  approval: "AgentHost is waiting for your approval at the computer.",
-  handoff: "AgentHost needs you at the computer."
+  approval: "Osseo is waiting for your approval at the computer.",
+  handoff: "Osseo needs you at the computer."
 } as const;
 
 export function isValidPushUrl(value: string): boolean {

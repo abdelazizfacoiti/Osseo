@@ -17,7 +17,7 @@
       "path": "./packages/mcp-server"
     },
     {
-      "path": "./packages/agenthost-cli"
+      "path": "./packages/osseo-cli"
     }
   ]
 }

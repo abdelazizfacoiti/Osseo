@@ -8,13 +8,13 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "@agenthost/core": [
+      "@osseo/core": [
         "packages/core/src/index.ts"
       ],
-      "@agenthost/os-linux": [
+      "@osseo/os-linux": [
         "packages/os-linux/src/index.ts"
       ],
-      "@agenthost/app-overlay": [
+      "@osseo/app-overlay": [
         "packages/app-overlay/src/index.ts"
       ]
     },

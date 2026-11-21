@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ToolResult } from "@agenthost/core";
+import type { ToolResult } from "@osseo/core";
 import { renderResultText, type StateHolder } from "../lean-output.js";
 
 function result(overrides: Record<string, unknown> = {}): ToolResult & { serverVersion: string; serverPath: string } {
@@ -11,7 +11,7 @@ function result(overrides: Record<string, unknown> = {}): ToolResult & { serverV
     data: { clicked: true, activeWindow: null },
     observations: ["Clicked."],
     serverVersion: "0.1.0",
-    serverPath: "/home/someone/agenthost/dist/index.js",
+    serverPath: "/home/someone/osseo/dist/index.js",
     ...overrides
   } as unknown as ToolResult & { serverVersion: string; serverPath: string };
 }
@@ -35,7 +35,7 @@ describe("renderResultText (lean)", () => {
 
   it("keeps provenance on the tools that answer about the server", () => {
     const status = JSON.parse(renderResultText(result({ tool: "agent.status" }), "lean", {}));
-    expect(status.serverPath).toBe("/home/someone/agenthost/dist/index.js");
+    expect(status.serverPath).toBe("/home/someone/osseo/dist/index.js");
     const info = JSON.parse(renderResultText(result({ tool: "system.get_info" }), "lean", {}));
     expect(info.serverVersion).toBe("0.1.0");
   });

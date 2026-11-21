@@ -12,7 +12,7 @@
  *
  * One step needs you: when it prints "CLICK STOP", click the Stop button with the mouse, not the keyboard.
  * Nothing else is clicked except the synthetic click it is testing, and that one should be refused.
- * Set AGENTHOST_WINDOWS_OVERLAY=1 only in the real server; this script starts the renderer itself.
+ * Set OSSEO_WINDOWS_OVERLAY=1 only in the real server; this script starts the renderer itself.
  */
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
@@ -42,17 +42,17 @@ if (!existsSync(APP_OVERLAY) || !existsSync(OS_WINDOWS)) {
 const { WindowsOverlayRenderer } = await import(pathToFileURL(APP_OVERLAY).href);
 const { createWindowsDesktop, WindowsHelperProcess } = await import(pathToFileURL(OS_WINDOWS).href);
 
-const home = mkdtempSync(path.join(os.tmpdir(), "agenthost-win-overlay-"));
-const renderer = new WindowsOverlayRenderer({ agentHostDir: home, sessionId: "w3-check" });
-const helper = new WindowsHelperProcess({ agentHostDir: home });
+const home = mkdtempSync(path.join(os.tmpdir(), "osseo-win-overlay-"));
+const renderer = new WindowsOverlayRenderer({ osseoDir: home, sessionId: "w3-check" });
+const helper = new WindowsHelperProcess({ osseoDir: home });
 const desktop = createWindowsDesktop(helper);
 const CARD = "w3-check-card";
-const CARD_TITLE = "AgentHost overlay";
+const CARD_TITLE = "Osseo overlay";
 const card = {
   overlayId: CARD,
   type: "widget",
   payload: {
-    title: "AgentHost W3 check",
+    title: "Osseo W3 check",
     components: [
       { type: "text", text: "Click Stop with the mouse. A synthetic click must do nothing." },
       { type: "button", label: "Pause", event: "pause" },
@@ -64,7 +64,7 @@ const card = {
   }
 };
 
-// Another AgentHost process (the MCP server of a running session) draws cards with the same title. Only a window
+// Another Osseo process (the MCP server of a running session) draws cards with the same title. Only a window
 // that appeared after this run's snapshot is this run's card.
 let titledBefore = null;
 async function cardWindow() {
@@ -84,7 +84,7 @@ function treeLines(node, depth = 0, out = []) {
 try {
   const started = Date.now();
   titledBefore = new Set((await desktop.listWindows({ limit: 200, includeTitles: true })).windows.filter((window) => window.title === CARD_TITLE).map((window) => window.windowId));
-  if (titledBefore.size > 0) record("NOTE", "AgentHost cards from another process are ignored by this check", `${titledBefore.size} window(s)`);
+  if (titledBefore.size > 0) record("NOTE", "Osseo cards from another process are ignored by this check", `${titledBefore.size} window(s)`);
   // warmup() starts the process in the background and returns at once, so wait here until the start settles.
   await renderer.warmup();
   let report = await renderer.capabilities();
@@ -99,7 +99,7 @@ try {
   check("the test card is shown", shown.ok === true && (shown.visibleWindowCount ?? 0) >= 1, shown.reason);
 
   const window = await cardWindow();
-  check("the card window is in the window list", window !== undefined, "no window titled AgentHost overlay");
+  check("the card window is in the window list", window !== undefined, "no window titled Osseo overlay");
   if (window !== undefined) {
     const stop = await desktop.findAccessibilityElement({ windowId: window.windowId, query: "Stop", role: "push button" });
     const stopHit = stop.candidates?.find((candidate) => candidate.name === "Stop" && candidate.bounds !== undefined);

@@ -176,7 +176,7 @@ describe("install script", () => {
   it("writes inside the home folder with --apply", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "ah-ext-"));
     execFileSync("node", [script, "--browser", "chromium", "--extension-id", "a".repeat(32), "--apply"], { env: { ...process.env, HOME: home }, encoding: "utf8" });
-    const file = path.join(home, ".config/chromium/NativeMessagingHosts/dev.agenthost.browser.json");
+    const file = path.join(home, ".config/chromium/NativeMessagingHosts/dev.osseo.browser.json");
     const written = JSON.parse(fs.readFileSync(file, "utf8"));
     expect(written.allowed_origins).toEqual([`chrome-extension://${"a".repeat(32)}/`]);
     expect(written.path).not.toContain("__HOST_PATH__");

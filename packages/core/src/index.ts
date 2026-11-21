@@ -21,6 +21,7 @@ export * from "./vision.js";
 export * from "./overlay.js";
 export * from "./visual-surface.js";
 export * from "./action-policy.js";
+export * from "./legacy.js";
 export * from "./release.js";
 export * from "./saved-workflows.js";
 export * from "./memory.js";

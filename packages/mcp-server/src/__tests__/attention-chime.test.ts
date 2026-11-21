@@ -6,7 +6,7 @@ import { AttentionChime, attentionSoundEnabled, chimeWav, playerCommand } from "
 
 const dirs: string[] = [];
 afterEach(async () => { await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true }))); });
-const home = async () => { const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-chime-")); dirs.push(dir); return dir; };
+const home = async () => { const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-chime-")); dirs.push(dir); return dir; };
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 describe("attention chime", () => {
@@ -35,7 +35,7 @@ describe("attention chime", () => {
   it("repeats while the person is awaited and stops once answered", async () => {
     let waiting = true;
     const played: string[] = [];
-    const chime = new AttentionChime({ agentHostDir: await home(), intervalMs: 30, play: (file) => played.push(file) });
+    const chime = new AttentionChime({ osseoDir: await home(), intervalMs: 30, play: (file) => played.push(file) });
     chime.start(async () => waiting);
     await sleep(120);
     expect(played.length).toBeGreaterThanOrEqual(2);
@@ -51,28 +51,28 @@ describe("attention chime", () => {
   it("stops at the time cap, on stop(), and does nothing when turned off", async () => {
     let clock = 0;
     const played: string[] = [];
-    const capped = new AttentionChime({ agentHostDir: await home(), intervalMs: 20, maxMs: 50, now: () => clock, play: (file) => played.push(file) });
+    const capped = new AttentionChime({ osseoDir: await home(), intervalMs: 20, maxMs: 50, now: () => clock, play: (file) => played.push(file) });
     capped.start(async () => true);
     await sleep(40);
     clock = 100;
     await sleep(60);
     expect(capped.active).toBe(false);
 
-    const stopped = new AttentionChime({ agentHostDir: await home(), intervalMs: 20, play: (file) => played.push(file) });
+    const stopped = new AttentionChime({ osseoDir: await home(), intervalMs: 20, play: (file) => played.push(file) });
     stopped.start(async () => true);
     stopped.stop();
     expect(stopped.active).toBe(false);
 
     const off: string[] = [];
-    const disabled = new AttentionChime({ agentHostDir: await home(), enabled: false, intervalMs: 10, play: (file) => off.push(file) });
+    const disabled = new AttentionChime({ osseoDir: await home(), enabled: false, intervalMs: 10, play: (file) => off.push(file) });
     disabled.start(async () => true);
     await sleep(40);
     expect(off).toHaveLength(0);
   });
 
-  it("is on by default and turned off by config or AGENTHOST_ATTENTION_SOUND=0", () => {
+  it("is on by default and turned off by config or OSSEO_ATTENTION_SOUND=0", () => {
     expect(attentionSoundEnabled({}, {})).toBe(true);
     expect(attentionSoundEnabled({ attention: { sound: false } }, {})).toBe(false);
-    expect(attentionSoundEnabled({}, { AGENTHOST_ATTENTION_SOUND: "0" })).toBe(false);
+    expect(attentionSoundEnabled({}, { OSSEO_ATTENTION_SOUND: "0" })).toBe(false);
   });
 });

@@ -10,7 +10,7 @@ function entry(over: Partial<FailureEntry> = {}): FailureEntry {
 
 describe("development failure log", () => {
   it("sits next to the audit log", () => {
-    expect(failureLogPath("/home/u/.agenthost/logs/agenthost.jsonl")).toBe("/home/u/.agenthost/logs/failures.jsonl");
+    expect(failureLogPath("/home/u/.osseo/logs/osseo.jsonl")).toBe("/home/u/.osseo/logs/failures.jsonl");
   });
 
   it("skips results that are the safety model working", () => {
@@ -31,7 +31,7 @@ describe("development failure log", () => {
   });
 
   it("appends lines with private permissions and reads them back, skipping torn lines", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-failures-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-failures-"));
     const file = path.join(dir, "logs", "failures.jsonl");
     const log = new JsonlFailureLog(file);
     await log.record(entry());
@@ -46,7 +46,7 @@ describe("development failure log", () => {
   });
 
   it("rotates to one older file when the log is large", async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), "agenthost-failures-"));
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-failures-"));
     const file = path.join(dir, "failures.jsonl");
     const log = new JsonlFailureLog(file, 200);
     for (let i = 0; i < 6; i += 1) await log.record(entry({ sessionId: `s${i}` }));
