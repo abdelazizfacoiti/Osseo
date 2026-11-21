@@ -5,7 +5,7 @@ import type { OsseoMcpContext } from "../context.js";
 import { safetyContext } from "../context.js";
 import { callGoverned } from "../nested.js";
 import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
-import { rememberView, type Box, type SeenView, type ViewTarget } from "../view-registry.js";
+import { rememberView, setPicture, type Box, type SeenView, type ViewTarget } from "../view-registry.js";
 import { drawMarks, MAX_MARKS, type PictureMark } from "./see-marks.js";
 import { findScreenTextMatches } from "./vision.js";
 
@@ -389,6 +389,7 @@ export function createSeeTool(): AnyOsseoToolDefinition<OsseoMcpContext> {
       let shown: "none" | "plain" | "marked" = "none";
       if (mode !== "none") {
         picture = await takePicture(context, source, window);
+        if (picture !== undefined && picture.scale !== undefined && picture.origin !== undefined && source !== "dom") setPicture(view.id, { scale: picture.scale, origin: picture.origin });
         if (picture === undefined) {
           observations.push("The picture could not be taken.");
         } else {
@@ -435,6 +436,8 @@ export function createSeeTool(): AnyOsseoToolDefinition<OsseoMcpContext> {
           count: elements.length,
           truncated,
           picture: shown,
+          // How picture pixels map to the screen (screen = origin + pixel / scale); x,y in click, scroll and drag use it.
+          ...(picture?.scale !== undefined && picture.origin !== undefined && source !== "dom" ? { pictureMap: { scale: picture.scale, origin: picture.origin } } : {}),
           list: lines.join("\n"),
           ...(picture === undefined ? {} : { inlineImage: { data: picture.data, mimeType: picture.mimeType } })
         },

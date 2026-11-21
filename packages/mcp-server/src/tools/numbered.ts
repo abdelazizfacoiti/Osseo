@@ -5,6 +5,7 @@ import { callGoverned } from "../nested.js";
 import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { recordNumbered } from "../journal.js";
 import { observeStructure } from "../see-diff.js";
+import { sameBounds } from "../screenshot-registry.js";
 import { lookupTarget, viewForWindow, type SeenView, type TargetLookup, type ViewTarget } from "../view-registry.js";
 import { browserIsTarget, currentWindowBounds } from "./see.js";
 
@@ -106,6 +107,30 @@ async function activeWindowFor(context: OsseoMcpContext): Promise<{ windowId?: s
   return active.title === undefined ? undefined : { title: active.title };
 }
 
+/**
+ * The agent reads positions off the picture `see` returned, which is smaller than the window and cropped to it.
+ * So `x`,`y` are pixels of the newest picture of the active window: screen = origin + pixel / scale. With
+ * `space: "screen"`, or when no picture of that window exists, they are screen pixels as given. A picture of a window
+ * that has moved or resized since is refused, because a position read from it would land somewhere else.
+ */
+async function toScreenPoint(context: OsseoMcpContext, windowId: string | undefined, x: number, y: number, space: "picture" | "screen" | undefined): Promise<{ ok: true; x: number; y: number; note?: string } | { ok: false; message: string }> {
+  if (space === "screen" || windowId === undefined) return { ok: true, x, y };
+  const view = viewForWindow(windowId);
+  const picture = view?.picture;
+  if (view === undefined || picture === undefined) return { ok: true, x, y };
+  const now = await currentWindowBounds(context, windowId);
+  if (view.windowBounds === undefined || now === undefined || !sameBounds(view.windowBounds, now)) {
+    return { ok: false, message: "The window moved or resized since the last picture, so a position read from it would land elsewhere. Call see again (or pass space: \"screen\" for screen pixels)." };
+  }
+  const sx = Math.round(picture.origin.x + x / picture.scale);
+  const sy = Math.round(picture.origin.y + y / picture.scale);
+  return { ok: true, x: sx, y: sy, note: `Position (${x}, ${y}) is a pixel of the picture from see; clicked at screen (${sx}, ${sy}).` };
+}
+
+function withNote(result: ToolResult, note: string | undefined): ToolResult {
+  return note === undefined || !result.ok ? result : { ...result, observations: [...result.observations, note] };
+}
+
 function define<I extends { dryRun?: boolean | undefined; confirmationToken?: string | undefined }>(spec: {
   name: string;
   description: string;
@@ -136,11 +161,14 @@ function define<I extends { dryRun?: boolean | undefined; confirmationToken?: st
   return tool as AnyOsseoToolDefinition<OsseoMcpContext>;
 }
 
+const spaceSchema = z.enum(["picture", "screen"]).optional();
+
 const clickInput = z.object({
   n: z.number().int().min(1).optional(),
   view: z.string().trim().min(1).max(64).optional(),
   x: z.number().int().min(0).optional(),
   y: z.number().int().min(0).optional(),
+  space: spaceSchema,
   button: z.enum(["left", "middle", "right"]).optional(),
   double: z.boolean().optional(),
   ...exec
@@ -176,6 +204,7 @@ const scrollInput = z.object({
   view: z.string().trim().min(1).max(64).optional(),
   x: z.number().int().min(0).optional(),
   y: z.number().int().min(0).optional(),
+  space: spaceSchema,
   direction: z.enum(["up", "down", "left", "right"]),
   amount: z.number().int().min(1).max(20).optional(),
   ...exec
@@ -192,6 +221,7 @@ const dragInput = z.object({
   toN: z.number().int().min(1).optional(),
   toX: z.number().int().min(0).optional(),
   toY: z.number().int().min(0).optional(),
+  space: spaceSchema,
   ...exec
 }).strict().superRefine((input, ctx) => {
   const from = input.fromN !== undefined ? input.fromX === undefined && input.fromY === undefined : input.fromX !== undefined && input.fromY !== undefined;
@@ -247,10 +277,10 @@ async function textPresent(context: OsseoMcpContext, text: string): Promise<bool
 export function createNumberedTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] {
   const click = define({
     name: "click",
-    description: "Clicks element n from see (or x,y). double and button right/middle are supported. Pass dryRun or confirmationToken as for any action.",
+    description: "Clicks element n from see, or the pixel x,y of the picture see returned (space: \"screen\" for raw screen pixels). double and button right/middle are supported. Pass dryRun or confirmationToken as for any action.",
     riskLevel: "medium",
     schema: clickInput,
-    properties: { ...viewMcp, x: { type: "integer", minimum: 0 }, y: { type: "integer", minimum: 0 }, button: { type: "string", enum: ["left", "middle", "right"] }, double: { type: "boolean" } },
+    properties: { ...viewMcp, x: { type: "integer", minimum: 0, description: "Pixel in the latest see picture." }, y: { type: "integer", minimum: 0 }, space: { type: "string", enum: ["picture", "screen"], description: "What x,y mean: picture (default when a see picture exists) or screen." }, button: { type: "string", enum: ["left", "middle", "right"] }, double: { type: "boolean" } },
     summary: "Click",
     async handler(input, context) {
       const pass = passArgs(input);
@@ -259,10 +289,12 @@ export function createNumberedTools(): AnyOsseoToolDefinition<OsseoMcpContext>[]
         const window = await activeWindowFor(context);
         if (window === undefined) return fail("click", "active_window_unavailable", "No active window to click in.");
         const basis = { windowId: window.windowId };
+        const at = await toScreenPoint(context, window.windowId, input.x!, input.y!, input.space);
+        if (!at.ok) return fail("click", "view_stale", at.message);
         if (input.double === true || wantsRight) {
-          return settle("click", await callGoverned(context, "desktop.pointer", { action: input.double === true ? "double_click" : "right_click", x: input.x, y: input.y, activeWindow: window, ...pass }), context, basis);
+          return withNote(await settle("click", await callGoverned(context, "desktop.pointer", { action: input.double === true ? "double_click" : "right_click", x: at.x, y: at.y, activeWindow: window, ...pass }), context, basis), at.note);
         }
-        return settle("click", await callGoverned(context, "desktop.click", { x: input.x, y: input.y, ...(input.button === undefined ? {} : { button: input.button }), activeWindow: window, ...pass }), context, basis);
+        return withNote(await settle("click", await callGoverned(context, "desktop.click", { x: at.x, y: at.y, ...(input.button === undefined ? {} : { button: input.button }), activeWindow: window, ...pass }), context, basis), at.note);
       }
       const found = await resolve(context, { view: input.view, n: input.n });
       if (!found.ok) return refuse("click", found);
@@ -349,7 +381,7 @@ export function createNumberedTools(): AnyOsseoToolDefinition<OsseoMcpContext>[]
     description: "Scrolls up, down, left or right over element n from see, over x,y, or at the pointer.",
     riskLevel: "medium",
     schema: scrollInput,
-    properties: { ...viewMcp, x: { type: "integer", minimum: 0 }, y: { type: "integer", minimum: 0 }, direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: { type: "integer", minimum: 1, maximum: 20 } },
+    properties: { ...viewMcp, x: { type: "integer", minimum: 0 }, y: { type: "integer", minimum: 0 }, space: { type: "string", enum: ["picture", "screen"] }, direction: { type: "string", enum: ["up", "down", "left", "right"] }, amount: { type: "integer", minimum: 1, maximum: 20 } },
     required: ["direction"],
     summary: "Scroll",
     async handler(input, context) {
@@ -362,7 +394,9 @@ export function createNumberedTools(): AnyOsseoToolDefinition<OsseoMcpContext>[]
       }
       const window = await activeWindowFor(context);
       if (window === undefined) return fail("scroll", "active_window_unavailable", "No active window to scroll.");
-      return settle("scroll", await callGoverned(context, "desktop.pointer", { ...base, ...(input.x === undefined ? {} : { x: input.x, y: input.y }), activeWindow: window }), context, { windowId: window.windowId }, false);
+      const at = input.x === undefined ? undefined : await toScreenPoint(context, window.windowId, input.x, input.y!, input.space);
+      if (at !== undefined && !at.ok) return fail("scroll", "view_stale", at.message);
+      return settle("scroll", await callGoverned(context, "desktop.pointer", { ...base, ...(at === undefined ? {} : { x: at.x, y: at.y }), activeWindow: window }), context, { windowId: window.windowId }, false);
     }
   });
 
@@ -371,13 +405,17 @@ export function createNumberedTools(): AnyOsseoToolDefinition<OsseoMcpContext>[]
     description: "Drags from element fromN (or fromX,fromY) to element toN (or toX,toY).",
     riskLevel: "medium",
     schema: dragInput,
-    properties: { view: viewMcp.view, fromN: { type: "integer", minimum: 1 }, fromX: { type: "integer", minimum: 0 }, fromY: { type: "integer", minimum: 0 }, toN: { type: "integer", minimum: 1 }, toX: { type: "integer", minimum: 0 }, toY: { type: "integer", minimum: 0 } },
+    properties: { view: viewMcp.view, fromN: { type: "integer", minimum: 1 }, fromX: { type: "integer", minimum: 0 }, fromY: { type: "integer", minimum: 0 }, toN: { type: "integer", minimum: 1 }, toX: { type: "integer", minimum: 0 }, toY: { type: "integer", minimum: 0 }, space: { type: "string", enum: ["picture", "screen"] } },
     summary: "Drag",
     async handler(input, context) {
       let windowId: string | undefined;
       let seenView: SeenView | undefined;
+      const activeNow = await activeWindowFor(context);
       const point = async (n: number | undefined, x: number | undefined, y: number | undefined): Promise<{ x: number; y: number } | ToolResult> => {
-        if (n === undefined) return { x: x!, y: y! };
+        if (n === undefined) {
+          const at = await toScreenPoint(context, activeNow?.windowId, x!, y!, input.space);
+          return at.ok ? { x: at.x, y: at.y } : fail("drag", "view_stale", at.message);
+        }
         const found = await resolve(context, { view: input.view, n });
         if (!found.ok) return refuse("drag", found);
         if (found.target.kind === "dom") return fail("drag", "unsupported_for_browser", "Browser elements cannot be dragged by number.");

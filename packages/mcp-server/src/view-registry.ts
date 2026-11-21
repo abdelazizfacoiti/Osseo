@@ -24,6 +24,8 @@ export interface SeenView {
   targets: Map<number, ViewTarget>;
   /** The numbered lines the model saw (accessibility views only), updated after each action. */
   outline?: string[];
+  /** How the picture `see` returned maps to the screen: screen = origin + picture pixel / scale. */
+  picture?: { scale: number; origin: { x: number; y: number } };
   /** The filter and max `see` used, so a later read lists the same things. */
   filter?: string;
   max?: number;
@@ -106,6 +108,12 @@ export function lookupTarget(
     }
     return { ok: true, view, target };
   })();
+}
+
+/** Records how the picture shown with a view maps to the screen. */
+export function setPicture(viewId: string, picture: { scale: number; origin: { x: number; y: number } }): void {
+  const view = views.get(viewId);
+  if (view !== undefined) view.picture = picture;
 }
 
 /** The newest view of one window, if it is still alive. */

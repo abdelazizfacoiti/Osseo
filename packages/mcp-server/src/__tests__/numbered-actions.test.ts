@@ -11,7 +11,7 @@ vi.mock("../nested.js", () => ({
 }));
 
 import { createNumberedTools } from "../tools/numbered.js";
-import { forgetViews, rememberView, type Box, type ViewTarget } from "../view-registry.js";
+import { forgetViews, rememberView, setPicture, type Box, type ViewTarget } from "../view-registry.js";
 
 type Tool = { name: string; delegatesExecutionArgs?: boolean; inputSchema: { safeParse(v: unknown): { success: boolean; data?: any } }; handler(input: unknown, context: OsseoMcpContext): Promise<any> };
 const tools = new Map((createNumberedTools() as unknown as Tool[]).map((tool) => [tool.name, tool]));
@@ -51,6 +51,45 @@ describe("the tools hand dryRun and confirmationToken to the nested call", () =>
   it("all are delegating tools whose schemas accept both", () => {
     for (const tool of tools.values()) expect(tool.delegatesExecutionArgs).toBe(true);
     expect(tools.size).toBe(11);
+  });
+});
+
+describe("x,y are pixels of the picture see returned", () => {
+  // The picture is half size and starts at the window's corner (100, 50), like a downscaled window capture.
+  const withPicture = () => { const view = seen([[1, screen()]]); setPicture(view.id, { scale: 0.5, origin: { x: 100, y: 50 } }); return view; };
+
+  it("click maps a picture pixel to the screen: origin + pixel / scale", async () => {
+    withPicture();
+    const result = await call("click", { x: 100, y: 40 });
+    expect(calls.at(-1)).toMatchObject({ name: "desktop.click", input: { x: 300, y: 130 } });
+    expect(result.observations.join(" ")).toContain("picture from see; clicked at screen (300, 130)");
+  });
+
+  it("space: screen keeps the numbers as screen pixels", async () => {
+    withPicture();
+    await call("click", { x: 100, y: 40, space: "screen" });
+    expect(calls.at(-1)).toMatchObject({ name: "desktop.click", input: { x: 100, y: 40 } });
+  });
+
+  it("without a picture the numbers are screen pixels, as before", async () => {
+    seen([[1, screen()]]);
+    await call("click", { x: 100, y: 40 });
+    expect(calls.at(-1)).toMatchObject({ name: "desktop.click", input: { x: 100, y: 40 } });
+  });
+
+  it("refuses a picture of a window that has moved, instead of clicking somewhere else", async () => {
+    withPicture();
+    const result = await call("click", { x: 100, y: 40 }, context({ x: 400, y: 50, width: 600, height: 400 }));
+    expect(result).toMatchObject({ ok: false, error: { code: "view_stale" } });
+    expect(calls.length).toBe(0);
+  });
+
+  it("scroll and drag map the same way", async () => {
+    withPicture();
+    await call("scroll", { x: 100, y: 40, direction: "down" });
+    expect(calls.at(-1)?.input).toMatchObject({ x: 300, y: 130 });
+    await call("drag", { fromX: 100, fromY: 40, toX: 200, toY: 80 });
+    expect(calls.at(-1)?.input).toMatchObject({ startX: 300, startY: 130, endX: 500, endY: 210 });
   });
 });
 

@@ -31,7 +31,7 @@ not use it for normal code edits or commands inside the current project.
 and `picture` (`auto`, `none`, `plain`, `marked`). The default shows a picture only
 when the list is thin. Use `picture: "marked"` when you need to match numbers to
 what is on screen. A reply with `source: "ocr"` or `"none"` means the app exposes
-no structure; use the picture and `click { x, y }` as a last resort.
+no structure; use the picture and `click { x, y }` as a last resort: x and y are pixels of the picture `see` returned (Osseo converts them to the screen), not screen pixels.
 
 ## The tools
 
