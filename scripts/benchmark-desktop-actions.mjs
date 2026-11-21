@@ -33,7 +33,7 @@ const PROBE = `
 import gi, sys
 gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
-w = Gtk.Window(title="Bench probe"); w.set_default_size(420, 260); w.move(0, 0)
+w = Gtk.Window(title="Bench probe"); w.set_default_size(420, 260); w.move(30, 20)
 box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8); box.set_border_width(12)
 entry = Gtk.Entry(); entry.set_name("Field")
 entry.get_accessible().set_name("Field")
@@ -184,9 +184,34 @@ async function main() {
     // A plan: ten routine steps in one call (verified once, at the end).
     await time("plan: 5 clicks + 5 keys in 1 call", 3, (i) => mcp.call("steps", { steps: [0, 1, 2, 3, 4].flatMap((k) => [{ tool: "click", input: { n: (i + k) % 2 === 0 ? tick : tock } }, { tool: "key", input: { keys: "klmnopqrstuvwxyz"[(i * 5 + k) % 16] } }]), stopOnError: true }));
 
+    // Correctness: a position read off the picture `see` returns must land on the control (the picture is smaller than
+    // the window and starts at its corner, so raw numbers would miss). Checked by what the click does, not by a number.
+    {
+      const counter = async () => {
+        const r = await mcp.call("see", { picture: "plain" });
+        const tree = await mcp.call("ui.tree", { maxDepth: 6 });
+        const label = /"role":"label","name":"(\d+)"/.exec(JSON.stringify(tree.body?.data ?? {}));
+        return { map: r.body?.data?.pictureMap, text: label === null ? "" : label[1] };
+      };
+      const found = await mcp.call("ui.find", { query: "Tick" });
+      const box = found.body?.data?.candidates?.[0]?.bounds ?? found.body?.data?.candidates?.[0]?.screenBounds;
+      const before = await counter();
+      if (box === undefined || before.map === undefined) {
+        console.log(`  CHECK picture-pixel click: skipped (no bounds or no pictureMap: ${JSON.stringify({ box, map: before.map })})`);
+      } else {
+        const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+        const px = Math.round((cx - before.map.origin.x) * before.map.scale), py = Math.round((cy - before.map.origin.y) * before.map.scale);
+        const clicked = await mcp.call("click", { x: px, y: py });
+        const after = await counter();
+        const landed = clicked.ok === true && before.text !== "" && after.text === String(Number(before.text) + 1);
+        console.log(`  CHECK picture-pixel click lands on the target: ${landed ? "PASS" : "FAIL"} (picture ${px},${py} -> screen ${Math.round(cx)},${Math.round(cy)}; scale ${before.map.scale.toFixed(3)})`);
+        if (!landed) { console.log(`    clicked.ok=${clicked.ok} error=${clicked.error ?? ""} observations=${JSON.stringify(clicked.body?.observations ?? []).slice(0, 220)}`); console.log(`    before=${JSON.stringify(before.text).slice(0, 120)} after=${JSON.stringify(after.text).slice(0, 120)}`); process.exitCode = 1; }
+      }
+    }
+
     // A window that does not register with the accessibility bus: `see` must read its text from the screen.
     const textScript = path.join(root, "probe-text.py");
-    writeFileSync(textScript, PROBE.replace('title="Bench probe"', 'title="Bench text"').replace("w.move(0, 0)", "w.move(430, 0)"));
+    writeFileSync(textScript, PROBE.replace('title="Bench probe"', 'title="Bench text"').replace("w.move(30, 20)", "w.move(430, 0)"));
     children.push(spawn("python3", ["-W", "ignore", textScript], { env: { ...process.env, DISPLAY: display, NO_AT_BRIDGE: "1", GTK_A11Y: "none" }, stdio: "ignore" }));
     await sleep(2500);
     const windowsNow = await mcp.call("windows", {});
