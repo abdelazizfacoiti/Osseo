@@ -1,4 +1,4 @@
-# Platforms and session types
+# Platform engineering notes (Windows port and session types)
 
 What Osseo can control, by operating system and session. Run
 `osseo doctor` to see this for the current machine (`desktopPlatform`).

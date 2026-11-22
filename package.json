@@ -35,7 +35,9 @@
     "release:install": "node scripts/install-release.mjs",
     "osseo": "node packages/osseo-cli/dist/index.js",
     "skill:install": "node scripts/install-osseo-skill.mjs",
-    "benchmark:desktop-actions": "node scripts/benchmark-desktop-actions.mjs"
+    "benchmark:desktop-actions": "node scripts/benchmark-desktop-actions.mjs",
+    "docs:tools": "node scripts/gen-tools-doc.mjs",
+    "docs:check": "node scripts/gen-tools-doc.mjs --check"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.13.0",

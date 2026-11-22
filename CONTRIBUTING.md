@@ -16,6 +16,7 @@ npm run build
 npm test
 npm run lint
 npm run smoke:mcp
+npm run docs:check   # after changing a tool: npm run docs:tools
 git diff --check
 ```
 

@@ -20,7 +20,7 @@ Directory `~/.osseo/replays` (mode 0700), files `replay_<session>_<yyyymmddHHMM>
 
 ## Outcomes
 
-ok; waiting_approval (confirmation_required or approval required and not ok); blocked (grant denied, blocked tier, denied approval, or a block/policy/stop/takeover-style error code); otherwise failed. "Approval asked" is an entry with approval required, a generated preview or confirmation_required. "Approval given" is an accepted or rejected confirmation status or an approved or denied approval status.
+ok; waiting_approval (confirmation_required or approval required and not ok); blocked (policy denied, blocked tier, denied approval, or a block/policy/stop/takeover-style error code); otherwise failed. "Approval asked" is an entry with approval required, a generated preview or confirmation_required. "Approval given" is an accepted or rejected confirmation status or an approved or denied approval status.
 
 ## Automatic replay
 

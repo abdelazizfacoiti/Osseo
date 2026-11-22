@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Docs rewritten** for a public audience: getting started, how it works, safety, configuration, CLI, platforms, architecture and development. `docs/tools.md` is generated from the server (`npm run docs:tools`), and `npm run docs:check` (in CI) fails when it drifts or when a doc names a tool that does not exist. The old milestone documents are gone; design notes stay in `docs/notes/`.
+
 - **Fixed: clicks 37 px too low in windows with a server-side title bar (Blender).** `xdotool getwindowgeometry` adds the title bar to the window's position, so the active-window rectangle, the picture origin and the fast capture used for click verification were all offset, while the picture itself was right. The rectangle now comes from `xwininfo -id` (the true client area), with `xdotool` as the fallback. Found in a real Blender session; the File menu now opens exactly where a picture-pixel click aims.
 
 - **Fixed: clicks by position missed.** `see` shows the agent a downscaled, cropped picture, but `click`, `scroll` and `drag` took `x,y` as raw screen pixels, so a position read off the picture landed far from the target (a Download button was missed by about 177 px in a real run). `x,y` now mean pixels of the latest picture of the active window, mapped with the picture's scale and origin; `space: "screen"` keeps raw screen pixels, and a picture of a window that has moved is refused. `see` reports the mapping as `pictureMap`.
@@ -158,7 +160,7 @@
   `GDK_BACKEND=x11`). Each result says it reaches XWayland windows only.
 - Added `describeDesktopPlatform()` and a `desktopPlatform` section in
   `osseo doctor`. On Windows and macOS, desktop tools now fail with
-  `unsupported_platform` instead of a Linux error. See `docs/13_PLATFORMS.md`.
+  `unsupported_platform` instead of a Linux error. See `docs/platforms.md`.
 - Added `osseo overlay check-input`: a harmless card to confirm that a real
   mouse or touchpad press is accepted by the Approve/Continue/Resume checks.
 - Fixed a way around the approval cards: a process with `/dev/uinput` access

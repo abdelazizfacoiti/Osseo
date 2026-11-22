@@ -2,11 +2,13 @@
 
 [![ci](https://github.com/abdelazizfacoiti/Osseo/actions/workflows/ci.yml/badge.svg)](https://github.com/abdelazizfacoiti/Osseo/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
-[![node](https://img.shields.io/badge/node-20%2B-green.svg)](docs/08_RELEASE_AND_OPERATIONS.md)
+[![node](https://img.shields.io/badge/node-20%2B-green.svg)](docs/getting-started.md)
 
 **Let any AI agent use your computer, while you see every step and can stop it.**
 
 Osseo is a local MCP server. Connect it to Claude Code, Codex, Cursor, Copilot or OpenCode, and the agent can open apps, click, type, read files, run commands and drive a browser. The edge of your screen and a side panel show what it is doing, and anything risky waits for you.
+
+<!-- Launch day: drag ~/Videos/Osseo-demo/osseo-demo-720p.mp4 into a GitHub comment and paste the link here (2 minutes: one prompt designs a chair in Blender through the GUI, renders it and lists it on Shopify). -->
 
 ![Osseo asking before a delete: amber frame and an Approve, Always allow here or Deny card](docs/images/frame-4-approval.jpg)
 
@@ -93,21 +95,19 @@ The screen edge shows the state at a glance, and the panel on the right keeps a 
 - Every call is written to a redacted audit log. Screenshots and typed text are never logged.
 - Rules live in `~/.osseo/policy.toml` (`osseo policy`).
 
-## Coming from AgentHost?
-
-Osseo is the new name of AgentHost. Your data stays where it is (`~/.agenthost` and `~/.config/agenthost` are used until the new folders exist), `AGENTHOST_*` environment variables still work, and the `agenthost` command still starts the server. To switch your agent client to the new name, run `osseo integrations <client> add --apply`.
-
 ## Platforms
+
+See [platforms](docs/platforms.md) for detail.
 
 | Platform | Status |
 |---|---|
 | Linux x86_64 (X11, Wayland through XWayland) | Supported |
-| Windows | In progress: tools work, on-screen cards only, not yet release-tested |
+| Windows 10/11 | In progress: desktop tools pass their checks, cards are opt-in, the installer is not yet release-tested |
 | macOS | Not started |
 
 ## More
 
-[Docs index](docs/INDEX.md) · [Tools](docs/03_MCP_TOOLS_AND_ADAPTERS.md) · [Security](docs/04_SECURITY_PERMISSIONS_AND_LOGGING.md) · [Platforms](docs/13_PLATFORMS.md) · [Agent skill](skills/osseo/SKILL.md) · [Contributing](CONTRIBUTING.md)
+[Docs](docs/INDEX.md) · [Getting started](docs/getting-started.md) · [How it works](docs/how-it-works.md) · [Safety](docs/safety.md) · [Tools](docs/tools.md) · [Platforms](docs/platforms.md) · [Agent skill](skills/osseo/SKILL.md) · [Contributing](CONTRIBUTING.md)
 
 Early software with a single maintainer; tool names and configuration may change. Apache-2.0, see [LICENSE](LICENSE).
 

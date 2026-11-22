@@ -2,7 +2,7 @@
  * What Osseo can control on this machine, stated plainly. The desktop
  * layer is per-OS: `os-linux` implements the contract below today. A Windows
  * or macOS adapter would implement the same LinuxAutomation-shaped contract
- * (see docs/13_PLATFORMS.md) and report itself here.
+ * (see docs/platforms.md) and report itself here.
  */
 
 export type HostOs = "linux" | "windows" | "macos" | "other";
@@ -31,7 +31,7 @@ export function describeDesktopPlatform(input: { platform?: NodeJS.Platform; env
     };
   }
   if (platform === "darwin") {
-    return { os: "macos", session: "native-macos", control: "none", guidance: ["macOS desktop control is not implemented yet. File, shell, workflow, memory, and handoff tools that do not touch the desktop still work.", "A macOS adapter must implement the platform contract in docs/13_PLATFORMS.md."] };
+    return { os: "macos", session: "native-macos", control: "none", guidance: ["macOS desktop control is not implemented yet. File, shell, workflow, memory, and handoff tools that do not touch the desktop still work.", "A macOS adapter must implement the platform contract in docs/platforms.md."] };
   }
   if (platform !== "linux") return { os: "other", session: "unknown", control: "none", guidance: ["This operating system is not supported."] };
 
