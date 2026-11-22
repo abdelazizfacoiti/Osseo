@@ -551,7 +551,34 @@ export async function getLinuxActiveWindow(
 
 export async function getLinuxScreenGeometry(context: LinuxDesktopContext = {}): Promise<{ supported: boolean; bounds?: DesktopWindowBounds; reason: string }> { const xdotool = await findCommandPath("xdotool", context); if (xdotool === undefined) return { supported: false, reason: "Screen geometry requires xdotool on X11." }; const values = resultValues((await runDesktopCommand(xdotool, ["getdisplaygeometry"], context)).stdout); const width = values[0], height = values[1]; if (width === undefined || height === undefined || !Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) return { supported: false, reason: "Unable to read X11 display geometry." }; return { supported: true, bounds: { x: 0, y: 0, width, height }, reason: "Read X11 display geometry." }; }
 function resultValues(value: string): number[] { return value.trim().split(/\s+/).map(Number); }
-export async function getLinuxActiveWindowBounds(context: LinuxDesktopContext = {}): Promise<{ supported: boolean; bounds?: DesktopWindowBounds; reason: string }> { const xdotool = await findCommandPath("xdotool", context); if (xdotool === undefined) return { supported: false, reason: "Window geometry requires xdotool on X11." }; const id = (await runDesktopCommand(xdotool, ["getactivewindow"], context)).stdout.trim() || (await focusedWindowId(xdotool, context)) || ""; if (!id) return { supported: false, reason: "No active window." }; const result = await runDesktopCommand(xdotool, ["getwindowgeometry", "--shell", id], context); const values = Object.fromEntries(result.stdout.trim().split(/\r?\n/).map((line) => line.split("=", 2)).filter(([key, value]) => key !== undefined && value !== undefined)); const x = Number(values.X), y = Number(values.Y), width = Number(values.WIDTH), height = Number(values.HEIGHT); return [x,y,width,height].every(Number.isInteger) && width > 0 && height > 0 ? { supported: true, bounds: { x, y, width, height }, reason: "Read active X11 window geometry." } : { supported: false, reason: "Unable to read active window geometry." }; }
+export async function getLinuxActiveWindowBounds(context: LinuxDesktopContext = {}): Promise<{ supported: boolean; bounds?: DesktopWindowBounds; reason: string }> {
+  const xdotool = await findCommandPath("xdotool", context);
+  if (xdotool === undefined) return { supported: false, reason: "Window geometry requires xdotool on X11." };
+  const id = (await runDesktopCommand(xdotool, ["getactivewindow"], context)).stdout.trim() || (await focusedWindowId(xdotool, context)) || "";
+  if (!id) return { supported: false, reason: "No active window." };
+  // xdotool adds a server-side title bar to the window's position (Blender sat 37 px lower than it is); xwininfo has the real one.
+  const real = await trueWindowRect(id, context);
+  if (real !== undefined) return { supported: true, bounds: real, reason: "Read active X11 window geometry." };
+  const result = await runDesktopCommand(xdotool, ["getwindowgeometry", "--shell", id], context);
+  const values = Object.fromEntries(result.stdout.trim().split(/\r?\n/).map((line) => line.split("=", 2)).filter(([key, value]) => key !== undefined && value !== undefined));
+  const x = Number(values.X), y = Number(values.Y), width = Number(values.WIDTH), height = Number(values.HEIGHT);
+  return [x, y, width, height].every(Number.isInteger) && width > 0 && height > 0 ? { supported: true, bounds: { x, y, width, height }, reason: "Read active X11 window geometry." } : { supported: false, reason: "Unable to read active window geometry." };
+}
+
+/** Parses `xwininfo -id` output into the window's absolute client rectangle; exported for tests. */
+export function parseXwininfoRect(stdout: string): DesktopWindowBounds | undefined {
+  const num = (label: string): number | undefined => { const hit = new RegExp(`^\\s*${label}:\\s*(-?\\d+)`, "m").exec(stdout); return hit === null ? undefined : Number(hit[1]); };
+  const x = num("Absolute upper-left X"), y = num("Absolute upper-left Y"), width = num("Width"), height = num("Height");
+  return x === undefined || y === undefined || width === undefined || height === undefined || width <= 0 || height <= 0 ? undefined : { x, y, width, height };
+}
+
+/** The window's true screen rectangle from xwininfo, or undefined when xwininfo is missing or fails. */
+async function trueWindowRect(windowId: string, context: LinuxDesktopContext = {}): Promise<DesktopWindowBounds | undefined> {
+  const xwininfo = await findCommandPath("xwininfo", context);
+  if (xwininfo === undefined) return undefined;
+  const result = await runDesktopCommand(xwininfo, ["-id", windowId], context).catch(() => undefined);
+  return result === undefined || result.exitCode !== 0 ? undefined : parseXwininfoRect(result.stdout);
+}
 
 /**
  * A cheap picture of the active window for effect checks (did the screen change?), not for showing to anyone.
@@ -568,7 +595,10 @@ export async function captureLinuxWindowFast(input: { path: string }, context: L
   if (rect.exitCode !== 0) rect = await runDesktopCommand(xdotool, ["getwindowfocus", "getwindowgeometry", "--shell"], context);
   if (rect.exitCode !== 0) return false;
   const values = Object.fromEntries(rect.stdout.trim().split(/\r?\n/).map((line) => line.split("=", 2)).filter(([key, value]) => key !== undefined && value !== undefined));
-  const x = Number(values.X), y = Number(values.Y), width = Number(values.WIDTH), height = Number(values.HEIGHT);
+  let x = Number(values.X), y = Number(values.Y), width = Number(values.WIDTH), height = Number(values.HEIGHT);
+  // Same correction as getLinuxActiveWindowBounds: a window with a server-side title bar is reported too low by xdotool.
+  const real = values.WINDOW === undefined ? undefined : await trueWindowRect(values.WINDOW, context);
+  if (real !== undefined) ({ x, y, width, height } = real);
   if (![x, y, width, height].every(Number.isInteger) || width <= 0 || height <= 0 || x < 0 || y < 0) return false;
   try { await rm(input.path, { force: true }); } catch { return false; }
   const shot = await runDesktopCommand(scrot, ["-o", "-a", `${x},${y},${width},${height}`, input.path], context);

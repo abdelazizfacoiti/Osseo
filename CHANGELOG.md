@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Fixed: clicks 37 px too low in windows with a server-side title bar (Blender).** `xdotool getwindowgeometry` adds the title bar to the window's position, so the active-window rectangle, the picture origin and the fast capture used for click verification were all offset, while the picture itself was right. The rectangle now comes from `xwininfo -id` (the true client area), with `xdotool` as the fallback. Found in a real Blender session; the File menu now opens exactly where a picture-pixel click aims.
+
 - **Fixed: clicks by position missed.** `see` shows the agent a downscaled, cropped picture, but `click`, `scroll` and `drag` took `x,y` as raw screen pixels, so a position read off the picture landed far from the target (a Download button was missed by about 177 px in a real run). `x,y` now mean pixels of the latest picture of the active window, mapped with the picture's scale and origin; `space: "screen"` keeps raw screen pixels, and a picture of a window that has moved is refused. `see` reports the mapping as `pictureMap`.
 
 - **Renamed: AgentHost is now Osseo.** Packages are `@osseo/*`, the command is `osseo`, environment variables are `OSSEO_*` and the data folder is `~/.osseo`. Installs from before the rename keep working: `AGENTHOST_*` variables are read as `OSSEO_*`, `~/.agenthost` and `~/.config/agenthost` are used until the new folders exist, the old `agentHostDir` config key is still read, and the installer leaves an `agenthost` command that runs `osseo`. The shell classifier keeps protecting both control folders.
