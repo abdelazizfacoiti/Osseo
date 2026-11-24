@@ -5,6 +5,15 @@ updates:
     target-branch: develop
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    # Major upgrades of the build and test tools need code changes, so they are taken by hand. @types/node follows the
+    # oldest Node the project supports (20). Security updates are not blocked by this for the other packages.
+    ignore:
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      - dependency-name: vitest
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop
