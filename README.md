@@ -8,7 +8,9 @@
 
 Osseo is a local MCP server. Connect it to Claude Code, Codex, Cursor, Copilot or OpenCode, and the agent can open apps, click, type, read files, run commands and drive a browser. The edge of your screen and a side panel show what it is doing, and anything risky waits for you.
 
-<!-- Launch day: drag ~/Videos/Osseo-demo/osseo-demo-720p.mp4 into a GitHub comment and paste the link here (2 minutes: one prompt designs a chair in Blender through the GUI, renders it and lists it on Shopify). -->
+**Demo (2 minutes, no sound):** one prompt, and the agent models a chair in Blender through its GUI, renders it and lists it on Shopify. No Blender MCP, no scripts. Parts are sped up.
+
+https://github.com/user-attachments/assets/96a10897-2c56-46b3-930a-32d65f3acf75
 
 ![Osseo asking before a delete: amber frame and an Approve, Always allow here or Deny card](docs/images/frame-4-approval.jpg)
 
