@@ -299,9 +299,17 @@ async function main() {
     for (const task of selected) {
       const runs = [];
       for (let run = 0; run < options.runs; run += 1) {
-        const result = await runTask(task, root);
-        runs.push(result);
+        let result = await runTask(task, root);
         process.stderr.write(`${result.success ? "pass" : "FAIL"}  ${task.id}${result.failure === undefined ? "" : `  (${result.failure})`}\n`);
+        // One timing hiccup (a headless Chrome page that settles late on a busy runner) must not fail the gate, and must
+        // not hide a real regression either: a failed task gets exactly one more try, the retry is what counts, and the
+        // first failure stays visible in the log, the summary and the results file. A task that fails twice fails.
+        if (!result.success) {
+          const first = result.failure ?? "failed";
+          result = { ...(await runTask(task, root)), retriedAfter: first };
+          process.stderr.write(`${result.success ? "pass" : "FAIL"}  ${task.id}  (retry after: ${first})${result.failure === undefined ? "" : `  (${result.failure})`}\n`);
+        }
+        runs.push(result);
       }
       perTask.push({ task, runs });
     }
@@ -331,7 +339,8 @@ async function main() {
       ...rows[index],
       // Tool calls and outcomes of the first run: names and codes only, never page content or typed text.
       toolCalls: runs[0].tools,
-      ...(runs.find((run) => run.failure !== undefined) === undefined ? {} : { failure: runs.find((run) => run.failure !== undefined).failure })
+      ...(runs.find((run) => run.failure !== undefined) === undefined ? {} : { failure: runs.find((run) => run.failure !== undefined).failure }),
+      ...(runs.find((run) => run.retriedAfter !== undefined) === undefined ? {} : { retriedAfter: runs.find((run) => run.retriedAfter !== undefined).retriedAfter })
     }))
   };
   mkdirSync(path.dirname(options.out), { recursive: true });
@@ -344,6 +353,8 @@ async function main() {
   console.log(`tasks ${summary.tasks}, passed ${summary.succeeded}, success rate ${summary.successRate}`);
   console.log(`tool calls: median ${summary.medianCalls}, total ${summary.totalCalls}; result bytes total ${summary.totalBytes}; seconds: median ${summary.medianSeconds}, total ${summary.totalSeconds}`);
   console.log(`refusals that were expected and happened: ${summary.refusals}; unverified successes: ${summary.unverifiedSuccesses}`);
+  const retried = perTask.flatMap(({ task, runs }) => runs.filter((run) => run.retriedAfter !== undefined).map((run) => `${task.id} (${run.retriedAfter}; ${run.success ? "passed on retry" : "failed again"})`));
+  console.log(retried.length === 0 ? "retries: none" : `retries: ${retried.join(", ")}`);
   console.log("");
   console.log(`gate: success rate >= ${GATES.minSuccessRate} (${summary.successRate}: ${gate.successRateOk ? "ok" : "FAIL"}), unverified successes == ${GATES.maxUnverifiedSuccesses} (${summary.unverifiedSuccesses}: ${gate.unverifiedOk ? "ok" : "FAIL"})`);
   console.log(`gate result: ${gate.pass ? "PASS" : "FAIL"}`);

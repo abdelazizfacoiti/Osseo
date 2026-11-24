@@ -6,7 +6,7 @@ import path from "node:path";
 import { LEGACY_CONFIG_DIRNAME, LEGACY_HOME_DIRNAME } from "./legacy.js";
 
 /** Single public version used by packaged components and diagnostics. */
-export const OSSEO_VERSION = "0.1.0";
+export const OSSEO_VERSION = "0.1.1";
 export const OSSEO_CONFIG_SCHEMA_VERSION = 1 as const;
 
 export function defaultOsseoHome(homeDir = os.homedir()): string {

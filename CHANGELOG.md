@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-11-24)
+
 - **Dependencies:** zod 3 to 4.6.7 (fixes the memory-use advisory on oversized input) and vitest 3 to 4.1; `npm audit` now reports 0 vulnerabilities. The only code changes were `z.record(value)` becoming `z.record(z.string(), value)` and two test mock types; tool schemas are unchanged (the generated tools reference is identical).
 
 - **Release hardening:** the release builder no longer stages editor lock files or backups, and the release scan now reads the current user from the OS (not only `$USER`), forbids the real home path and refuses editor or backup files. A LibreOffice-style lock file with the author's username had been copied into a release archive from the working tree.
@@ -278,6 +280,7 @@
   is limited to low/medium effects and only while the task is active.
 - Enforced operator stop and human-takeover gates for state-changing tools,
   with redacted audit logging and repo-control-plane path protection.
+- **Benchmark suite:** a task that fails gets exactly one more try, and the retry is what counts. The first failure is still printed and saved, and a task that fails twice fails the gate.
 
 ## 0.1.0
 

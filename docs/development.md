@@ -19,7 +19,7 @@ without one.
 | Command | What it proves |
 |---|---|
 | `npm run check:live` | About 90 end-to-end checks on a nested display: verified clicks, typing, labels, plans, file dialogs, the agent's browser, approvals. Opens a small window for about a minute. |
-| `npm run benchmark:suite` | 25 browser tasks in headless Chrome; fails below 90% success or on any unverified success. Runs in CI. |
+| `npm run benchmark:suite` | 25 browser tasks in headless Chrome; fails below 90% success or on any unverified success. A failed task gets one more try (printed and saved, so a flake cannot hide a regression). Runs in CI. |
 | `npm run benchmark:desktop-actions` | Latency of see, click, key, type and plans on a nested display, plus a check that a click by picture position lands on its target. `--server <index.js>` measures another build. |
 | `npm run benchmark:form` | One form task four ways, with a gate on calls, bytes and unverified results. |
 | `npm run docs:check` | `docs/tools.md` matches the server, and no doc names a tool that does not exist. Runs in CI. |
