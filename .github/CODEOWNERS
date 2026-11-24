@@ -1,0 +1,15 @@
+# Changes to these paths always ask the maintainer for review.
+# The safety model: classifier, policy, approvals, stop/pause, redaction.
+/packages/core/src/safety/            @abdelazizfacoiti
+/packages/core/src/policy*            @abdelazizfacoiti
+/packages/core/src/confirmations*     @abdelazizfacoiti
+/packages/mcp-server/src/tool-runner.ts @abdelazizfacoiti
+/packages/mcp-server/src/policy-gate.ts @abdelazizfacoiti
+/packages/mcp-server/src/input-guard.ts @abdelazizfacoiti
+/packages/app-overlay/runtime/overlay_input.py @abdelazizfacoiti
+# Install, update and release tooling, CI, and the security policy.
+/scripts/install*                     @abdelazizfacoiti
+/scripts/*release*                    @abdelazizfacoiti
+/.github/                             @abdelazizfacoiti
+/SECURITY.md                          @abdelazizfacoiti
+/.gitleaks.toml                       @abdelazizfacoiti
