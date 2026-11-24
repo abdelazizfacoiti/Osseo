@@ -254,7 +254,7 @@ const waitInput = z.object({
 
 const askInput = z.object({ kind: z.enum(HANDOFF_KINDS), message: z.string().trim().min(1).max(300), ...exec }).strict();
 const stepsInput = z.object({
-  steps: z.array(z.object({ tool: z.string(), input: z.record(z.unknown()).optional(), expect: z.record(z.unknown()).optional() }).strict()).min(1).max(20),
+  steps: z.array(z.object({ tool: z.string(), input: z.record(z.string(), z.unknown()).optional(), expect: z.record(z.string(), z.unknown()).optional() }).strict()).min(1).max(20),
   stopOnError: z.boolean().optional(),
   returnScreenshot: z.enum(["none", "region", "window"]).optional(),
   ...exec

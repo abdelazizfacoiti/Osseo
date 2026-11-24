@@ -8,7 +8,7 @@ const runInput = z.object({
   command: z.string().trim().min(1).max(10000),
   args: z.array(z.string().trim().max(1000)).max(100).optional(),
   cwd: z.string().trim().max(1000).optional(),
-  env: z.record(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
   timeoutMs: z.number().int().min(100).max(300_000).optional(),
   dryRun: z.boolean().optional(),
   confirmationToken: z.string().trim().min(8).max(120).optional()

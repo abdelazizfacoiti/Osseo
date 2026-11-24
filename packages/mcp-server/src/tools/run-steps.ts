@@ -18,7 +18,7 @@ const expectationInput = z.object({
 
 const stepInput = z.object({
   tool: z.string().trim().min(3).max(100),
-  input: z.record(z.unknown()).optional(),
+  input: z.record(z.string(), z.unknown()).optional(),
   expect: expectationInput.optional()
 }).strict();
 

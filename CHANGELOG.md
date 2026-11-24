@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Dependencies:** zod 3 to 4.6.7 (fixes the memory-use advisory on oversized input) and vitest 3 to 4.1; `npm audit` now reports 0 vulnerabilities. The only code changes were `z.record(value)` becoming `z.record(z.string(), value)` and two test mock types; tool schemas are unchanged (the generated tools reference is identical).
+
 - **Release hardening:** the release builder no longer stages editor lock files or backups, and the release scan now reads the current user from the OS (not only `$USER`), forbids the real home path and refuses editor or backup files. A LibreOffice-style lock file with the author's username had been copied into a release archive from the working tree.
 
 - **Docs rewritten** for a public audience: getting started, how it works, safety, configuration, CLI, platforms, architecture and development. `docs/tools.md` is generated from the server (`npm run docs:tools`), and `npm run docs:check` (in CI) fails when it drifts or when a doc names a tool that does not exist. The old milestone documents are gone; design notes stay in `docs/notes/`.

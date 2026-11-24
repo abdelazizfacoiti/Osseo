@@ -26,7 +26,7 @@ import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner
  */
 
 const name = z.string().trim().min(2).max(49);
-const stepSchema = z.object({ tool: z.string().trim().min(3).max(100), input: z.record(z.unknown()).optional() }).strict();
+const stepSchema = z.object({ tool: z.string().trim().min(3).max(100), input: z.record(z.string(), z.unknown()).optional() }).strict();
 const parameterSchema = z.object({ name: z.string().trim().min(1).max(40), description: z.string().trim().max(200).optional() }).strict();
 
 const saveInput = z.object({
@@ -36,7 +36,7 @@ const saveInput = z.object({
   steps: z.array(stepSchema).min(1).max(MAX_WORKFLOW_STEPS)
 }).strict();
 const listInput = z.object({}).strict();
-const getInput = z.object({ name, parameters: z.record(z.string().max(2_000)).optional() }).strict();
+const getInput = z.object({ name, parameters: z.record(z.string(), z.string().max(2_000)).optional() }).strict();
 const deleteInput = z.object({ name }).strict();
 
 const schema = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, ...(required.length > 0 ? { required } : {}), additionalProperties: false });

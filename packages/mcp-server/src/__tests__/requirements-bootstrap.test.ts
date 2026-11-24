@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -16,12 +16,12 @@ function statuses(missing: string[]): RequirementStatus[] {
   return LINUX_DESKTOP_REQUIREMENTS.map((requirement) => ({ name: requirement.name, aptPackage: requirement.aptPackage, required: requirement.required, impact: requirement.impact, installed: !missing.includes(requirement.name) }));
 }
 
-function fakeDeps(missing: { current: string[] }, plan = true): RequirementsBootstrapDeps & { launch: ReturnType<typeof vi.fn>; notify: ReturnType<typeof vi.fn> } {
+function fakeDeps(missing: { current: string[] }, plan = true): RequirementsBootstrapDeps & { launch: Mock<RequirementsBootstrapDeps["launch"]>; notify: Mock<RequirementsBootstrapDeps["notify"]> } {
   return {
     check: async () => statuses(missing.current),
     plan: async (packages) => (plan ? { command: ["/usr/bin/pkexec", "/usr/bin/apt-get", "install", "-y", ...packages], elevation: "pkexec" as const } : undefined),
-    launch: vi.fn(),
-    notify: vi.fn()
+    launch: vi.fn<RequirementsBootstrapDeps["launch"]>(),
+    notify: vi.fn<RequirementsBootstrapDeps["notify"]>()
   };
 }
 
