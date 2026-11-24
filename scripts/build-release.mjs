@@ -76,7 +76,7 @@ await pruneNonProductionPackages(stage, lock);
 async function prune(directory) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const item = path.join(directory, entry.name);
-    if (entry.name === "__tests__" || entry.name === "__pycache__" || entry.name === ".cache" || entry.name === ".vite" || entry.name === ".vite-temp" || entry.name.endsWith(".map") || entry.name.endsWith(".tsbuildinfo") || entry.name.endsWith(".pyc") || /\.(png|jpe?g|webp|gif|wav|mp3|ogg)$/i.test(entry.name) || ["typescript", "vitest", "vite", "vite-node", "esbuild", "rollup", "postcss", "@types", "@vitest", "@esbuild"].includes(entry.name)) { await rm(item, { recursive: true, force: true }); continue; }
+    if (/^\.~lock\./.test(entry.name) || /(~|\.swp|\.swo|\.orig|\.bak|\.rej)$/.test(entry.name) || entry.name === ".DS_Store" || entry.name === "__tests__" || entry.name === "__pycache__" || entry.name === ".cache" || entry.name === ".vite" || entry.name === ".vite-temp" || entry.name.endsWith(".map") || entry.name.endsWith(".tsbuildinfo") || entry.name.endsWith(".pyc") || /\.(png|jpe?g|webp|gif|wav|mp3|ogg)$/i.test(entry.name) || ["typescript", "vitest", "vite", "vite-node", "esbuild", "rollup", "postcss", "@types", "@vitest", "@esbuild"].includes(entry.name)) { await rm(item, { recursive: true, force: true }); continue; }
     if (entry.isDirectory()) await prune(item);
   }
 }

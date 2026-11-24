@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Release hardening:** the release builder no longer stages editor lock files or backups, and the release scan now reads the current user from the OS (not only `$USER`), forbids the real home path and refuses editor or backup files. A LibreOffice-style lock file with the author's username had been copied into a release archive from the working tree.
+
 - **Docs rewritten** for a public audience: getting started, how it works, safety, configuration, CLI, platforms, architecture and development. `docs/tools.md` is generated from the server (`npm run docs:tools`), and `npm run docs:check` (in CI) fails when it drifts or when a doc names a tool that does not exist. The old milestone documents are gone; design notes stay in `docs/notes/`.
 
 - **Fixed: clicks 37 px too low in windows with a server-side title bar (Blender).** `xdotool getwindowgeometry` adds the title bar to the window's position, so the active-window rectangle, the picture origin and the fast capture used for click verification were all offset, while the picture itself was right. The rectangle now comes from `xwininfo -id` (the true client area), with `xdotool` as the fallback. Found in a real Blender session; the File menu now opens exactly where a picture-pixel click aims.
