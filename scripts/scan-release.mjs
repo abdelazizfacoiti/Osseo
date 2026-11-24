@@ -3,7 +3,10 @@ import { readFile, readdir, readlink, stat } from "node:fs/promises";
 import path from "node:path";
 import { validateReleaseTree } from "./release-integrity.mjs";
 const root = path.resolve("release");
-const stage = (await readdir(root, { withFileTypes: true })).find((entry) => entry.isDirectory() && entry.name.startsWith("osseo-v"));
+// Older builds can sit next to the new one: scan the newest stage, never whichever sorts first.
+const stages = (await readdir(root, { withFileTypes: true })).filter((entry) => entry.isDirectory() && entry.name.startsWith("osseo-v"));
+const stamped = await Promise.all(stages.map(async (entry) => ({ entry, mtime: (await stat(path.join(root, entry.name))).mtimeMs })));
+const stage = stamped.sort((a, b) => b.mtime - a.mtime)[0]?.entry;
 if (!stage) throw new Error("release_stage_missing");
 const base = path.join(root, stage.name);
 import os from "node:os";
