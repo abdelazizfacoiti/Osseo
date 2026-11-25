@@ -1,6 +1,8 @@
 # Getting started
 
-Osseo runs on Linux x86_64 with X11 (Wayland sessions work through XWayland) and Node 20 or newer.
+Osseo is supported on Linux x86_64 with X11 (Wayland sessions work through XWayland) and needs Node 20 or newer. The
+commands below are for Linux. Windows is experimental and has its own
+[steps in the README](../README.md#quick-start-windows-experimental).
 
 ## Install
 

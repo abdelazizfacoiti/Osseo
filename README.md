@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/96a10897-2c56-46b3-930a-32d65f3acf75
 
 ## Quick start (Linux, 2 minutes)
 
-Needs Linux x86_64 with X11 (or Wayland through XWayland) and Node 20+.
+Needs Linux x86_64 with X11 (or Wayland through XWayland) and Node 20+. On Windows, use the [Windows steps](#quick-start-windows-experimental).
 
 ```bash
 git clone https://github.com/abdelazizfacoiti/Osseo.git
@@ -62,6 +62,41 @@ In prompts, say "use Osseo" rather than "don't use MCP": Osseo is itself an MCP 
 
 </details>
 
+## Quick start (Windows, experimental)
+
+Windows support is still in progress: expect rough edges. You need Windows 10 or 11 (x64), Node 20+, Git, and Chrome or Edge for the agent's browser. Tests so far ran on Windows 11 only. There is no Windows download yet, so you build it. In PowerShell:
+
+```powershell
+git clone https://github.com/abdelazizfacoiti/Osseo.git
+cd Osseo
+npm ci
+npm run build
+node scripts/build-release.mjs --stage-only
+node scripts/build-release-windows.mjs
+$env:OSSEO_ARCHIVE = "$PWD\release\osseo-win-x64.zip"
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+```
+
+It installs to `%LOCALAPPDATA%\Osseo` without administrator rights. **Open a new terminal**, then:
+
+**1. Turn on the on-screen cards.** They are off by default on Windows, and without them there is no on-screen Pause, Stop or Approve button. Run `osseo setup guide` once, then `osseo config path` to find `config.json`, and add `"windows": true` under `"overlay"`:
+
+```json
+{ "overlay": { "windows": true } }
+```
+
+Keep the other settings already in the file. A real mouse click on the card's **Stop** button is not yet confirmed on the current Windows build, so keep `osseo agent stop` (below) ready.
+
+**2. Connect your client**, then restart it:
+
+```powershell
+osseo integrations claude add --apply   # or: codex, cursor, opencode, copilot, copilot-cli
+```
+
+Connecting a client from an installed Windows build is not tested yet, so please [report](https://github.com/abdelazizfacoiti/Osseo/issues) what fails. To stop the agent from a terminal, run `osseo agent stop`; `osseo agent resume --stop` lets it continue.
+
+Not on Windows yet: reading text from the screen (OCR), the colored screen edge and the ring around click targets. See [platforms](docs/platforms.md).
+
 ## What you see
 
 The screen edge shows the state at a glance, and the panel on the right keeps a timeline of every action with Pause and Stop. Several agent sessions share one panel through a small local host, so they never fight over the screen.
@@ -104,7 +139,7 @@ See [platforms](docs/platforms.md) for detail.
 | Platform | Status |
 |---|---|
 | Linux x86_64 (X11, Wayland through XWayland) | Supported |
-| Windows 10/11 | In progress: desktop tools pass their checks, cards are opt-in, the installer is not yet release-tested |
+| Windows 10/11 | In progress, build from source ([steps](#quick-start-windows-experimental)): desktop tools pass their checks on Windows 11, cards are opt-in |
 | macOS | Not started |
 
 ## More
