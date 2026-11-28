@@ -47,6 +47,7 @@ export interface SeenWindow {
   active: boolean;
 }
 
+const OTHER_BROWSER = /firefox|chrom|msedge|brave|opera|vivaldi/i;
 const MAX_VALUE = 40;
 const MAX_NAME = 60;
 const SECRET_NAME = /pass(word|code|phrase)?\b|secret|token|api[ _-]?key|private key|\botp\b|one[- ]time|verification code|security code|card number|credit card|\bcvv\b|\bcvc\b|\bssn\b|\bpin\b|[A-Za-z0-9_-]{24,}/i;
@@ -385,7 +386,10 @@ export function createSeeTool(): AnyOsseoToolDefinition<OsseoMcpContext> {
 
       // The picture.
       const wanted = input.picture ?? "auto";
-      const mode = wanted === "auto" ? ((source === "dom" || source === "accessibility") && elements.length >= 3 ? "none" : "plain") : wanted;
+      // Another browser's list holds its buttons, fields and links, often only the toolbar. The page itself is in the picture.
+      const otherBrowser = source !== "dom" && OTHER_BROWSER.test(window?.app ?? "");
+      if (otherBrowser) observations.push("This is not the agent's own browser: the list has controls only, not the page text. Read the picture, or open the page with open for the text.");
+      const mode = wanted === "auto" ? ((source === "dom" || source === "accessibility") && elements.length >= 3 && !otherBrowser ? "none" : "plain") : wanted;
       let picture: Picture | undefined;
       let shown: "none" | "plain" | "marked" = "none";
       if (mode !== "none") {

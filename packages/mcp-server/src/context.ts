@@ -88,6 +88,8 @@ export interface LinuxAutomation {
   /** Milliseconds since the last keyboard/pointer input, or undefined when unknown. */
   userIdleMs?(): Promise<number | undefined>;
   /** Dedicated-Chrome automation over the DevTools Protocol; absent when no browser is installed. */
+  /** Makes the small JPEG sent back to the agent. Set where ffmpeg is not available (Windows); otherwise ffmpeg is used. */
+  downscaleToJpeg?(inputPath: string, outputPath: string, maxWidth: number): Promise<boolean>;
   browser?: BrowserAutomation;
   /** Nested X display all desktop work runs on, when execution.placement is background. */
   backgroundDisplay?: string;

@@ -286,3 +286,20 @@ describe("see with the agent browser open", () => {
     }
   });
 });
+
+describe("see on a browser that is not the agent's own", () => {
+  it("attaches a picture even when the toolbar gives a long list, and says the page text is not listed", async () => {
+    for (const app of ["firefox", "chrome", "msedge"]) {
+      calls.length = 0;
+      const result = await run(fake({ app }));
+      expect(result.data.picture).toBe("plain");
+      expect(calls.map((call) => call.name)).toContain("desktop.screenshot");
+      expect(result.observations.join(" ")).toContain("not the page text");
+    }
+  });
+
+  it("keeps other apps without a picture, and honours picture none", async () => {
+    expect((await run(fake())).data.picture).toBe("none");
+    expect((await run(fake({ app: "firefox" }), { picture: "none" })).data.picture).toBe("none");
+  });
+});

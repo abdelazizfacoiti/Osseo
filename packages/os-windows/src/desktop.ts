@@ -438,6 +438,14 @@ export function createWindowsDesktop(helper: HelperTransport, options: WindowsDe
       }, (reason) => ({ supported: false, backend: BACKEND, reason }));
     },
 
+    /** Writes a JPEG no wider than maxWidth. False when the helper cannot, so the inline picture is skipped. */
+    async downscaleToJpeg(inputPath: string, outputPath: string, maxWidth: number): Promise<boolean> {
+      return guarded<boolean>(async () => {
+        await helper.request("image.jpeg", { input: path.resolve(inputPath), output: path.resolve(outputPath), maxWidth }, 30_000);
+        return true;
+      }, () => false);
+    },
+
     async getScreenGeometry(): Promise<{ supported: boolean; bounds?: DesktopWindowBounds; reason: string }> {
       return guarded<{ supported: boolean; bounds?: DesktopWindowBounds; reason: string }>(async () => {
         const bounds = await helper.request<DesktopWindowBounds>("screen.geometry");

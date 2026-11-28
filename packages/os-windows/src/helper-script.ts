@@ -325,6 +325,29 @@ function Set-ClipboardResult([string]$text) {
   Throw-HelperError 'clipboard_busy' 'Another program is holding the clipboard.'
 }
 
+# A smaller JPEG copy of a saved picture, for the image that goes back to the agent. Windows has no ffmpeg.
+function ConvertTo-JpegResult($p) {
+  $source = [System.Drawing.Image]::FromFile((Get-StrParam $p 'input' ''))
+  try {
+    $limit = [Math]::Max(64, (Get-IntParam $p 'maxWidth' 1280))
+    $w = [Math]::Min($limit, $source.Width)
+    $h = [Math]::Max(1, [int][Math]::Round($source.Height * $w / $source.Width))
+    $copy = New-Object System.Drawing.Bitmap -ArgumentList $w, $h
+    try {
+      $canvas = [System.Drawing.Graphics]::FromImage($copy)
+      try {
+        $canvas.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+        $canvas.DrawImage($source, 0, 0, $w, $h)
+      } finally { $canvas.Dispose() }
+      $codec = [System.Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' } | Select-Object -First 1
+      $encoder = New-Object System.Drawing.Imaging.EncoderParameters -ArgumentList 1
+      $encoder.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter -ArgumentList ([System.Drawing.Imaging.Encoder]::Quality), ([long]75)
+      $copy.Save((Get-StrParam $p 'output' ''), $codec, $encoder)
+    } finally { $copy.Dispose() }
+  } finally { $source.Dispose() }
+  return [ordered]@{ width = $w; height = $h }
+}
+
 function Get-IdleResult {
   $info = New-Object AhNative.LASTINPUTINFO
   $info.cbSize = [uint32]8
@@ -341,6 +364,7 @@ function Invoke-HelperMethod([string]$method, $p) {
     'window.active' { return Get-WindowRecord ([AhNative.Native]::GetForegroundWindow()) }
     'window.focus' { return Set-WindowFocus (Get-HwndParam $p 'hwnd') }
     'screenshot' { return Get-ScreenshotResult $p }
+    'image.jpeg' { return ConvertTo-JpegResult $p }
     'screen.geometry' { return Get-ScreenGeometry }
     'input.move' { return Invoke-Move (Get-IntParam $p 'x' 0) (Get-IntParam $p 'y' 0) }
     'input.click' { return Invoke-Click $p }

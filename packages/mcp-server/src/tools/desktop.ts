@@ -310,6 +310,12 @@ function dialogContext(window: DesktopWindowSummary): DesktopWindowContext {
   };
 }
 
+/** The small JPEG for a reply: the platform's own converter when it has one, else ffmpeg. */
+async function inlineJpeg(context: OsseoMcpContext, input: string, output: string): Promise<boolean> {
+  if (context.linux.downscaleToJpeg !== undefined) return context.linux.downscaleToJpeg(input, output, 1280);
+  return downscaleToJpeg(input, output, 1280, { osseoDir: context.config.osseoDir });
+}
+
 /**
  * The picture after an action, inline, with an id a click can use directly. "window" is the active
  * window; "region" is a 480x320 area around the point the action used. Never fails the action: when
@@ -340,7 +346,7 @@ export async function settledPicture(
     if (data.supported !== true || data.path === undefined || origin === undefined) return undefined;
     const size = await imageSize(png);
     if (size === undefined) return undefined;
-    if (!(await downscaleToJpeg(png, scratch, 1280, { osseoDir: context.config.osseoDir }))) return undefined;
+    if (!(await inlineJpeg(context, png, scratch))) return undefined;
     const small = await imageSize(scratch);
     if (small === undefined) return undefined;
     const active = await context.linux.getActiveWindow().catch(() => undefined);
@@ -946,7 +952,7 @@ export function createDesktopTools(): AnyOsseoToolDefinition<OsseoMcpContext>[] 
       if (input.inline !== false && size !== undefined) {
         const scratch = joinEffectPath(context.config.osseoDir, "screenshots", `inline-${effectId()}.jpg`);
         try {
-          if (await downscaleToJpeg(outputPath, scratch, 1280, { osseoDir: context.config.osseoDir })) {
+          if (await inlineJpeg(context, outputPath, scratch)) {
             const small = await imageSize(scratch);
             if (small !== undefined) {
               inlineScale = small.width / size.width;
