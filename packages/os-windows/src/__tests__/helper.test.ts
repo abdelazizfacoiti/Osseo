@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createWindowsDesktop } from "../desktop.js";
-import { HelperError, WindowsHelperProcess } from "../helper.js";
+import { HelperError, probeWindowsDesktop, WindowsHelperProcess } from "../helper.js";
 import { HELPER_SCRIPT } from "../helper-script.js";
 
 // A stand-in for powershell.exe: a Node script that speaks the same JSON-line protocol.
@@ -158,5 +158,29 @@ describe("helper script", () => {
     expect(seen.size).toBeGreaterThan(10);
     for (const method of ["uia.ping", "uia.tree", "uia.find", "uia.textAtPoint", "uia.inspect", "uia.activate", "uia.setText", "uia.focus", "uia.getText"]) expect(seen.has(method), `the adapter never sends ${method}`).toBe(true);
     for (const method of seen) expect(source, `the script has no case for ${method}`).toContain(`'${method}'`);
+  });
+});
+
+describe("when antivirus blocks the helper", () => {
+  // What PowerShell prints, wrapped the way it wraps it, when the antivirus scan interface refuses the script.
+  const blocked = `process.stderr.write("This script contains malicious content and has been blocked by your antivirus software.\\n    + FullyQualifiedErrorId : ScriptContainedMali\\nciousContent\\n"); process.exit(1);`;
+
+  async function fakeProgram(source: string) {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "osseo-win-av-"));
+    dirs.push(dir);
+    const script = path.join(dir, "blocked.cjs");
+    await writeFile(script, source);
+    return { osseoDir: dir, command: { program: process.execPath, args: [script] } };
+  }
+
+  it("reports it by name instead of a bare exit code", async () => {
+    const probe = await probeWindowsDesktop(await fakeProgram(blocked));
+    expect(probe).toMatchObject({ ok: false, code: "helper_blocked_by_antivirus" });
+    expect(probe.ok === false && probe.reason).toContain("Antivirus blocked");
+  });
+
+  it("keeps other failures as they are, and passes when the helper answers", async () => {
+    expect(await probeWindowsDesktop(await fakeProgram("process.exit(2)"))).toMatchObject({ ok: false, code: "helper_exited" });
+    expect(await probeWindowsDesktop(await fakeProgram(FAKE))).toEqual({ ok: true });
   });
 });

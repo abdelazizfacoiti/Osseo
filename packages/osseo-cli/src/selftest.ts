@@ -108,6 +108,7 @@ export async function selftestCommand(args: string[], agentHome: string, deps: S
     const lines = steps.map((step) => `${step.status === "pass" ? "PASS" : step.status === "fail" ? "FAIL" : "SKIP"}  ${step.name.padEnd(10)} ${String(step.ms).padStart(5)} ms  ${step.detail}`);
     const total = steps.reduce((sum, step) => sum + step.ms, 0);
     lines.push(ok ? `Selftest passed: ${steps.length} of ${steps.length} steps in ${total} ms.` : `Selftest failed: ${steps.filter((s) => s.status === "pass").length} of ${steps.length} steps passed.`);
+    if (ok && process.platform === "win32") lines.push("This test uses the agent's headless browser. It does not test desktop control: run osseo doctor.");
     const report = lines.join("\n");
     // The caller prints: a string for people (on failure it goes out as the error text), the steps for --json.
     if (json) return { ok, command: "selftest", data: { steps, summary: lines[lines.length - 1] }, ...(ok ? {} : { error: "selftest_failed" }), exitCode: ok ? 0 : 1 };

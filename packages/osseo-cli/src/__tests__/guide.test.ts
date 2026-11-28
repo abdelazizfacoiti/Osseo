@@ -86,3 +86,27 @@ describe("osseo setup guide", () => {
     expect((await runGuide({ ...passing, requirements: async () => { throw new Error("apt"); } })).steps[1]?.status).toBe("skipped");
   });
 });
+
+describe("osseo setup guide on Windows", () => {
+  const windows: GuideDeps = { ...passing, platform: "win32", windowsCards: { enabled: false }, windowsDesktop: async () => ({ ok: true }) };
+
+  it("does not call the setup working when the desktop helper is blocked, although the self-test passes", async () => {
+    const result = await runGuide({ ...windows, windowsDesktop: async () => ({ ok: false, reason: "Antivirus blocked the Windows desktop helper." }) });
+    expect(result.ok).toBe(false);
+    expect(result.steps.find((step) => step.name === "Desktop")).toMatchObject({ status: "fail", detail: "Antivirus blocked the Windows desktop helper." });
+    const text = result.lines.join("\n");
+    expect(text).toContain("Desktop control does NOT work");
+    expect(text).not.toContain("The server works");
+    expect(text).not.toContain("Ready.");
+  });
+
+  it("never says Stop stays on screen while the cards are off", async () => {
+    const off = (await runGuide(windows)).lines.join("\n");
+    expect(off).not.toContain("stay on screen");
+    expect(off).toContain("there is no Pause or Stop on screen");
+    expect(off).toContain("osseo agent stop");
+    const on = (await runGuide({ ...windows, windowsCards: { enabled: true } })).lines.join("\n");
+    expect(on).toContain("not yet confirmed");
+    expect(on).toContain("osseo agent stop");
+  });
+});

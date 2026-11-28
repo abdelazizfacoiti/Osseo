@@ -4,7 +4,8 @@
  *
  *   1. Home     the Osseo folder and config exist (made by `setup`)
  *   2. Desktop  system packages for desktop control (Linux); missing ones come with the command that installs them
- *   3. Self-test the built server fills a local form in headless Chrome (a few seconds, no window)
+ *   3. Self-test the built server fills a local form in headless Chrome (a few seconds, no window). It does not
+ *               touch the desktop, so on Windows the Desktop step starts the desktop helper on its own.
  *   4. Clients  which agent clients are on this machine, and whether Osseo is registered with each
  *   5. Try it   one safe first prompt to paste into the agent
  */
@@ -28,6 +29,8 @@ export interface GuideDeps {
   clients: () => Promise<GuideClient[]>;
   /** Windows only: whether the Windows cards are on (OSSEO_WINDOWS_OVERLAY=1 or overlay.windows in config.json). */
   windowsCards?: { enabled: boolean };
+  /** Windows only: whether the desktop helper starts. The self-test uses the headless browser and cannot tell. */
+  windowsDesktop?: () => Promise<{ ok: true } | { ok: false; reason: string }>;
 }
 
 export interface GuideResult {
@@ -64,15 +67,20 @@ export async function runGuide(deps: GuideDeps): Promise<GuideResult> {
     } catch {
       add("Desktop", "skipped", "Could not check the desktop packages. Run: osseo doctor");
     }
+  } else if (deps.platform === "win32" && deps.windowsDesktop !== undefined) {
+    const desktop = await deps.windowsDesktop().catch((error: unknown) => ({ ok: false as const, reason: error instanceof Error ? error.message : "The desktop check failed." }));
+    if (desktop.ok) add("Desktop", "ok", "Desktop control starts.");
+    else add("Desktop", "fail", desktop.reason);
   } else {
     add("Desktop", "skipped", "No package check on this system. Run: osseo doctor");
   }
+  const desktopFailed = steps.some((step) => step.name === "Desktop" && step.status === "fail");
 
   let selftestOk = false;
   try {
     const test = await deps.selftest();
     selftestOk = test.ok;
-    if (test.ok) add("Self-test", "ok", test.summary);
+    if (test.ok) add("Self-test", "ok", `${test.summary} (agent browser only)`);
     else add("Self-test", "fail", test.failedStep === undefined ? test.summary : `Failed at "${test.failedStep}". ${test.summary}`, ["Run it again for the full report: osseo selftest"]);
   } catch (error) {
     add("Self-test", "fail", error instanceof Error ? error.message : "selftest_failed", ["Run it again for the full report: osseo selftest"]);
@@ -103,7 +111,10 @@ export async function runGuide(deps: GuideDeps): Promise<GuideResult> {
 
   lines.push("");
   const registered = clients.some((client) => client.registered);
-  if (selftestOk && registered) {
+  if (selftestOk && desktopFailed) {
+    lines.push("The agent browser works. Desktop control does NOT work: see Desktop above.");
+    lines.push(registered ? "Browser tasks can still be tried. Restart your agent client, then paste this:" : "To try browser tasks, register a client (above), restart it, then paste this:", `  ${FIRST_PROMPT}`);
+  } else if (selftestOk && registered) {
     lines.push("Ready. Restart your agent client, then paste this:", `  ${FIRST_PROMPT}`);
   } else if (selftestOk) {
     lines.push("The server works. Register it with your agent client (above), restart the client, then paste this:", `  ${FIRST_PROMPT}`);
@@ -111,6 +122,9 @@ export async function runGuide(deps: GuideDeps): Promise<GuideResult> {
     lines.push("Fix the failed step first, then run: osseo setup guide");
   }
   lines.push("If something fails, the reasons are recorded: osseo failures");
-  lines.push("Sends, uploads, deletes and payments ask you first. Pause and Stop stay on screen.");
-  return { ok: selftestOk, lines, steps };
+  lines.push("Sends, uploads, deletes and payments ask you first.");
+  if (deps.platform !== "win32") lines.push("Pause and Stop stay on screen.");
+  else if (deps.windowsCards?.enabled === true) lines.push("Cards show Pause and Stop, but a real click on Stop is not yet confirmed on Windows. You can always run: osseo agent stop");
+  else lines.push("Windows cards are off, so there is no Pause or Stop on screen. To stop the agent run: osseo agent stop");
+  return { ok: selftestOk && !desktopFailed, lines, steps };
 }

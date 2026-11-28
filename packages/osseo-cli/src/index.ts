@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { OSSEO_CONFIG_SCHEMA_VERSION, OSSEO_VERSION, describeDesktopPlatform, acceptConfirmation, alwaysAllowFromConfirmation, clearMemory, deleteMemory, listMemory, deleteWorkflow, listWorkflows, loadWorkflow, beginTakeover, clearActiveTaskApproval, clearPause, clearStop, defaultOsseoHome, defaultPublicConfigPath, endHandoff, endTakeover, legacyConfigPath, listConfirmations, loadOsseoConfig, normalizeSha256, readActiveTaskApproval, readActivityStatus, readHandoff, readRunState, readSha256Sidecar, redactLocalPath, rejectConfirmation, requestPause, requestStop, sha256File, stripBom, transitionTask } from "@osseo/core";
+import { probeWindowsDesktop } from "@osseo/os-windows";
 import { renderTaskHtml, renderTaskMarkdown } from "./task-export.js";
 import { COMMAND_USAGE, TOP_USAGE, wantsHelp } from "./help.js";
 import { attentionCli } from "./attention.js";
@@ -160,11 +161,14 @@ async function setupGuide(args: ReturnType<typeof parseFlags>): Promise<Output> 
     { target: "copilot-cli", label: "Copilot CLI", command: "copilot" }
   ];
   // Read the config the same way the server does; a config that does not load simply leaves the cards off.
-  const guideConfig = process.platform === "win32" ? await loadOsseoConfig().catch(() => undefined) : undefined;
+  const guideConfig = process.platform === "win32" ? await loadOsseoConfig({ env: { ...process.env, OSSEO_CONFIG: existsSync(publicConfig) ? publicConfig : legacyConfigPath(home) } }).catch(() => undefined) : undefined;
   const guide = await runGuide({
     platform: process.platform,
     homeLabel: "The Osseo folder",
-    ...(process.platform === "win32" ? { windowsCards: { enabled: process.env.OSSEO_WINDOWS_OVERLAY === "1" || guideConfig?.overlay?.windows === true } } : {}),
+    ...(process.platform === "win32" ? {
+      windowsCards: { enabled: process.env.OSSEO_WINDOWS_OVERLAY === "1" || guideConfig?.overlay?.windows === true },
+      windowsDesktop: () => probeWindowsDesktop({ osseoDir: agentHome })
+    } : {}),
     ...(process.platform === "linux" ? {
       requirements: async () => {
         const missing = (await checkLinuxRequirements()).filter((dependency) => !dependency.installed);
@@ -606,13 +610,16 @@ async function doctor(): Promise<Output> {
   const config = await configValidate(); const mcp = await probeMcp(mcpEntry()); const windows = process.platform === "win32";
   // Linux-only checks are left out on Windows: they are not part of a Windows install.
   const checks = { platform: process.platform === "linux" || windows, architecture: process.arch === "x64", node: Number(process.versions.node.split(".")[0]) >= 20, python: windows ? undefined : commandExists("python3"), x11: windows ? undefined : Boolean(process.env.DISPLAY), gtkProbe: windows ? undefined : pythonModuleExists("import gi; from gi.repository import Gtk"), mcpEntry: existsSync(mcpEntry()), mcpHandshake: mcp.handshake, codexConfig: existsSync(path.join(process.env.CODEX_HOME ?? path.join(home, ".codex"), "config.toml")), storage: existsSync(agentHome) };
-  const desktopPlatform = describeDesktopPlatform();
+  // "full" is what Windows offers when the desktop helper starts; antivirus can stop it, so it is started once here.
+  const desktopProbe = windows ? await probeWindowsDesktop({ osseoDir: agentHome }) : undefined;
+  const reported = describeDesktopPlatform();
+  const desktopPlatform = desktopProbe?.ok === false ? { ...reported, control: "none" as const, guidance: [desktopProbe.reason, ...reported.guidance] } : reported;
   const warnings = [!checks.architecture ? "x86_64 is the public RC target." : "", checks.python === false ? "Install Python 3 for overlay diagnostics." : "", ...desktopPlatform.guidance].filter(Boolean);
   if (!mcp.handshake) warnings.push(mcp.reason ?? "mcp_handshake_unavailable");
   const desktopDependencies = windows ? [] : await checkLinuxRequirements();
   const missingPackages = missingAptPackages(desktopDependencies);
   if (missingPackages.length > 0) warnings.push(`Missing desktop tools (${desktopDependencies.filter((dependency) => !dependency.installed).map((dependency) => dependency.name).join(", ")}). Run: osseo setup deps --apply (or sudo apt install ${missingPackages.join(" ")})`);
-  return { ok: config.ok, command: "doctor", data: { version: OSSEO_VERSION, checks, desktopPlatform, desktopDependencies, config: config.ok ? "valid" : config.error, mcp, process: await status(), activity: (await readActivityStatus(agentHome)) ?? null, host: await hostDoctorLine(agentHome).catch(() => undefined), paths: { osseoHome: "[osseo-home]", config: "[config]", mcpEntry: "[installed-mcp-runtime]" } }, warnings };
+  return { ok: config.ok, command: "doctor", data: { version: OSSEO_VERSION, checks: desktopProbe === undefined ? checks : { ...checks, windowsDesktop: desktopProbe.ok }, desktopPlatform, desktopDependencies, config: config.ok ? "valid" : config.error, mcp, process: await status(), activity: (await readActivityStatus(agentHome)) ?? null, host: await hostDoctorLine(agentHome).catch(() => undefined), paths: { osseoHome: "[osseo-home]", config: "[config]", mcpEntry: "[installed-mcp-runtime]" } }, warnings };
 }
 async function integrationsCommand(targetArg: string | undefined, args: ReturnType<typeof parseFlags>): Promise<Output> {
   const action = (args.positional[2] ?? "status") as IntegrationAction;

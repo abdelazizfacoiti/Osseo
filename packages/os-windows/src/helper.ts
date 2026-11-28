@@ -33,8 +33,31 @@ export interface WindowsHelperOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+export const ANTIVIRUS_BLOCKED_CODE = "helper_blocked_by_antivirus";
+export const ANTIVIRUS_BLOCKED_MESSAGE = "Antivirus blocked the Windows desktop helper (windows-helper.ps1), so Osseo cannot control the desktop. The agent browser, files and shell still work. Keep your protection on; see docs/platforms.md.";
 // Compiling the C# class takes a few seconds the first time.
 const DEFAULT_START_TIMEOUT_MS = 40_000;
+
+/** PowerShell wraps its error text, so the antivirus marker is matched with all whitespace removed. */
+function exitError(code: number | null, stderr: string): HelperError {
+  if (stderr.replace(/\s+/g, "").includes("ScriptContainedMaliciousContent")) return new HelperError(ANTIVIRUS_BLOCKED_CODE, ANTIVIRUS_BLOCKED_MESSAGE);
+  return new HelperError("helper_exited", `The Windows helper exited (code ${code ?? "none"}). ${stderr.trim().slice(-300)}`.trim());
+}
+
+export type WindowsDesktopProbe = { ok: true } | { ok: false; code: string; reason: string };
+
+/** Starts the helper once and stops it again: whether desktop control can start on this machine. */
+export async function probeWindowsDesktop(options: WindowsHelperOptions): Promise<WindowsDesktopProbe> {
+  const helper = new WindowsHelperProcess(options);
+  try {
+    await helper.request("ping");
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, code: error instanceof HelperError ? error.code : "helper_error", reason: error instanceof Error ? error.message : "The Windows helper did not start." };
+  } finally {
+    helper.close();
+  }
+}
 
 /**
  * One long-lived `powershell.exe -STA` process speaking JSON lines. It starts on the first request,
@@ -95,7 +118,8 @@ export class WindowsHelperProcess implements HelperTransport {
     child.stdout.on("data", (chunk: string) => this.#onData(chunk));
     child.stderr.on("data", (chunk: string) => { this.#stderr = (this.#stderr + chunk).slice(-2_000); });
     child.on("error", (error) => this.#onExit(child, new HelperError("helper_unavailable", `The Windows helper could not start: ${error.message}`)));
-    child.on("exit", (code) => this.#onExit(child, new HelperError("helper_exited", `The Windows helper exited (code ${code ?? "none"}). ${this.#stderr.trim().slice(-300)}`.trim())));
+    // "close" comes after stderr is fully read, which is where PowerShell says why it refused the script.
+    child.on("close", (code) => this.#onExit(child, exitError(code, this.#stderr)));
     await this.#send("ping", {}, this.#options.startTimeoutMs ?? DEFAULT_START_TIMEOUT_MS);
   }
 

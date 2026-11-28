@@ -16,6 +16,9 @@
       "path": "../os-linux"
     },
     {
+      "path": "../os-windows"
+    },
+    {
       "path": "../app-overlay"
     }
   ]

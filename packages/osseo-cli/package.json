@@ -13,6 +13,7 @@
   "dependencies": {
     "@osseo/core": "file:../core",
     "@osseo/os-linux": "file:../os-linux",
+    "@osseo/os-windows": "file:../os-windows",
     "@osseo/app-overlay": "file:../app-overlay"
   }
 }
