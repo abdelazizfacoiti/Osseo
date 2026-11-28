@@ -158,7 +158,7 @@ describe("see from the agent's own browser", () => {
   };
 
   it("uses dom elements when the browser page is the active window", async () => {
-    const context = fake({ browser });
+    const context = fake({ browser, app: "chrome" });
     const result = await run(context, { picture: "none" });
     expect(result.data.source).toBe("dom");
     expect(result.data.window).toMatchObject({ id: "browser", title: "Form" });
@@ -185,13 +185,13 @@ describe("see from the agent's own browser", () => {
 
   it("marks a field blocked when the page says it is sensitive", async () => {
     const sensitive = { ...browser, describe: async (input: { ref: string }) => ({ sensitiveField: input.ref === "s1-e2" }) };
-    const result = await run(fake({ browser: sensitive }), { picture: "none" });
+    const result = await run(fake({ browser: sensitive, app: "chrome" }), { picture: "none" });
     expect(result.data.list.split("\n")[1]).toBe('[2] entry "Name" (blocked)');
   });
 
   it("refuses a login page", async () => {
     const login = { ...browser, state: async () => ({ url: "https://accounts.google.com/signin", title: "Form" }) };
-    const result = await run(fake({ browser: login }));
+    const result = await run(fake({ browser: login, app: "chrome" }));
     expect(result.error!.code).toBe("safety_blocked");
   });
 });
@@ -273,5 +273,16 @@ describe("see picture modes", () => {
     const context = fake({ windows: [{ windowId: "w1", title: "Form - App", appName: "App", pid: 7, bounds: WIN }, { windowId: "w2", title: "Other", appName: "App", pid: 7, bounds: { x: 0, y: 0, width: 300, height: 300 } }] });
     await run(context, { window: "w2", picture: "plain" });
     expect(calls[0]!.input).toMatchObject({ region: { x: 0, y: 0, width: 300, height: 300 } });
+  });
+});
+
+describe("see with the agent browser open", () => {
+  it("reads the asked window, not the agent page, when another browser shows the same title", async () => {
+    const browser = { state: async () => ({ url: "https://example.com/", title: "Form" }), processId: async () => 500, snapshot: async () => { throw new Error("the agent page must not be read"); } };
+    for (const input of [{ picture: "none" }, { window: "w1", picture: "none" }]) {
+      const result = await run(fake({ browser, app: "firefox" }), input);
+      expect(result.ok).toBe(true);
+      expect(result.data).toMatchObject({ source: "accessibility", window: { id: "w1" } });
+    }
   });
 });

@@ -1,4 +1,5 @@
 import path from "node:path";
+import { isAgentBrowserWindow } from "../agent-window.js";
 import { readFile } from "node:fs/promises";
 import {
   evaluateSafety,
@@ -535,7 +536,7 @@ function initialGuiSafety(
 
 /**
  * The control name a click carries for the safety decision, with the page address when the window
- * shows the agent's own browser page (its title is in the window title). Without a name, or when
+ * shows the agent's own browser page (that browser's window, with the page title). Without a name, or when
  * the page is not known, the classifier gets nothing extra and nothing changes.
  */
 async function namedClickSafety(context: OsseoMcpContext, input: unknown, window: DesktopWindowContext): Promise<{ targetName?: string; url?: string; shopifyHint?: boolean } | undefined> {
@@ -543,7 +544,8 @@ async function namedClickSafety(context: OsseoMcpContext, input: unknown, window
   if (targetName === undefined) return undefined;
   const page = await context.linux.browser?.state().catch(() => undefined);
   const windowTitle = window.title ?? "";
-  const url = page !== undefined && page.title.trim().length > 0 && windowTitle.includes(page.title) ? (page.url.split("?")[0] ?? "") : undefined;
+  const ownPage = page !== undefined && await isAgentBrowserWindow(context, { title: windowTitle, app: window.appName, pid: window.pid }, page);
+  const url = ownPage ? (page.url.split("?")[0] ?? "") : undefined;
   // The person's own browser shows no address to Osseo. A window titled with Shopify gets the store-admin name rule as an
   // ask-only hint: it can add a prompt, never remove one or block anything.
   const shopifyHint = (url === undefined || url === "") && /shopify/i.test(windowTitle);

@@ -133,6 +133,11 @@ describe.skipIf(chrome === undefined)("BrowserSession forms (real headless Chrom
     await run("document.getElementById('name').placeholder = 'Name'");
   }, 60_000);
 
+  it("reports the browser's own process id", async () => {
+    const pid = await session.processId();
+    expect(pid).toBeGreaterThan(1);
+  }, 60_000);
+
   it("uploads a file, selects an option, waits for text, reads values back, and captures an image", async () => {
     const upload = path.join(home, "upload.txt");
     await writeFile(upload, "hello");

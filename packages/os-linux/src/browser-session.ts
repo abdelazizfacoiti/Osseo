@@ -62,6 +62,8 @@ export interface BrowserAutomation {
   open(input: { url?: string; headless?: boolean }): Promise<BrowserOpenResult>;
   /** Current page URL and title, or undefined when no browser is running. */
   state(): Promise<{ url: string; title: string } | undefined>;
+  /** Process id of the running browser, used to tell its windows from other windows with the same title. */
+  processId?(): Promise<number | undefined>;
   snapshot(input: { maxElements: number }): Promise<BrowserSnapshot>;
   describe(input: { ref: string }): Promise<BrowserElementInfo | undefined>;
   click(input: { ref: string }): Promise<BrowserActionResult>;
@@ -446,6 +448,14 @@ export class BrowserSession implements BrowserAutomation {
   async state(): Promise<{ url: string; title: string } | undefined> {
     if (this.#connection === undefined || this.#connection.closed || this.#sessionId === undefined) return undefined;
     try { return await this.#pageState(); } catch { return undefined; }
+  }
+
+  async processId(): Promise<number | undefined> {
+    if (this.#connection === undefined || this.#connection.closed) return undefined;
+    // Asked over DevTools, so it is also right for a browser this session attached to but did not start.
+    const info = await this.#connection.send("SystemInfo.getProcessInfo", {}, undefined, 3_000).catch(() => undefined);
+    const processes = (info?.processInfo ?? []) as Array<{ type?: string; id?: number }>;
+    return processes.find((entry) => entry.type === "browser")?.id ?? this.#child?.pid;
   }
 
   async snapshot(input: { maxElements: number }): Promise<BrowserSnapshot> {

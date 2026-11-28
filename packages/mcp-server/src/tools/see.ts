@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { OsseoMcpContext } from "../context.js";
 import { safetyContext } from "../context.js";
 import { callGoverned } from "../nested.js";
+import { isAgentBrowserWindow } from "../agent-window.js";
 import type { OsseoToolDefinition, AnyOsseoToolDefinition } from "../tool-runner.js";
 import { rememberView, setPicture, type Box, type SeenView, type ViewTarget } from "../view-registry.js";
 import { drawMarks, MAX_MARKS, type PictureMark } from "./see-marks.js";
@@ -247,7 +248,7 @@ export async function browserIsTarget(context: OsseoMcpContext): Promise<boolean
   const page = await context.linux.browser?.state().catch(() => undefined);
   if (page === undefined) return false;
   const active = await currentActive(context);
-  return active === undefined || (page.title.length > 0 && active.title.includes(page.title));
+  return active === undefined || await isAgentBrowserWindow(context, active, page);
 }
 
 export function createSeeTool(): AnyOsseoToolDefinition<OsseoMcpContext> {
@@ -280,10 +281,10 @@ export function createSeeTool(): AnyOsseoToolDefinition<OsseoMcpContext> {
       let window: SeenWindow | undefined;
       if (page !== undefined) {
         if (input.window === undefined) {
-          useDom = active === undefined || (page.title.length > 0 && active.title.includes(page.title));
+          useDom = active === undefined || await isAgentBrowserWindow(context, active, page);
         } else {
           const asked = await resolveWindow(context, input.window);
-          useDom = asked !== undefined && page.title.length > 0 && asked.title.includes(page.title);
+          useDom = asked !== undefined && await isAgentBrowserWindow(context, asked, page);
           window = asked;
         }
       }

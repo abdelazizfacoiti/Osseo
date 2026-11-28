@@ -25,7 +25,7 @@ function context(boundsOrNull: Box | null = WIN, options: { active?: boolean; pa
   return {
     linux: {
       browser: options.page === undefined ? undefined : { state: async () => ({ url: "file:///x", title: options.page!.title }) },
-      getActiveWindow: async () => ({ activeWindow: options.active === false ? undefined : { windowId: "w1", title: "App", appName: "App", pid: 7 } }),
+      getActiveWindow: async () => ({ activeWindow: options.active === false ? undefined : { windowId: "w1", title: "App", appName: options.page === undefined ? "App" : "chrome", pid: 7 } }),
       getActiveWindowBounds: async () => ({ supported: true, bounds, reason: "ok" }),
       listWindows: async () => ({ supported: true, backend: "t", truncated: false, reason: "ok", windows: options.windows ?? (bounds === undefined ? [] : [{ windowId: "w1", title: "App", appName: "App", bounds }]) }),
       findAccessibilityElement: async () => ({ supported: true, backend: "t", candidates: [], reason: "ok" })
