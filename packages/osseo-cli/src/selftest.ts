@@ -14,7 +14,9 @@ import { viewerCommand } from "./viewer.js";
  */
 
 export type SelftestStep = { name: string; status: "pass" | "fail" | "skipped"; ms: number; detail: string };
-export type SelftestDeps = { mcpEntry?: string; chromePath?: string; stepTimeoutMs?: number };
+export type SelftestDeps = {
+  /** Test seam for the Windows note. Defaults to this machine. */
+  platform?: NodeJS.Platform; mcpEntry?: string; chromePath?: string; stepTimeoutMs?: number };
 type Output = { ok: boolean; command: string; data?: unknown; error?: string; warnings?: string[]; exitCode?: number };
 
 const STEP_NAMES = ["initialize", "open", "see", "type", "click", "see again"] as const;
@@ -108,10 +110,12 @@ export async function selftestCommand(args: string[], agentHome: string, deps: S
     const lines = steps.map((step) => `${step.status === "pass" ? "PASS" : step.status === "fail" ? "FAIL" : "SKIP"}  ${step.name.padEnd(10)} ${String(step.ms).padStart(5)} ms  ${step.detail}`);
     const total = steps.reduce((sum, step) => sum + step.ms, 0);
     lines.push(ok ? `Selftest passed: ${steps.length} of ${steps.length} steps in ${total} ms.` : `Selftest failed: ${steps.filter((s) => s.status === "pass").length} of ${steps.length} steps passed.`);
-    if (ok && process.platform === "win32") lines.push("This test uses the agent's headless browser. It does not test desktop control: run osseo doctor.");
+    // The summary is the result line; the note below it must not replace it.
+    const summary = lines[lines.length - 1]!;
+    if (ok && (deps.platform ?? process.platform) === "win32") lines.push("This test uses the agent's headless browser. It does not test desktop control: run osseo doctor.");
     const report = lines.join("\n");
     // The caller prints: a string for people (on failure it goes out as the error text), the steps for --json.
-    if (json) return { ok, command: "selftest", data: { steps, summary: lines[lines.length - 1] }, ...(ok ? {} : { error: "selftest_failed" }), exitCode: ok ? 0 : 1 };
+    if (json) return { ok, command: "selftest", data: { steps, summary }, ...(ok ? {} : { error: "selftest_failed" }), exitCode: ok ? 0 : 1 };
     return { ok, command: "selftest", ...(ok ? { data: report } : { error: `\n${report}` }), exitCode: ok ? 0 : 1 };
   };
   const fatal = (detail: string): Output => { steps[0] = { ...steps[0]!, status: "fail", detail }; return finish(); };

@@ -63,6 +63,13 @@ describe("osseo selftest", () => {
     expect(data.summary).toContain("passed");
   });
 
+  it("keeps the result as the summary on Windows, with the note that desktop control is not tested", async () => {
+    const deps = { mcpEntry: fake(), chromePath: process.execPath, platform: "win32" as const };
+    const json = await selftestCommand(["--json"], dir, deps);
+    expect((json.data as { summary: string }).summary).toMatch(/^Selftest passed: 6 of 6 steps/);
+    expect(String((await selftestCommand([], dir, deps)).data)).toContain("does not test desktop control");
+  });
+
   it("fails the first step when the server is missing", async () => {
     const result = await selftestCommand([], dir, { mcpEntry: path.join(dir, "nope.js"), chromePath: process.execPath });
     expect(result.ok).toBe(false);
