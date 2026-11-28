@@ -66,11 +66,20 @@ describe.skipIf(chrome === undefined)("BrowserSession (real headless Chrome)", (
     expect(JSON.stringify(after)).not.toContain("hunter2");
   }, 90_000);
 
+  it("keeps a ref for the same element across snapshots, so an approval for it can still be used", async () => {
+    const first = await session.snapshot({ maxElements: 50 });
+    const second = await session.snapshot({ maxElements: 50 });
+    expect(second.elements.map((element) => element.ref)).toEqual(first.elements.map((element) => element.ref));
+    expect(new Set(second.elements.map((element) => element.ref)).size).toBe(second.elements.length);
+  }, 90_000);
+
   it("rejects stale refs and follows a link that opens a new tab", async () => {
-    const before = await session.snapshot({ maxElements: 50 });
-    const stale = before.elements[0]!.ref;
+    // A ref from another document never resolves, even though element numbers repeat.
+    const old = (await session.snapshot({ maxElements: 50 })).elements[0]!.ref;
+    expect(await session.navigate({ action: "reload" })).toMatchObject({ ok: true });
     const fresh = await session.snapshot({ maxElements: 50 });
-    expect(await session.click({ ref: stale })).toEqual({ ok: false, reason: "stale_ref" });
+    expect(fresh.elements[0]!.ref).not.toBe(old);
+    expect(await session.click({ ref: old })).toEqual({ ok: false, reason: "stale_ref" });
     const link = fresh.elements.find((element) => element.name === "Open second")!;
     expect(await session.click({ ref: link.ref })).toMatchObject({ ok: true, title: "Second tab" });
     expect((await session.snapshot({ maxElements: 10 })).text).toContain("second");
@@ -104,6 +113,25 @@ describe.skipIf(chrome === undefined)("BrowserSession forms (real headless Chrom
     await session.close();
     await rm(home, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
   });
+
+  it("gives a new ref when an element's label changes, when it is replaced, and none outside the latest snapshot", async () => {
+    await session.navigate({ action: "reload" });
+    const page = session as unknown as { snapshot: BrowserSession["snapshot"] };
+    const before = await page.snapshot({ maxElements: 50 });
+    const input = before.elements.find((element) => element.name === "Name")!;
+    // Listed by an earlier, longer snapshot but not by the latest one.
+    const shorter = await page.snapshot({ maxElements: 1 });
+    expect(shorter.elements).toHaveLength(1);
+    const run = (script: string) => session.navigate({ action: "goto", url: `javascript:${encodeURIComponent(script)};void 0` });
+    await run("document.getElementById('name').placeholder = 'Delete account'");
+    const relabelled = (await page.snapshot({ maxElements: 50 })).elements.find((element) => element.name === "Delete account")!;
+    expect(relabelled.ref).not.toBe(input.ref);
+    expect(await session.readValue({ ref: input.ref })).toBeUndefined();
+    await run("const n = document.getElementById('name'); n.replaceWith(n.cloneNode(true))");
+    const replaced = (await page.snapshot({ maxElements: 50 })).elements.find((element) => element.name === "Delete account")!;
+    expect(replaced.ref).not.toBe(relabelled.ref);
+    await run("document.getElementById('name').placeholder = 'Name'");
+  }, 60_000);
 
   it("uploads a file, selects an option, waits for text, reads values back, and captures an image", async () => {
     const upload = path.join(home, "upload.txt");

@@ -176,13 +176,20 @@ const SNAPSHOT_SCRIPT = `(max) => {
     try { frameDoc = frameEl.contentDocument; } catch (e) { frameDoc = null; }
     if (frameDoc) collect(frameDoc);
   }
-  const snap = (window.__ahSnap || 0) + 1; window.__ahSnap = snap; window.__ahRefs = found;
+  // A ref names one element for as long as it looks the same: a later snapshot gives it the same ref, so an approval
+  // for it can still be used. A new document, another element or a changed label gets a new ref.
+  if (!window.__ahDoc) { window.__ahDoc = 1 + Math.floor(Math.random() * 999999999); window.__ahIds = new WeakMap(); window.__ahNext = 0; }
+  const doc = window.__ahDoc; const refs = new Map(); window.__ahRefs = refs;
   const clean = (s) => String(s || '').replace(/\\s+/g, ' ').trim().slice(0, 80);
   const elements = found.slice(0, max).map((el, i) => {
     const tag = el.tagName.toLowerCase(); const type = el.getAttribute('type') || undefined;
     const name = clean(el.getAttribute('aria-label') || (el.labels && el.labels[0] && el.labels[0].innerText) || el.innerText || el.getAttribute('placeholder') || el.getAttribute('title') || el.getAttribute('alt') || (type === 'submit' || type === 'button' ? el.value : '') || el.getAttribute('name'));
     const role = el.getAttribute('role') || (tag === 'a' ? 'link' : tag === 'select' ? 'combobox' : tag === 'textarea' ? 'textbox' : tag === 'input' ? (type === 'checkbox' ? 'checkbox' : type === 'radio' ? 'radio' : type === 'submit' || type === 'button' ? 'button' : 'textbox') : tag);
-    const item = { ref: 's' + snap + '-e' + i, role, name, tag };
+    const signature = [tag, role, type || '', name, el.getAttribute('href') || '', el.getAttribute('formaction') || ''].join('\\u0001');
+    let known = window.__ahIds.get(el);
+    if (!known || known.signature !== signature) { known = { id: window.__ahNext++, signature }; window.__ahIds.set(el, known); }
+    refs.set(known.id, el);
+    const item = { ref: 's' + doc + '-e' + known.id, role, name, tag };
     if (el.ownerDocument !== document) item.inFrame = true;
     if (type) item.type = type;
     if (tag === 'input' && type !== 'password' && type !== 'checkbox' && type !== 'radio' && el.value && el.autocomplete !== 'one-time-code' && !/^cc-/.test(el.autocomplete || '')) item.value = clean(el.value).slice(0, 40);
@@ -199,8 +206,9 @@ const PAGE_FINGERPRINT = `(() => { const b = document.body; if (!b) return ''; r
 
 const RESOLVE = `(ref) => {
   const m = /^s(\\d+)-e(\\d+)$/.exec(ref);
-  if (!m || Number(m[1]) !== window.__ahSnap || !window.__ahRefs) return null;
-  const el = window.__ahRefs[Number(m[2])];
+  if (!m || Number(m[1]) !== window.__ahDoc || !window.__ahRefs) return null;
+  // Only elements listed by the latest snapshot resolve.
+  const el = window.__ahRefs.get(Number(m[2]));
   return el && el.isConnected ? el : null;
 }`;
 
