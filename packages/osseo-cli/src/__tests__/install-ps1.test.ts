@@ -38,3 +38,26 @@ describe("scripts/install.ps1", () => {
     expect(spawnSync(pwsh!, ["-NoProfile", "-Command", script], { encoding: "utf8" }).status).toBe(0);
   }, 60_000); // The first PowerShell start on Windows took 11 s on a cold machine; the default limit is 5 s.
 });
+
+describe("scripts/install-from-source.ps1", () => {
+  const source = readFileSync(path.join(ROOT, "scripts", "install-from-source.ps1"), "utf8");
+
+  it("is ASCII, needs no admin or policy change, and calls npm.cmd so the default policy allows it", () => {
+    expect(/^[\x00-\x7F]*$/u.test(source)).toBe(true);
+    expect(source).not.toMatch(/Set-ExecutionPolicy|RunAs|HKLM|Add-MpPreference|Set-MpPreference/i);
+    expect(source).toContain('"npm.cmd" @("ci"');
+    expect(source).not.toMatch(/"npm"\s/);
+  });
+
+  it("reinstalls a rebuild of the same version and keeps a cards setting the person chose", () => {
+    expect(source).toContain('"-Force"');
+    expect(text).toContain("(-not $Force) -and ($installed -eq $version)");
+    expect(source).toContain("Cards setting kept");
+    expect(source).toContain("UTF8Encoding($false)");
+  });
+
+  it.skipIf(pwsh === undefined)("parses with PowerShell", () => {
+    const script = `$e=$null; $t=$null; [void][System.Management.Automation.Language.Parser]::ParseFile('${path.join(ROOT, "scripts", "install-from-source.ps1")}',[ref]$t,[ref]$e); if ($e.Count -gt 0) { $e | ForEach-Object { $_.Message }; exit 1 }`;
+    expect(spawnSync(pwsh!, ["-NoProfile", "-Command", script], { encoding: "utf8" }).status).toBe(0);
+  }, 60_000);
+});

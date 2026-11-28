@@ -1,6 +1,7 @@
 # Osseo installer for Windows (x64). PowerShell 5.1 or newer. ASCII only.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-DryRun] [-Help]
+#   powershell -ExecutionPolicy Bypass -File scripts\install.ps1 [-Force] [-DryRun] [-Help]
+# -Force installs the archive even when its version is already installed (a rebuild from source).
 #
 # Download the script first, read it, then run it. Do not pipe a web page into iex.
 #
@@ -16,6 +17,7 @@
 # which a folder rename cannot.
 
 param(
+    [switch]$Force,
     [switch]$DryRun,
     [switch]$Help
 )
@@ -202,7 +204,7 @@ function Install-Osseo {
         if (Test-Path -LiteralPath $installedManifest -PathType Leaf) {
             try { $installed = [string](Get-Content -Raw -LiteralPath $installedManifest | ConvertFrom-Json).version } catch { $installed = "" }
         }
-        if (($installed -eq $version) -and (Test-Path -LiteralPath (Join-Path $bin "osseo.cmd") -PathType Leaf)) {
+        if ((-not $Force) -and ($installed -eq $version) -and (Test-Path -LiteralPath (Join-Path $bin "osseo.cmd") -PathType Leaf)) {
             Say "Osseo $version is already installed in $current."
         } else {
             # The release's own updater checks the archive again, unpacks it to releases\<version>,
