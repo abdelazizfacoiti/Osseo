@@ -16,6 +16,12 @@ Tools that do not touch the desktop (files, shell, tasks, workflows, memory,
 handoff, scheduling, `browser.*` where Chrome is installed) are not gated by the
 desktop adapter.
 
+**Defender (2026-11-28):** on a fresh Windows 11 Pro VM (commit 0edbcae, definitions of 2026-11-27) Defender's script
+scan refuses `windows-helper.ps1` as `HackTool:PowerShell/EmpireGetScreenshot.C`, so no desktop tool runs. The
+self-test still passed, because it only uses the headless browser. The agent browser check passed 6 of 6. The earlier
+desktop passes below were on another machine. Fix it by a false-positive report or a signed helper, never by
+disguising the script or asking for an exclusion.
+
 ## Windows desktop (W2)
 
 `packages/os-windows` fills the same contract as the Linux adapter. TypeScript holds the logic; one

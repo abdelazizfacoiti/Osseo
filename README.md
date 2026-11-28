@@ -64,36 +64,25 @@ In prompts, say "use Osseo" rather than "don't use MCP": Osseo is itself an MCP 
 
 ## Quick start (Windows, experimental)
 
-Windows support is still in progress: expect rough edges. You need Windows 10 or 11 (x64), Node 20+, Git, and Chrome or Edge for the agent's browser. Tests so far ran on Windows 11 only. There is no Windows download yet, so you build it. In PowerShell:
+> **Warning: Microsoft Defender currently blocks desktop control.** In our test on a fresh Windows 11 (27 November 2026 definitions), Defender blocked the helper that handles windows, mouse, keyboard and screenshots, reporting `HackTool:PowerShell/EmpireGetScreenshot.C`. Its screenshot code resembles a known attack tool's. The agent's own browser worked. Please keep Defender on. We are working on a fix.
+
+You need Windows 10 or 11 (x64), Node 20+, Git, and Chrome or Edge. Tests so far ran on Windows 11 only. There is no Windows download yet, so one script builds and installs it, without administrator rights. In PowerShell:
 
 ```powershell
 git clone https://github.com/abdelazizfacoiti/Osseo.git
 cd Osseo
-npm ci
-npm run build
-node scripts/build-release.mjs --stage-only
-node scripts/build-release-windows.mjs
-$env:OSSEO_ARCHIVE = "$PWD\release\osseo-win-x64.zip"
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+powershell -ExecutionPolicy Bypass -File scripts\install-from-source.ps1
 ```
 
-It installs to `%LOCALAPPDATA%\Osseo` without administrator rights. **Open a new terminal**, then:
+It takes a few minutes, installs to `%LOCALAPPDATA%\Osseo`, turns on the on-screen cards and ends with a check that tells you what works. Run it again after `git pull` to update. If you run the steps by hand, use `npm.cmd`: a fresh Windows blocks the `npm` script.
 
-**1. Turn on the on-screen cards.** They are off by default on Windows, and without them there is no on-screen Pause, Stop or Approve button. Run `osseo setup guide` once, then `osseo config path` to find `config.json`, and add `"windows": true` under `"overlay"`:
-
-```json
-{ "overlay": { "windows": true } }
-```
-
-Keep the other settings already in the file. A real mouse click on the card's **Stop** button is not yet confirmed on the current Windows build, so keep `osseo agent stop` (below) ready.
-
-**2. Connect your client**, then restart it:
+**Open a new terminal**, connect your client and restart it:
 
 ```powershell
 osseo integrations claude add --apply   # or: codex, cursor, opencode, copilot, copilot-cli
 ```
 
-Connecting a client from an installed Windows build is not tested yet, so please [report](https://github.com/abdelazizfacoiti/Osseo/issues) what fails. To stop the agent from a terminal, run `osseo agent stop`; `osseo agent resume --stop` lets it continue.
+A real mouse click on a card's **Stop** button is not yet confirmed on Windows, so keep `osseo agent stop` ready (`osseo agent resume --stop` lets the agent continue). `osseo doctor` shows whether desktop control starts. Connecting a client from an installed Windows build is still being tested, so please [report](https://github.com/abdelazizfacoiti/Osseo/issues) what fails.
 
 Not on Windows yet: reading text from the screen (OCR), the colored screen edge and the ring around click targets. See [platforms](docs/platforms.md).
 
@@ -139,7 +128,7 @@ See [platforms](docs/platforms.md) for detail.
 | Platform | Status |
 |---|---|
 | Linux x86_64 (X11, Wayland through XWayland) | Supported |
-| Windows 10/11 | In progress, build from source ([steps](#quick-start-windows-experimental)): desktop tools pass their checks on Windows 11, cards are opt-in |
+| Windows 10/11 | Experimental, build from source ([steps](#quick-start-windows-experimental)): the agent's browser works; **Microsoft Defender currently blocks desktop control** |
 | macOS | Not started |
 
 ## More
